@@ -1,0 +1,23 @@
+services:
+  notification-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: notification-service
+    restart: always
+    environment:
+      DB_HOST: broker-postgres
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: broker_db
+      RABBITMQ_URL: amqp://guest:guest@broker-rabbitmq:5672/
+      SMTP_HOST: broker-mailpit
+      SMTP_PORT: "1025"
+      SMTP_FROM: no-reply@company.com
+    networks:
+      - broker-network
+
+networks:
+  broker-network:
+    external: true
