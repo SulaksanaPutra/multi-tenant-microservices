@@ -1,0 +1,32 @@
+{
+  "$schema": "https://repomix.com/schemas/config.json",
+  "output": {
+    "filePath": "repomix-output.xml",
+    "style": "xml",
+    "headerText": "Compressed codebase structure and signatures for broker-api",
+    "removeComments": false,
+    "removeEmptyLines": true,
+    "showLineNumbers": true,
+    "copyToClipboard": false,
+    "compress": true
+  },
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "repomix-output.xml",
+      "**/*.pb.go",
+      "**/*.pb.gw.go",
+      "**/vendor/**",
+      "**/*.png",
+      "**/*.jpg",
+      "**/*.sqlite",
+      "**/*.log",
+      ".idea/**",
+      "**/go.sum"
+    ]
+  },
+  "security": {
+    "enableSecurityCheck": true
+  }
+}

@@ -1,0 +1,20 @@
+services:
+  tenant-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tenant-service
+    restart: always
+    environment:
+      DB_HOST: broker-postgres
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: broker_db
+      RABBITMQ_URL: amqp://guest:guest@broker-rabbitmq:5672/
+    networks:
+      - broker-network
+
+networks:
+  broker-network:
+    external: true

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://repomix.com/schemas/config.json",
+  "output": {
+    "filePath": "repomix-output.xml",
+    "style": "xml",
+    "headerText": "Compressed AST codebase map for notification-service",
+    "removeEmptyLines": true,
+    "showLineNumbers": true,
+    "compress": true
+  },
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "repomix-output.xml",
+      "**/*.pb.go",
+      "**/*.pb.gw.go",
+      "**/vendor/**",
+      "**/go.sum"
+    ]
+  }
+}

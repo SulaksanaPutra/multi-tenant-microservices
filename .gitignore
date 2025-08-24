@@ -1,0 +1,17 @@
+# Repomix AI Codebase Map output
+repomix-output.xml
+repomix-output.md
+repomix-output.txt
+
+# IDE files
+.idea/
+.vscode/
+
+# Go build outputs & binaries
+*.out
+*.exe
+*.test
+*.prof
+
+# Logs
+*.log
