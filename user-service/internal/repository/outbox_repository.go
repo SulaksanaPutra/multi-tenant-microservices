@@ -52,11 +52,12 @@ type OutboxMessage struct {
 
 type OutboxRepository interface {
 	CreateOutboxMessage(ctx context.Context, tx *sql.Tx, msg OutboxMessage) error
-	// FetchPendingBatch fetches up to `limit` PENDING messages for a given event type.
-	// BUG (Challenge 2): This is a plain SELECT with no locking. If two worker instances
-	// run this at the same millisecond, both will see the same rows. Both will then
-	// publish the same messages to RabbitMQ — the Phantom Batch duplicate delivery bug.
-	FetchPendingBatch(ctx context.Context, eventType string, limit int) ([]OutboxMessage, error)
+	CreateOutboxMessageNoTx(ctx context.Context, msg OutboxMessage) error
+	// FetchAndClaimBatch atomically claims a batch of PENDING messages by moving them
+	// to PROCESSING status in a single CTE UPDATE query (Fix #1: eliminates duplicate delivery).
+	FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]OutboxMessage, error)
+	// RecoverStuckClaims resets PROCESSING rows older than stuckClaimTimeout back to PENDING
+	// so they can be retried. Called by the fallback ticker sweep (Fix #1: crash recovery).
 	RecoverStuckClaims(ctx context.Context, eventType string) error
 	MarkPublished(ctx context.Context, id string) error
 	MarkFailed(ctx context.Context, id string, err error) error
@@ -84,23 +85,49 @@ func (r *postgresOutboxRepository) CreateOutboxMessage(ctx context.Context, tx *
 	return nil
 }
 
-// FetchPendingBatch performs a plain SELECT — no row locking.
-// Two concurrent workers can receive the same batch, causing duplicate event publishing.
-func (r *postgresOutboxRepository) FetchPendingBatch(ctx context.Context, eventType string, limit int) ([]OutboxMessage, error) {
+func (r *postgresOutboxRepository) CreateOutboxMessageNoTx(ctx context.Context, msg OutboxMessage) error {
 	const query = `
-		SELECT id, tenant_id, aggregate_type, aggregate_id, event_type,
-		       payload, status, retry_count, created_at
-		FROM public.outbox
-		WHERE status = 'PENDING'
-		  AND event_type = $1
-		  AND retry_count < $2
-		  AND (next_retry_at IS NULL OR next_retry_at <= NOW())
-		ORDER BY created_at ASC
-		LIMIT $3;
+		INSERT INTO public.outbox (
+			id, tenant_id, aggregate_type, aggregate_id, event_type, payload, status, retry_count
+		) VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', 0);
+	`
+	if _, err := r.db.ExecContext(ctx, query,
+		msg.ID, msg.TenantID, msg.AggregateType, msg.AggregateID, msg.EventType, string(msg.Payload),
+	); err != nil {
+		return fmt.Errorf("failed to insert outbox message: %w", err)
+	}
+	return nil
+}
+
+// FetchAndClaimBatch uses an atomic CTE UPDATE with FOR UPDATE SKIP LOCKED.
+// This single query both selects and transitions rows PENDING → PROCESSING,
+// preventing any concurrent worker (scaled-out instance or overlapping ticker)
+// from claiming the same rows. (Fix #1)
+func (r *postgresOutboxRepository) FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]OutboxMessage, error) {
+	const query = `
+		WITH claimed AS (
+			UPDATE public.outbox
+			SET status     = 'PROCESSING',
+			    claimed_at = NOW()
+			WHERE id IN (
+				SELECT id
+				FROM   public.outbox
+				WHERE  status      = 'PENDING'
+				  AND  event_type  = $1
+				  AND  retry_count < $2
+				  AND  (next_retry_at IS NULL OR next_retry_at <= NOW())
+				ORDER BY created_at ASC
+				LIMIT $3
+				FOR UPDATE SKIP LOCKED
+			)
+			RETURNING id, tenant_id, aggregate_type, aggregate_id, event_type,
+			          payload, status, retry_count, created_at
+		)
+		SELECT * FROM claimed;
 	`
 	rows, err := r.db.QueryContext(ctx, query, eventType, maxRetries, limit)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch pending outbox batch: %w", err)
+		return nil, fmt.Errorf("failed to fetch and claim outbox batch: %w", err)
 	}
 	defer rows.Close()
 
@@ -120,7 +147,8 @@ func (r *postgresOutboxRepository) FetchPendingBatch(ctx context.Context, eventT
 	return list, rows.Err()
 }
 
-// RecoverStuckClaims resets PROCESSING rows older than stuckClaimTimeout back to PENDING.
+// RecoverStuckClaims resets PROCESSING rows whose claimed_at has exceeded the
+// stuck timeout back to PENDING so the next worker cycle can retry them. (Fix #1)
 func (r *postgresOutboxRepository) RecoverStuckClaims(ctx context.Context, eventType string) error {
 	const query = `
 		UPDATE public.outbox
@@ -151,6 +179,8 @@ func (r *postgresOutboxRepository) MarkPublished(ctx context.Context, id string)
 	return nil
 }
 
+// MarkFailed applies exponential backoff via next_retry_at and sanitizes the error
+// string before persisting it. After maxRetries the row is permanently FAILED. (Fix #4 + Fix #5)
 func (r *postgresOutboxRepository) MarkFailed(ctx context.Context, id string, err error) error {
 	safeErr := sanitizeError(err)
 	const query = `
