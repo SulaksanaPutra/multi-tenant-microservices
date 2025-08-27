@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"user-service/internal/publisher"
 	"user-service/internal/repository"
 	"user-service/internal/utils"
+	"user-service/internal/worker"
 )
 
 type RegisterUserInput struct {
@@ -30,38 +32,43 @@ type UserService interface {
 }
 
 type userService struct {
-	dbClient   *postgres.Client
-	userRepo   repository.UserRepository
-	tenantRepo repository.TenantRepository
-	publisher  publisher.UserEventPublisher
+	dbClient     *postgres.Client
+	userRepo     repository.UserRepository
+	tenantRepo   repository.TenantRepository
+	outboxRepo   repository.OutboxRepository
+	outboxWorker *worker.OutboxWorker
 }
 
 func NewUserService(
 	dbClient *postgres.Client,
 	userRepo repository.UserRepository,
 	tenantRepo repository.TenantRepository,
-	pub publisher.UserEventPublisher,
+	outboxRepo repository.OutboxRepository,
+	outboxWorker *worker.OutboxWorker,
 ) UserService {
 	return &userService{
-		dbClient:   dbClient,
-		userRepo:   userRepo,
-		tenantRepo: tenantRepo,
-		publisher:  pub,
+		dbClient:     dbClient,
+		userRepo:     userRepo,
+		tenantRepo:   tenantRepo,
+		outboxRepo:   outboxRepo,
+		outboxWorker: outboxWorker,
 	}
 }
 
 func (s *userService) RegisterUser(ctx context.Context, input RegisterUserInput) (*RegisterUserOutput, error) {
+	// 1. Business Logic: Sanitize slug & generate meaningful domain IDs
 	cleanSlug := utils.SanitizeSlug(input.TenantSlug)
 	userID := "usr_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:16]
 	tenantID := "tenant_" + cleanSlug
 
-	// 1. Persist User Record
+	// 2. Database Transaction Management
 	tx, err := s.dbClient.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start database transaction: %w", err)
 	}
 	defer tx.Rollback()
 
+	// 3. Persist User Record via UserRepository
 	userObj := repository.User{
 		ID:    userID,
 		Email: input.Email,
@@ -71,6 +78,7 @@ func (s *userService) RegisterUser(ctx context.Context, input RegisterUserInput)
 		return nil, err
 	}
 
+	// 4. Persist Tenant Record via TenantRepository
 	tenantObj := repository.Tenant{
 		ID:      tenantID,
 		Name:    input.TenantName,
@@ -81,15 +89,11 @@ func (s *userService) RegisterUser(ctx context.Context, input RegisterUserInput)
 		return nil, err
 	}
 
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	// 2. Publish event directly to RabbitMQ AFTER the database commit.
-	//    BUG: If this call fails (RabbitMQ is down, process crashes, network blips),
-	//    the user exists in PostgreSQL but NO event is ever published. The notification
-	//    service never sends a welcome email. The tenant service never provisions a schema.
-	//    This is the classic Dual-Write Problem.
+	// 5. Stage Domain Event Payload inside Transactional Outbox.
+	//    FIX (Challenge 1): Instead of calling rabbitmq.Publish() directly,
+	//    we write the event into the outbox table INSIDE the same transaction.
+	//    If the transaction commits, the event is guaranteed to be delivered eventually.
+	//    If the transaction rolls back, neither the user nor the event is created.
 	evt := publisher.UserRegisteredEvent{
 		UserID:     userID,
 		TenantID:   tenantID,
@@ -98,14 +102,31 @@ func (s *userService) RegisterUser(ctx context.Context, input RegisterUserInput)
 		TenantName: input.TenantName,
 		TenantSlug: cleanSlug,
 	}
-	if err := s.publisher.PublishUserRegistered(ctx, evt); err != nil {
-		// The user is already committed to the DB. We cannot roll back.
-		// The event is silently lost — no retry, no recovery.
-		log.Printf("UserService ERROR: Failed to publish UserRegistered event for user_id='%s': %v", userID, err)
-		return nil, fmt.Errorf("failed to publish user registered event: %w", err)
+	payloadBytes, err := json.Marshal(evt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal UserRegistered event payload: %w", err)
 	}
 
-	log.Printf("UserService: Registered user_id='%s', tenant_id='%s'", userID, tenantID)
+	outboxID := "outbox_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:16]
+	outboxMsg := repository.OutboxMessage{
+		ID:            outboxID,
+		TenantID:      &tenantID,
+		AggregateType: "USER",
+		AggregateID:   userID,
+		EventType:     "user.registered",
+		Payload:       payloadBytes,
+		Status:        "PENDING",
+	}
+	if err := s.outboxRepo.CreateOutboxMessage(ctx, tx, outboxMsg); err != nil {
+		return nil, fmt.Errorf("failed to stage outbox event in transaction: %w", err)
+	}
+
+	// Commit atomically: User + Tenant + Outbox Event all succeed together.
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit user, tenant, and outbox transaction: %w", err)
+	}
+
+	log.Printf("UserService: Registered user_id='%s', tenant_id='%s', outbox_id='%s'", userID, tenantID, outboxID)
 
 	return &RegisterUserOutput{
 		UserID:   userID,

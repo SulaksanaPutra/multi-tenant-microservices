@@ -15,6 +15,7 @@ import (
 	"user-service/internal/publisher"
 	"user-service/internal/repository"
 	"user-service/internal/service"
+	"user-service/internal/worker"
 )
 
 func main() {
@@ -48,12 +49,19 @@ func main() {
 		log.Fatalf("Failed to initialize user publisher: %v", err)
 	}
 
-	// 3. Initialize Repositories (Data Access Layer)
+	// 3. Initialize Repositories & Worker (Data Access & Outbox Layer)
 	userRepo := repository.NewUserRepository()
 	tenantRepo := repository.NewTenantRepository()
+	outboxRepo := repository.NewOutboxRepository(dbClient.DB)
+
+	outboxWorker := worker.NewOutboxWorker(outboxRepo, userPublisher, "user.registered")
+
+	workerCtx, cancelWorker := context.WithCancel(context.Background())
+	defer cancelWorker()
+	go outboxWorker.Start(workerCtx)
 
 	// 4. Initialize Business Service (Business Logic Layer)
-	userService := service.NewUserService(dbClient, userRepo, tenantRepo, userPublisher)
+	userService := service.NewUserService(dbClient, userRepo, tenantRepo, outboxRepo, outboxWorker)
 
 	// 5. Initialize HTTP Handler (Transport Layer)
 	userHandler := handler.NewUserHandler(userService)
