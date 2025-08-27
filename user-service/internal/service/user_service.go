@@ -128,6 +128,13 @@ func (s *userService) RegisterUser(ctx context.Context, input RegisterUserInput)
 
 	log.Printf("UserService: Registered user_id='%s', tenant_id='%s', outbox_id='%s'", userID, tenantID, outboxID)
 
+	// 6. Poke Outbox Worker (non-blocking wake-up signal).
+	// FIX (Challenge 2): Instead of waiting up to 5 seconds for the ticker to fire,
+	// we send an instant signal to the worker goroutine. If 50 users register in
+	// the same millisecond, 50 Poke() signals arrive — but the debounce window
+	// collapses them into a single batch query.
+	s.outboxWorker.Poke()
+
 	return &RegisterUserOutput{
 		UserID:   userID,
 		TenantID: tenantID,
