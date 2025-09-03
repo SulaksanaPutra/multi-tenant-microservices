@@ -34,8 +34,15 @@ CREATE TABLE IF NOT EXISTS public.notifications (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Table: public.outbox (Transactional Outbox Pattern)
--- Stages domain events atomically alongside the business transaction.
+-- Table: public.inbox (Idempotent Consumer Deduplication Table)
+-- Used by notification-service to record already-processed event_ids.
+-- A PRIMARY KEY violation (23505) on INSERT signals a duplicate message.
+CREATE TABLE IF NOT EXISTS public.inbox (
+    event_id     VARCHAR(255) PRIMARY KEY,
+    processed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Table: public.outbox (Hardened Transactional Outbox Pattern)
 -- Status lifecycle: PENDING -> PROCESSING -> PUBLISHED | FAILED
 -- PROCESSING rows older than 30s are considered stuck and re-claimed by the sweeper.
 CREATE TABLE IF NOT EXISTS public.outbox (
@@ -63,3 +70,4 @@ CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON public.notifications(use
 CREATE INDEX IF NOT EXISTS idx_outbox_pending ON public.outbox(event_type, next_retry_at, created_at)
     WHERE status IN ('PENDING', 'PROCESSING');
 CREATE INDEX IF NOT EXISTS idx_outbox_tenant_id ON public.outbox(tenant_id);
+-- No additional index needed for public.inbox — PRIMARY KEY on event_id is already optimal.

@@ -72,7 +72,15 @@ func (s *tenantService) ProvisionTenant(ctx context.Context, input ProvisionTena
 		return "", err
 	}
 
+	// 4. Stage TenantProvisioned Event atomically inside the SAME transaction.
+	//    If this insert fails, the entire schema provisioning rolls back.
+	outboxID := "outbox_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:16]
 	evt := publisher.TenantProvisionedEvent{
+		// EventID is the outbox row's own ID. It travels inside the message payload
+		// so that downstream consumers (e.g. notification-service) can use it as
+		// a stable deduplication key in their Inbox table. Because duplicate deliveries
+		// always re-publish the same outbox row, they always carry the same EventID.
+		EventID:    outboxID,
 		TenantID:   schemaName,
 		TenantSlug: input.TenantSlug,
 		UserID:     input.UserID,
@@ -82,7 +90,6 @@ func (s *tenantService) ProvisionTenant(ctx context.Context, input ProvisionTena
 		return "", fmt.Errorf("failed to marshal TenantProvisioned event payload: %w", err)
 	}
 
-	outboxID := "outbox_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:16]
 	outboxMsg := repository.OutboxMessage{
 		ID:            outboxID,
 		TenantID:      &schemaName,
@@ -95,12 +102,14 @@ func (s *tenantService) ProvisionTenant(ctx context.Context, input ProvisionTena
 		return "", fmt.Errorf("failed to stage outbox event: %w", err)
 	}
 
+	// 5. Commit the entire provisioning + outbox atomically.
 	if err := tx.Commit(); err != nil {
 		return "", fmt.Errorf("failed to commit provisioning transaction: %w", err)
 	}
 
 	log.Printf("TenantService: Provisioned schema '%s' and staged outbox_id='%s' atomically.", schemaName, outboxID)
 
+	// 6. Poke the outbox worker (non-blocking signal — zero latency to the consumer goroutine).
 	s.outboxWorker.Poke()
 
 	return schemaName, nil

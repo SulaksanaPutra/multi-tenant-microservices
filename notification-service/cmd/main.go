@@ -45,11 +45,15 @@ func main() {
 	}
 	defer rmqClient.Close()
 
-	// 4. Initialize Repository (Data Access Layer)
+	// 4. Initialize Repositories (Data Access Layer)
 	notifRepo := repository.NewNotificationRepository(dbClient)
+	// InboxRepository provides the Inbox Pattern deduplication guard.
+	// It uses the public.inbox table PRIMARY KEY to reject duplicate event_ids atomically.
+	inboxRepo := repository.NewInboxRepository(dbClient)
 
 	// 5. Initialize Business Service (Business Logic Layer)
-	notifService := service.NewNotificationService(notifRepo, m)
+	// Pass the raw *sql.DB for transaction management inside the Inbox Pattern guard.
+	notifService := service.NewNotificationService(dbClient.DB, notifRepo, inboxRepo, m)
 
 	// 6. Initialize & Start Worker Consumer (Transport Layer)
 	notifConsumer, err := consumer.NewTenantProvisionedConsumer(rmqClient, notifService)

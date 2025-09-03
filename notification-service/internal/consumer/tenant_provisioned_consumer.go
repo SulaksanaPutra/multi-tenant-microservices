@@ -16,7 +16,11 @@ const (
 	QueueNotificationTenantProvisioned = "notification_service_tenant_provisioned"
 )
 
+// TenantProvisionedEvent mirrors the payload published by tenant-service.
+// EventID carries the originating outbox row ID — this is the Inbox Pattern
+// deduplication key used by the notification-service to prevent duplicate emails.
 type TenantProvisionedEvent struct {
+	EventID    string `json:"event_id"`
 	TenantID   string `json:"tenant_id"`
 	TenantSlug string `json:"tenant_slug"`
 	UserID     string `json:"user_id"`
@@ -69,14 +73,20 @@ func (c *TenantProvisionedConsumer) Start(ctx context.Context) error {
 				continue
 			}
 
-			log.Printf("Processing notification for tenant_id='%s', user_id='%s'", evt.TenantID, evt.UserID)
+			if evt.EventID == "" {
+				log.Printf("Warning: TenantProvisioned message missing event_id for tenant_id='%s'. Processing without Inbox guard.", evt.TenantID)
+			}
+
+			log.Printf("Processing notification for event_id='%s', tenant_id='%s', user_id='%s'",
+				evt.EventID, evt.TenantID, evt.UserID)
 
 			input := service.SendWelcomeNotificationInput{
+				EventID:  evt.EventID,
 				UserID:   evt.UserID,
 				TenantID: evt.TenantID,
 			}
 
-			// Delegate to NotificationService business layer
+			// Delegate to NotificationService business layer (Inbox guard runs inside)
 			if err := c.notificationService.SendWelcomeNotification(ctx, input); err != nil {
 				log.Printf("Error processing notification: %v", err)
 				d.Nack(false, true)
