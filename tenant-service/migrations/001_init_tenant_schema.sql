@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS {{SCHEMA_NAME}}.tenant_settings (
 
 CREATE TABLE IF NOT EXISTS {{SCHEMA_NAME}}.tenant_members (
     id SERIAL PRIMARY KEY,
-    user_id VARCHAR(255) NOT NULL,
+    user_id VARCHAR(255) NOT NULL UNIQUE,
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255) NOT NULL,
     role VARCHAR(50) NOT NULL DEFAULT 'owner',

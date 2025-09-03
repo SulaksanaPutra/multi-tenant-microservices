@@ -16,6 +16,10 @@ const (
 )
 
 type TenantProvisionedEvent struct {
+	// EventID is the outbox row ID that generated this message.
+	// Consumers use this as a deduplication key in their Inbox table
+	// to safely handle duplicate deliveries after a crash.
+	EventID    string `json:"event_id"`
 	TenantID   string `json:"tenant_id"`
 	TenantSlug string `json:"tenant_slug"`
 	UserID     string `json:"user_id"`
