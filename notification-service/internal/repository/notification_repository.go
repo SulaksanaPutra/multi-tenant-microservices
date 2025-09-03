@@ -19,8 +19,6 @@ type NotificationLog struct {
 
 type NotificationRepository interface {
 	GetUserEmailByID(ctx context.Context, userID string) (string, error)
-	// CreateNotificationLog inserts an audit log row outside a transaction.
-	CreateNotificationLog(ctx context.Context, log NotificationLog) (int, error)
 	// CreateNotificationLogTx inserts an audit log row inside an existing transaction.
 	// Used by the Inbox Pattern flow to ensure the log write and inbox INSERT
 	// either both commit or both rollback together.
@@ -43,20 +41,6 @@ func (r *postgresNotificationRepository) GetUserEmailByID(ctx context.Context, u
 		return "", fmt.Errorf("user not found for id '%s': %w", userID, err)
 	}
 	return email, nil
-}
-
-func (r *postgresNotificationRepository) CreateNotificationLog(ctx context.Context, log NotificationLog) (int, error) {
-	query := `
-		INSERT INTO public.notifications (user_id, tenant_id, recipient_email, subject, body, status)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING id;
-	`
-	var id int
-	err := r.client.QueryRowContext(ctx, query, log.UserID, log.TenantID, log.RecipientEmail, log.Subject, log.Body, log.Status).Scan(&id)
-	if err != nil {
-		return 0, fmt.Errorf("failed to insert notification log: %w", err)
-	}
-	return id, nil
 }
 
 // CreateNotificationLogTx inserts an audit row inside an existing *sql.Tx.
