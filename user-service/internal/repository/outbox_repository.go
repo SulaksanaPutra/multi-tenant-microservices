@@ -52,7 +52,6 @@ type OutboxMessage struct {
 
 type OutboxRepository interface {
 	CreateOutboxMessage(ctx context.Context, tx *sql.Tx, msg OutboxMessage) error
-	CreateOutboxMessageNoTx(ctx context.Context, msg OutboxMessage) error
 	// FetchAndClaimBatch atomically claims a batch of PENDING messages by moving them
 	// to PROCESSING status in a single CTE UPDATE query (Fix #1: eliminates duplicate delivery).
 	FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]OutboxMessage, error)
@@ -81,20 +80,6 @@ func (r *postgresOutboxRepository) CreateOutboxMessage(ctx context.Context, tx *
 		msg.ID, msg.TenantID, msg.AggregateType, msg.AggregateID, msg.EventType, string(msg.Payload),
 	); err != nil {
 		return fmt.Errorf("failed to insert outbox message in transaction: %w", err)
-	}
-	return nil
-}
-
-func (r *postgresOutboxRepository) CreateOutboxMessageNoTx(ctx context.Context, msg OutboxMessage) error {
-	const query = `
-		INSERT INTO public.outbox (
-			id, tenant_id, aggregate_type, aggregate_id, event_type, payload, status, retry_count
-		) VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', 0);
-	`
-	if _, err := r.db.ExecContext(ctx, query,
-		msg.ID, msg.TenantID, msg.AggregateType, msg.AggregateID, msg.EventType, string(msg.Payload),
-	); err != nil {
-		return fmt.Errorf("failed to insert outbox message: %w", err)
 	}
 	return nil
 }
