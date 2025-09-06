@@ -20,6 +20,27 @@ services:
     networks:
       - broker-network
 
+  postgres-dedicated:
+    image: postgres:16-alpine
+    container_name: broker-postgres-dedicated
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: broker_dedicated_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./init-dedicated.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - postgres_dedicated_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d broker_dedicated_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - broker-network
+
   rabbitmq:
     image: rabbitmq:3-management-alpine
     container_name: broker-rabbitmq
@@ -75,3 +96,4 @@ networks:
 
 volumes:
   postgres_data:
+  postgres_dedicated_data:
