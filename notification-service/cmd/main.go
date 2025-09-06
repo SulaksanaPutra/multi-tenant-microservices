@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
-	"notification-service/internal/consumer"
 	"notification-service/internal/infrastructure/postgres"
 	"notification-service/internal/infrastructure/rabbitmq"
 	"notification-service/internal/mailer"
@@ -16,6 +19,7 @@ import (
 )
 
 func main() {
+	loadEnv(".env")
 	log.Println("Starting Notification Service Worker...")
 
 	// Environment variables
@@ -27,53 +31,89 @@ func main() {
 	amqpURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
 	smtpHost := getEnv("SMTP_HOST", "localhost")
 	smtpPort := getEnv("SMTP_PORT", "1025")
+	httpPort := getEnv("PORT", "8083")
 
-	// 1. Connect to PostgreSQL Infrastructure Driver
+	// 1. Connect Infrastructure Drivers
 	dbClient, err := postgres.NewClient(dbHost, dbPort, dbUser, dbPassword, dbName)
 	if err != nil {
 		log.Fatalf("Failed to initialize database client: %v", err)
 	}
 	defer dbClient.Close()
 
-	// 2. Initialize SMTP Mailer
-	m := mailer.NewMailer(smtpHost, smtpPort, "no-reply@company.com")
-
-	// 3. Connect to RabbitMQ Infrastructure Driver
 	rmqClient, err := rabbitmq.NewClient(amqpURL)
 	if err != nil {
 		log.Fatalf("Failed to initialize RabbitMQ client: %v", err)
 	}
 	defer rmqClient.Close()
 
-	// 4. Initialize Repositories (Data Access Layer)
+	// 2. Initialize Infrastructure Mailer
+	m := mailer.NewMailer(smtpHost, smtpPort, "no-reply@company.com")
+
+	// 3. Initialize Repositories (Data Access Layer & Inbox Pattern)
 	notifRepo := repository.NewNotificationRepository(dbClient)
-	// InboxRepository provides the Inbox Pattern deduplication guard.
-	// It uses the public.inbox table PRIMARY KEY to reject duplicate event_ids atomically.
 	inboxRepo := repository.NewInboxRepository(dbClient)
 
-	// 5. Initialize Business Service (Business Logic Layer)
-	// Pass the raw *sql.DB for transaction management inside the Inbox Pattern guard.
+	// 4. Initialize Domain Services
 	notifService := service.NewNotificationService(dbClient.DB, notifRepo, inboxRepo, m)
 
-	// 6. Initialize & Start Worker Consumer (Transport Layer)
-	notifConsumer, err := consumer.NewTenantProvisionedConsumer(rmqClient, notifService)
+	// 5. Register & Start Inbound Queue Consumers Collection
+	cRunner, err := registerConsumers(rmqClient, notifService)
 	if err != nil {
-		log.Fatalf("Failed to initialize notification consumer: %v", err)
+		log.Fatalf("Failed to register consumers: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	if err := notifConsumer.Start(ctx); err != nil {
-		log.Fatalf("Failed to start notification consumer: %v", err)
+	consumerCtx, consumerCancel := context.WithCancel(context.Background())
+	defer consumerCancel()
+	if err := cRunner.start(consumerCtx); err != nil {
+		log.Fatalf("Failed to start consumers: %v", err)
 	}
 
-	// Graceful shutdown setup
+	// 6. Register HTTP Router & Health Endpoint
+	httpRouter := newRouter()
+	httpServer := &http.Server{
+		Addr:    ":" + httpPort,
+		Handler: httpRouter,
+	}
+
+	go func() {
+		log.Printf("Notification Service Health HTTP listening on port %s...", httpPort)
+		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("HTTP server error: %v", err)
+		}
+	}()
+
+	// 7. Graceful Shutdown Setup
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	<-stop
 	log.Println("Shutting down Notification Service Worker gracefully...")
+	_ = httpServer.Shutdown(context.Background())
+}
+
+func loadEnv(filepath string) {
+	file, err := os.Open(filepath)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			val := strings.TrimSpace(parts[1])
+			val = strings.Trim(val, `"'`)
+			if _, exists := os.LookupEnv(key); !exists {
+				_ = os.Setenv(key, val)
+			}
+		}
+	}
 }
 
 func getEnv(key, fallback string) string {

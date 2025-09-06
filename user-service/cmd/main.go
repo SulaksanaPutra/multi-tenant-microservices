@@ -1,13 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
-	"time"
 
 	"user-service/internal/handler"
 	"user-service/internal/infrastructure/postgres"
@@ -15,10 +17,10 @@ import (
 	"user-service/internal/publisher"
 	"user-service/internal/repository"
 	"user-service/internal/service"
-	"user-service/internal/worker"
 )
 
 func main() {
+	loadEnv(".env")
 	log.Println("Starting User Service...")
 
 	// Environment variables
@@ -28,79 +30,87 @@ func main() {
 	dbPassword := getEnv("DB_PASSWORD", "postgres")
 	dbName := getEnv("DB_NAME", "broker_db")
 	amqpURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
-	serverPort := getEnv("PORT", "8081")
+	httpPort := getEnv("PORT", "8081")
 
-	// 1. Initialize PostgreSQL Infrastructure Driver
+	// 1. Connect Infrastructure Drivers
 	dbClient, err := postgres.NewClient(dbHost, dbPort, dbUser, dbPassword, dbName)
 	if err != nil {
-		log.Fatalf("Failed to initialize postgres client: %v", err)
+		log.Fatalf("Failed to initialize database client: %v", err)
 	}
 	defer dbClient.Close()
 
-	// 2. Initialize RabbitMQ Infrastructure Driver & Publisher
 	rmqClient, err := rabbitmq.NewClient(amqpURL)
 	if err != nil {
 		log.Fatalf("Failed to initialize RabbitMQ client: %v", err)
 	}
 	defer rmqClient.Close()
 
+	// 2. Initialize Repositories
+	userRepo := repository.NewUserRepository()
+	tenantRepo := repository.NewTenantRepository()
+	outboxRepo := repository.NewOutboxRepository(dbClient.DB)
+
+	// 3. Register & Start Background Workers Collection
 	userPublisher, err := publisher.NewUserPublisher(rmqClient)
 	if err != nil {
 		log.Fatalf("Failed to initialize user publisher: %v", err)
 	}
 
-	// 3. Initialize Repositories & Worker (Data Access & Outbox Layer)
-	userRepo := repository.NewUserRepository()
-	tenantRepo := repository.NewTenantRepository()
-	outboxRepo := repository.NewOutboxRepository(dbClient.DB)
+	wRunner := registerWorkers(outboxRepo, userPublisher)
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+	wRunner.start(workerCtx)
 
-	outboxWorker := worker.NewOutboxWorker(outboxRepo, userPublisher, "user.registered")
+	// 4. Initialize Domain Services
+	userService := service.NewUserService(dbClient, userRepo, tenantRepo, outboxRepo, wRunner.OutboxWorker())
 
-	workerCtx, cancelWorker := context.WithCancel(context.Background())
-	defer cancelWorker()
-	go outboxWorker.Start(workerCtx)
-
-	// 4. Initialize Business Service (Business Logic Layer)
-	userService := service.NewUserService(dbClient, userRepo, tenantRepo, outboxRepo, outboxWorker)
-
-	// 5. Initialize HTTP Handler (Transport Layer)
+	// 5. Register HTTP Router
 	userHandler := handler.NewUserHandler(userService)
-
-	// 6. Register HTTP Routes
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/register", userHandler.RegisterUser)
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	})
-
-	server := &http.Server{
-		Addr:    ":" + serverPort,
-		Handler: mux,
+	httpRouter := newRouter(userHandler)
+	httpServer := &http.Server{
+		Addr:    ":" + httpPort,
+		Handler: httpRouter,
 	}
 
-	// Graceful shutdown setup
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-
 	go func() {
-		log.Printf("User Service REST API listening on port %s...", serverPort)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Printf("User Service HTTP API listening on port %s...", httpPort)
+		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("HTTP server error: %v", err)
 		}
 	}()
 
+	// 6. Graceful Shutdown Setup
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
 	<-stop
 	log.Println("Shutting down User Service gracefully...")
+	_ = httpServer.Shutdown(context.Background())
+}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := server.Shutdown(ctx); err != nil {
-		log.Printf("Server forced shutdown error: %v", err)
+func loadEnv(filepath string) {
+	file, err := os.Open(filepath)
+	if err != nil {
+		return
 	}
+	defer file.Close()
 
-	log.Println("User Service stopped.")
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			val := strings.TrimSpace(parts[1])
+			val = strings.Trim(val, `"'`)
+			if _, exists := os.LookupEnv(key); !exists {
+				_ = os.Setenv(key, val)
+			}
+		}
+	}
 }
 
 func getEnv(key, fallback string) string {

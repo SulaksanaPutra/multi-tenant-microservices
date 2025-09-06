@@ -1,3 +1,8 @@
+# Environment files
+.env
+*.env
+!.env.example
+
 # Repomix AI Codebase Map output
 repomix-output.xml
 repomix-output.md

@@ -11,11 +11,6 @@ import (
 )
 
 type ProvisionerRepository interface {
-	// CreateSchemaTx, ExecuteMigrationTx, and SeedOwnerMemberTx all accept a *sql.Tx
-	// so the caller can wrap the entire provisioning operation — including the outbox
-	// write — inside a single PostgreSQL transaction.
-	// PostgreSQL supports transactional DDL (unlike MySQL), so CREATE SCHEMA, CREATE TABLE,
-	// and INSERT can all be rolled back atomically if any step fails. (Fix #2)
 	CreateSchemaTx(ctx context.Context, tx *sql.Tx, schemaName string) error
 	ExecuteMigrationTx(ctx context.Context, tx *sql.Tx, schemaName, migrationFilePath string) error
 	SeedOwnerMemberTx(ctx context.Context, tx *sql.Tx, schemaName, userID, name, email string) error
@@ -52,7 +47,7 @@ func (r *postgresProvisionerRepository) ExecuteMigrationTx(ctx context.Context, 
 
 func (r *postgresProvisionerRepository) SeedOwnerMemberTx(ctx context.Context, tx *sql.Tx, schemaName, userID, name, email string) error {
 	// ON CONFLICT (user_id) DO NOTHING makes this operation idempotent.
-	// If the same UserRegistered event is delivered twice (e.g. after a DB crash
+	// If the same UserRegistered event is delivered twice (e.g., after a DB crash
 	// before the outbox could mark the row PUBLISHED), the second INSERT is a
 	// safe no-op. The tenant_members table has UNIQUE(user_id) to back this up.
 	query := fmt.Sprintf(`

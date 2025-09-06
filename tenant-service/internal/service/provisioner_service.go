@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -15,6 +16,10 @@ import (
 	"tenant-service/internal/worker"
 )
 
+type ConnectionRegistry interface {
+	GetConnection(tenant *repository.TenantMetadata) (*sql.DB, error)
+}
+
 type ProvisionTenantInput struct {
 	TenantSlug    string
 	UserID        string
@@ -24,38 +29,40 @@ type ProvisionTenantInput struct {
 	DbDSN         string // Connection string if DEDICATED
 }
 
-type TenantService interface {
-	ProvisionTenant(ctx context.Context, input ProvisionTenantInput) (string, error)
-	SetConnectionRegistry(registry *postgres.ConnectionRegistry)
+type ProvisionTenantOutput struct {
+	TenantID   string
+	SchemaName string
 }
 
-type tenantService struct {
+type ProvisionerService interface {
+	ProvisionTenant(ctx context.Context, input ProvisionTenantInput) (*ProvisionTenantOutput, error)
+}
+
+type provisionerService struct {
 	dbClient     *postgres.Client
 	repo         repository.ProvisionerRepository
 	outboxRepo   repository.OutboxRepository
 	outboxWorker *worker.OutboxWorker
-	registry     *postgres.ConnectionRegistry
+	registry     ConnectionRegistry
 }
 
-func NewTenantService(
+func NewProvisionerService(
 	dbClient *postgres.Client,
 	repo repository.ProvisionerRepository,
 	outboxRepo repository.OutboxRepository,
 	outboxWorker *worker.OutboxWorker,
-) TenantService {
-	return &tenantService{
+	registry ConnectionRegistry,
+) ProvisionerService {
+	return &provisionerService{
 		dbClient:     dbClient,
 		repo:         repo,
 		outboxRepo:   outboxRepo,
 		outboxWorker: outboxWorker,
+		registry:     registry,
 	}
 }
 
-func (s *tenantService) SetConnectionRegistry(registry *postgres.ConnectionRegistry) {
-	s.registry = registry
-}
-
-func (s *tenantService) ProvisionTenant(ctx context.Context, input ProvisionTenantInput) (string, error) {
+func (s *provisionerService) ProvisionTenant(ctx context.Context, input ProvisionTenantInput) (*ProvisionTenantOutput, error) {
 	placement := input.PlacementType
 	if placement == "" {
 		placement = "SHARED"
@@ -64,13 +71,13 @@ func (s *tenantService) ProvisionTenant(ctx context.Context, input ProvisionTena
 	tenantID := utils.SanitizeSchemaName(input.TenantSlug)
 
 	if placement == "DEDICATED" {
-		log.Printf("TenantService: Provisioning DEDICATED database for tenant '%s' (DSN: %s)...", tenantID, input.DbDSN)
+		log.Printf("ProvisionerService: Provisioning DEDICATED database for tenant '%s' (DSN: %s)...", tenantID, input.DbDSN)
 
 		if s.registry == nil {
-			return "", fmt.Errorf("connection registry not initialized for dedicated tenant provisioning")
+			return nil, fmt.Errorf("connection registry not initialized for dedicated tenant provisioning")
 		}
 
-		meta := &postgres.TenantMetadata{
+		meta := &repository.TenantMetadata{
 			ID:            tenantID,
 			Name:          input.Name,
 			PlacementType: "DEDICATED",
@@ -78,21 +85,21 @@ func (s *tenantService) ProvisionTenant(ctx context.Context, input ProvisionTena
 		}
 		targetPool, err := s.registry.GetConnection(meta)
 		if err != nil {
-			return "", fmt.Errorf("failed to get dedicated DB connection: %w", err)
+			return nil, fmt.Errorf("failed to get dedicated DB connection: %w", err)
 		}
 
 		tx, err := targetPool.BeginTx(ctx, nil)
 		if err != nil {
-			return "", fmt.Errorf("failed to start dedicated DB tx: %w", err)
+			return nil, fmt.Errorf("failed to start dedicated DB tx: %w", err)
 		}
 		defer tx.Rollback()
 
 		targetSchema := "public"
 		if err := s.repo.ExecuteMigrationTx(ctx, tx, targetSchema, "migrations/001_init_tenant_schema.sql"); err != nil {
-			return "", err
+			return nil, err
 		}
 		if err := s.repo.SeedOwnerMemberTx(ctx, tx, targetSchema, input.UserID, input.Name, input.Email); err != nil {
-			return "", err
+			return nil, err
 		}
 
 		outboxID := "outbox_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:16]
@@ -104,7 +111,7 @@ func (s *tenantService) ProvisionTenant(ctx context.Context, input ProvisionTena
 		}
 		payloadBytes, err := json.Marshal(evt)
 		if err != nil {
-			return "", fmt.Errorf("failed to marshal event: %w", err)
+			return nil, fmt.Errorf("failed to marshal event: %w", err)
 		}
 
 		outboxMsg := repository.OutboxMessage{
@@ -116,14 +123,13 @@ func (s *tenantService) ProvisionTenant(ctx context.Context, input ProvisionTena
 			Payload:       payloadBytes,
 		}
 		if err := s.outboxRepo.CreateOutboxMessage(ctx, tx, outboxMsg); err != nil {
-			return "", fmt.Errorf("failed to stage dedicated outbox event: %w", err)
+			return nil, fmt.Errorf("failed to stage dedicated outbox event: %w", err)
 		}
 
 		if err := tx.Commit(); err != nil {
-			return "", fmt.Errorf("failed to commit dedicated DB tx: %w", err)
+			return nil, fmt.Errorf("failed to commit dedicated DB tx: %w", err)
 		}
 
-		// Save Control Plane metadata entry
 		tenantUUID := "tenant_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:16]
 		_, err = s.dbClient.ExecContext(ctx, `
 			INSERT INTO public.tenants (id, name, slug, owner_id, placement_type, db_dsn)
@@ -131,31 +137,30 @@ func (s *tenantService) ProvisionTenant(ctx context.Context, input ProvisionTena
 			ON CONFLICT (slug) DO NOTHING;
 		`, tenantUUID, input.Name, input.TenantSlug, input.UserID, input.DbDSN)
 		if err != nil {
-			log.Printf("TenantService Warning: Failed to insert tenant metadata into control plane: %v", err)
+			log.Printf("ProvisionerService Warning: Failed to insert tenant metadata into control plane: %v", err)
 		}
 
-		log.Printf("TenantService: Successfully provisioned DEDICATED database for tenant '%s' and staged outbox_id='%s'.", tenantID, outboxID)
+		log.Printf("ProvisionerService: Successfully provisioned DEDICATED database for tenant '%s' and staged outbox_id='%s'.", tenantID, outboxID)
 		s.outboxWorker.Poke()
-		return tenantID, nil
+		return &ProvisionTenantOutput{TenantID: tenantID, SchemaName: targetSchema}, nil
 	}
 
-	// Default SHARED schema provisioning
-	log.Printf("TenantService: Provisioning SHARED schema '%s' for slug '%s'...", tenantID, input.TenantSlug)
+	log.Printf("ProvisionerService: Provisioning SHARED schema '%s' for slug '%s'...", tenantID, input.TenantSlug)
 
 	tx, err := s.dbClient.BeginTx(ctx, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to start provisioning transaction: %w", err)
+		return nil, fmt.Errorf("failed to start provisioning transaction: %w", err)
 	}
 	defer tx.Rollback()
 
 	if err := s.repo.CreateSchemaTx(ctx, tx, tenantID); err != nil {
-		return "", err
+		return nil, err
 	}
 	if err := s.repo.ExecuteMigrationTx(ctx, tx, tenantID, "migrations/001_init_tenant_schema.sql"); err != nil {
-		return "", err
+		return nil, err
 	}
 	if err := s.repo.SeedOwnerMemberTx(ctx, tx, tenantID, input.UserID, input.Name, input.Email); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	outboxID := "outbox_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:16]
@@ -167,7 +172,7 @@ func (s *tenantService) ProvisionTenant(ctx context.Context, input ProvisionTena
 	}
 	payloadBytes, err := json.Marshal(evt)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal event: %w", err)
+		return nil, fmt.Errorf("failed to marshal event: %w", err)
 	}
 
 	outboxMsg := repository.OutboxMessage{
@@ -179,10 +184,9 @@ func (s *tenantService) ProvisionTenant(ctx context.Context, input ProvisionTena
 		Payload:       payloadBytes,
 	}
 	if err := s.outboxRepo.CreateOutboxMessage(ctx, tx, outboxMsg); err != nil {
-		return "", fmt.Errorf("failed to stage outbox event: %w", err)
+		return nil, fmt.Errorf("failed to stage outbox event: %w", err)
 	}
 
-	// Save Control Plane metadata entry
 	tenantUUID := "tenant_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:16]
 	_, _ = tx.ExecContext(ctx, `
 		INSERT INTO public.tenants (id, name, slug, owner_id, placement_type, schema_name)
@@ -191,10 +195,10 @@ func (s *tenantService) ProvisionTenant(ctx context.Context, input ProvisionTena
 	`, tenantUUID, input.Name, input.TenantSlug, input.UserID, tenantID)
 
 	if err := tx.Commit(); err != nil {
-		return "", fmt.Errorf("failed to commit provisioning transaction: %w", err)
+		return nil, fmt.Errorf("failed to commit provisioning transaction: %w", err)
 	}
 
-	log.Printf("TenantService: Provisioned SHARED schema '%s' and staged outbox_id='%s' atomically.", tenantID, outboxID)
+	log.Printf("ProvisionerService: Provisioned SHARED schema '%s' and staged outbox_id='%s' atomically.", tenantID, outboxID)
 	s.outboxWorker.Poke()
-	return tenantID, nil
+	return &ProvisionTenantOutput{TenantID: tenantID, SchemaName: tenantID}, nil
 }
