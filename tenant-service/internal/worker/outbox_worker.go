@@ -7,7 +7,6 @@ import (
 	"log"
 	"time"
 
-	"tenant-service/internal/infrastructure/postgres"
 	"tenant-service/internal/publisher"
 	"tenant-service/internal/repository"
 )
@@ -18,11 +17,15 @@ const (
 	defaultBatchSize     = 50
 )
 
+type ConnectionRegistry interface {
+	GetAllActiveDedicatedPools() map[string]*sql.DB
+}
+
 type OutboxWorker struct {
 	outboxRepo    repository.OutboxRepository
 	publisher     publisher.TenantEventPublisher
 	eventType     string
-	registry      *postgres.ConnectionRegistry
+	registry      ConnectionRegistry
 	wakeUpChan    chan struct{}
 	debounceDelay time.Duration
 	pollInterval  time.Duration
@@ -45,7 +48,7 @@ func NewOutboxWorker(
 	}
 }
 
-func (w *OutboxWorker) SetConnectionRegistry(registry *postgres.ConnectionRegistry) {
+func (w *OutboxWorker) SetConnectionRegistry(registry ConnectionRegistry) {
 	w.registry = registry
 }
 

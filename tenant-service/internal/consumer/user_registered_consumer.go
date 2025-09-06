@@ -25,11 +25,11 @@ type UserRegisteredMessage struct {
 }
 
 type UserRegisteredConsumer struct {
-	client        *rabbitmq.Client
-	tenantService service.TenantService
+	client             *rabbitmq.Client
+	provisionerService service.ProvisionerService
 }
 
-func NewUserRegisteredConsumer(client *rabbitmq.Client, tenantSvc service.TenantService) (*UserRegisteredConsumer, error) {
+func NewUserRegisteredConsumer(client *rabbitmq.Client, provisionerSvc service.ProvisionerService) (*UserRegisteredConsumer, error) {
 	if err := client.DeclareExchange(publisher.ExchangeCompanyEvents, "topic"); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange: %w", err)
 	}
@@ -40,8 +40,8 @@ func NewUserRegisteredConsumer(client *rabbitmq.Client, tenantSvc service.Tenant
 	}
 
 	return &UserRegisteredConsumer{
-		client:        client,
-		tenantService: tenantSvc,
+		client:             client,
+		provisionerService: provisionerSvc,
 	}, nil
 }
 
@@ -81,8 +81,8 @@ func (c *UserRegisteredConsumer) Start(ctx context.Context) error {
 				Email:      msg.Email,
 			}
 
-			// Delegate to TenantService business layer (which provisions DB & publishes TenantProvisioned event)
-			_, err := c.tenantService.ProvisionTenant(ctx, input)
+			// Delegate to ProvisionerService business layer
+			_, err := c.provisionerService.ProvisionTenant(ctx, input)
 			if err != nil {
 				log.Printf("UserRegisteredConsumer Error: Failed to provision tenant schema: %v", err)
 				d.Nack(false, true)

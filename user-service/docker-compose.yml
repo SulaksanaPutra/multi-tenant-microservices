@@ -6,21 +6,21 @@ services:
     container_name: user-service
     restart: always
     environment:
-      DB_HOST: broker-postgres
-      DB_PORT: "5432"
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_NAME: broker_db
-      RABBITMQ_URL: amqp://guest:guest@broker-rabbitmq:5672/
-      PORT: "8081"
+      DB_HOST: ${DB_HOST:-broker-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-broker_db}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@broker-rabbitmq:5672/}
+      PORT: ${PORT:-8081}
     ports:
-      - "8081:8081"
+      - "${PORT:-8081}:${PORT:-8081}"
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=broker-network"
       - "traefik.http.routers.user-service.rule=PathPrefix(`/api/v1/register`)"
       - "traefik.http.routers.user-service.entrypoints=web"
-      - "traefik.http.services.user-service.loadbalancer.server.port=8081"
+      - "traefik.http.services.user-service.loadbalancer.server.port=${PORT:-8081}"
     networks:
       - broker-network
 

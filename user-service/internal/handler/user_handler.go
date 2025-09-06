@@ -61,7 +61,6 @@ func (h *UserHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return HTTP 202 Accepted with RegisterResponse DTO
 	WriteJSON(w, http.StatusAccepted, RegisterResponse{
 		Status:   "accepted",
 		UserID:   output.UserID,

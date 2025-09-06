@@ -6,15 +6,18 @@ services:
     container_name: notification-service
     restart: always
     environment:
-      DB_HOST: broker-postgres
-      DB_PORT: "5432"
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_NAME: broker_db
-      RABBITMQ_URL: amqp://guest:guest@broker-rabbitmq:5672/
-      SMTP_HOST: broker-mailpit
-      SMTP_PORT: "1025"
-      SMTP_FROM: no-reply@company.com
+      DB_HOST: ${DB_HOST:-broker-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-broker_db}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@broker-rabbitmq:5672/}
+      SMTP_HOST: ${SMTP_HOST:-broker-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_FROM: ${SMTP_FROM:-no-reply@company.com}
+      PORT: ${PORT:-8083}
+    ports:
+      - "${PORT:-8083}:${PORT:-8083}"
     networks:
       - broker-network
 
