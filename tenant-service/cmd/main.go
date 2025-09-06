@@ -41,9 +41,11 @@ func main() {
 	}
 	defer rmqClient.Close()
 
-	// 3. Initialize Repositories (Data Access Layer)
+	// 3. Initialize Repositories (Data Access Layer) & Connection Registry
 	provisionerRepo := repository.NewProvisionerRepository(dbClient)
 	outboxRepo := repository.NewOutboxRepository(dbClient.DB)
+	registry := postgres.NewConnectionRegistry(dbClient.DB)
+	defer registry.CloseAll()
 
 	// 4. Initialize Outbound Event Publisher & Outbox Worker
 	tenantPublisher, err := publisher.NewTenantPublisher(rmqClient)
@@ -52,6 +54,7 @@ func main() {
 	}
 
 	outboxWorker := worker.NewOutboxWorker(outboxRepo, tenantPublisher, "tenant.provisioned")
+	outboxWorker.SetConnectionRegistry(registry)
 
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	defer workerCancel()
@@ -59,6 +62,7 @@ func main() {
 
 	// 5. Initialize Business Service (Business Logic Layer)
 	tenantService := service.NewTenantService(dbClient, provisionerRepo, outboxRepo, outboxWorker)
+	tenantService.SetConnectionRegistry(registry)
 
 	// 6. Initialize & Start Worker Consumer (Inbound Transport Layer)
 	userConsumer, err := consumer.NewUserRegisteredConsumer(rmqClient, tenantService)

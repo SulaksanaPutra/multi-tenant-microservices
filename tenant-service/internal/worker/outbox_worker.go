@@ -2,10 +2,12 @@ package worker
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"log"
 	"time"
 
+	"tenant-service/internal/infrastructure/postgres"
 	"tenant-service/internal/publisher"
 	"tenant-service/internal/repository"
 )
@@ -20,6 +22,7 @@ type OutboxWorker struct {
 	outboxRepo    repository.OutboxRepository
 	publisher     publisher.TenantEventPublisher
 	eventType     string
+	registry      *postgres.ConnectionRegistry
 	wakeUpChan    chan struct{}
 	debounceDelay time.Duration
 	pollInterval  time.Duration
@@ -40,6 +43,10 @@ func NewOutboxWorker(
 		pollInterval:  defaultPollInterval,
 		batchSize:     defaultBatchSize,
 	}
+}
+
+func (w *OutboxWorker) SetConnectionRegistry(registry *postgres.ConnectionRegistry) {
+	w.registry = registry
 }
 
 // Poke sends a non-blocking wake-up signal to the worker loop.
@@ -97,14 +104,39 @@ func (w *OutboxWorker) recoverAndProcess(ctx context.Context) {
 	if err := w.outboxRepo.RecoverStuckClaims(ctx, w.eventType); err != nil {
 		log.Printf("OutboxWorker [%s] Warning: Stuck-claim recovery failed: %v", w.eventType, err)
 	}
+
+	if w.registry != nil {
+		for tenantID, pool := range w.registry.GetAllActiveDedicatedPools() {
+			if err := w.outboxRepo.RecoverStuckClaimsFromDB(ctx, pool, w.eventType); err != nil {
+				log.Printf("OutboxWorker [%s] Warning: Stuck-claim recovery failed for dedicated tenant %s: %v", w.eventType, tenantID, err)
+			}
+		}
+	}
+
 	w.processBatch(ctx)
 }
 
-// processBatch atomically claims a batch, publishes each message, and updates status.
-// If the batch was full, re-pokes to drain remaining PENDING messages without
-// waiting for the next ticker cycle. (Fix #3)
+// processBatch sweeps the primary DB outbox and all registered dedicated DB outboxes.
 func (w *OutboxWorker) processBatch(ctx context.Context) {
-	messages, err := w.outboxRepo.FetchAndClaimBatch(ctx, w.eventType, w.batchSize)
+	w.processBatchOnDB(ctx, nil)
+
+	if w.registry != nil {
+		for _, pool := range w.registry.GetAllActiveDedicatedPools() {
+			w.processBatchOnDB(ctx, pool)
+		}
+	}
+}
+
+func (w *OutboxWorker) processBatchOnDB(ctx context.Context, targetDB *sql.DB) {
+	var messages []repository.OutboxMessage
+	var err error
+
+	if targetDB == nil {
+		messages, err = w.outboxRepo.FetchAndClaimBatch(ctx, w.eventType, w.batchSize)
+	} else {
+		messages, err = w.outboxRepo.FetchAndClaimBatchFromDB(ctx, targetDB, w.eventType, w.batchSize)
+	}
+
 	if err != nil {
 		log.Printf("OutboxWorker [%s] Error: Failed to claim outbox batch: %v", w.eventType, err)
 		return
@@ -119,16 +151,30 @@ func (w *OutboxWorker) processBatch(ctx context.Context) {
 		var evt publisher.TenantProvisionedEvent
 		if err := json.Unmarshal(msg.Payload, &evt); err != nil {
 			log.Printf("OutboxWorker [%s] Error: Bad payload for id='%s': %v", w.eventType, msg.ID, err)
-			_ = w.outboxRepo.MarkFailed(ctx, msg.ID, err)
+			if targetDB == nil {
+				_ = w.outboxRepo.MarkFailed(ctx, msg.ID, err)
+			} else {
+				_ = w.outboxRepo.MarkFailedOnDB(ctx, targetDB, msg.ID, err)
+			}
 			continue
 		}
 
 		if pubErr := w.publisher.PublishTenantProvisioned(ctx, evt); pubErr != nil {
 			log.Printf("OutboxWorker [%s] Warning: Publish failed for id='%s': %v", w.eventType, msg.ID, pubErr)
-			_ = w.outboxRepo.MarkFailed(ctx, msg.ID, pubErr)
+			if targetDB == nil {
+				_ = w.outboxRepo.MarkFailed(ctx, msg.ID, pubErr)
+			} else {
+				_ = w.outboxRepo.MarkFailedOnDB(ctx, targetDB, msg.ID, pubErr)
+			}
 		} else {
-			if markErr := w.outboxRepo.MarkPublished(ctx, msg.ID); markErr != nil {
-				log.Printf("OutboxWorker [%s] Error: MarkPublished failed for id='%s': %v", w.eventType, msg.ID, markErr)
+			if targetDB == nil {
+				if markErr := w.outboxRepo.MarkPublished(ctx, msg.ID); markErr != nil {
+					log.Printf("OutboxWorker [%s] Error: MarkPublished failed for id='%s': %v", w.eventType, msg.ID, markErr)
+				}
+			} else {
+				if markErr := w.outboxRepo.MarkPublishedOnDB(ctx, targetDB, msg.ID); markErr != nil {
+					log.Printf("OutboxWorker [%s] Error: MarkPublishedOnDB failed for id='%s': %v", w.eventType, msg.ID, markErr)
+				}
 			}
 		}
 	}

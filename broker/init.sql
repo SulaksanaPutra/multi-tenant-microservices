@@ -12,12 +12,15 @@ CREATE TABLE IF NOT EXISTS public.users (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Table: public.tenants (Meaningful ID matching schema name e.g. tenant_<slug>)
+-- Table: public.tenants (Control Plane Tenant Catalog: supports SHARED and DEDICATED)
 CREATE TABLE IF NOT EXISTS public.tenants (
     id VARCHAR(255) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     slug VARCHAR(255) NOT NULL UNIQUE,
     owner_id VARCHAR(255) NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    placement_type VARCHAR(50) NOT NULL DEFAULT 'SHARED',
+    schema_name VARCHAR(255),
+    db_dsn VARCHAR(500),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
