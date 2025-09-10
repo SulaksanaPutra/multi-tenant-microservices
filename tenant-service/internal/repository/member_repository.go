@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"tenant-service/internal/txctx"
 	"tenant-service/internal/types"
 )
 
@@ -34,13 +35,14 @@ func NewMemberRepository(cfg types.TenantConfig) MemberRepository {
 }
 
 func (r *memberRepository) GetMembers(ctx context.Context) ([]Member, error) {
+	exec := txctx.GetExecutor(ctx, r.cfg.DB)
 	query := fmt.Sprintf(`
 		SELECT id, user_id, name, email, role, joined_at
 		FROM %s.tenant_members
 		ORDER BY id ASC;
 	`, r.cfg.TargetSchema)
 
-	rows, err := r.cfg.DB.QueryContext(ctx, query)
+	rows, err := exec.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tenant_members from schema '%s': %w", r.cfg.TargetSchema, err)
 	}

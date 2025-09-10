@@ -2,6 +2,7 @@ package consumer
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,6 +10,7 @@ import (
 	"tenant-service/internal/infrastructure/rabbitmq"
 	"tenant-service/internal/publisher"
 	"tenant-service/internal/service"
+	"tenant-service/internal/txctx"
 )
 
 const (
@@ -25,11 +27,12 @@ type UserRegisteredMessage struct {
 }
 
 type UserRegisteredConsumer struct {
+	db                 *sql.DB
 	client             *rabbitmq.Client
 	provisionerService service.ProvisionerService
 }
 
-func NewUserRegisteredConsumer(client *rabbitmq.Client, provisionerSvc service.ProvisionerService) (*UserRegisteredConsumer, error) {
+func NewUserRegisteredConsumer(db *sql.DB, client *rabbitmq.Client, provisionerSvc service.ProvisionerService) (*UserRegisteredConsumer, error) {
 	if err := client.DeclareExchange(publisher.ExchangeCompanyEvents, "topic"); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange: %w", err)
 	}
@@ -40,6 +43,7 @@ func NewUserRegisteredConsumer(client *rabbitmq.Client, provisionerSvc service.P
 	}
 
 	return &UserRegisteredConsumer{
+		db:                 db,
 		client:             client,
 		provisionerService: provisionerSvc,
 	}, nil
@@ -62,34 +66,62 @@ func (c *UserRegisteredConsumer) Start(ctx context.Context) error {
 	log.Printf("UserRegisteredConsumer: Listening for incoming messages on queue '%s'...", QueueTenantUserRegistered)
 
 	go func() {
-		for d := range msgs {
-			log.Printf("UserRegisteredConsumer: Received message from queue '%s'", QueueTenantUserRegistered)
+		for {
+			select {
+			case <-ctx.Done():
+				log.Printf("UserRegisteredConsumer: Context cancelled, shutting down.")
+				return
+			case d, ok := <-msgs:
+				if !ok {
+					log.Printf("UserRegisteredConsumer: Message channel closed.")
+					return
+				}
+				log.Printf("UserRegisteredConsumer: Received message from queue '%s'", QueueTenantUserRegistered)
 
-			var msg UserRegisteredMessage
-			if err := json.Unmarshal(d.Body, &msg); err != nil {
-				log.Printf("UserRegisteredConsumer Error: Failed to unmarshal message payload: %v", err)
-				d.Nack(false, false)
-				continue
+				var msg UserRegisteredMessage
+				if err := json.Unmarshal(d.Body, &msg); err != nil {
+					log.Printf("UserRegisteredConsumer Error: Failed to unmarshal message payload: %v", err)
+					d.Nack(false, false)
+					continue
+				}
+
+				log.Printf("UserRegisteredConsumer: Handling user_id='%s', tenant_slug='%s'", msg.UserID, msg.TenantSlug)
+
+				// 1. Manage Transaction Boundary at Consumer Layer
+				tx, err := c.db.BeginTx(ctx, nil)
+				if err != nil {
+					log.Printf("UserRegisteredConsumer Error: Failed to start transaction: %v", err)
+					d.Nack(false, true)
+					continue
+				}
+
+				msgCtx := txctx.WithTx(ctx, tx)
+				input := service.ProvisionTenantInput{
+					TenantSlug: msg.TenantSlug,
+					UserID:     msg.UserID,
+					Name:       msg.Name,
+					Email:      msg.Email,
+				}
+
+				// 2. Execute provisioning service with transaction-injected context
+				_, err = c.provisionerService.ProvisionTenant(msgCtx, input)
+				if err != nil {
+					tx.Rollback()
+					log.Printf("UserRegisteredConsumer Error: Failed to provision tenant schema: %v", err)
+					d.Nack(false, true)
+					continue
+				}
+
+				// 3. Commit Transaction
+				if err := tx.Commit(); err != nil {
+					tx.Rollback()
+					log.Printf("UserRegisteredConsumer Error: Failed to commit provisioning transaction: %v", err)
+					d.Nack(false, true)
+					continue
+				}
+
+				d.Ack(false)
 			}
-
-			log.Printf("UserRegisteredConsumer: Handling user_id='%s', tenant_slug='%s'", msg.UserID, msg.TenantSlug)
-
-			input := service.ProvisionTenantInput{
-				TenantSlug: msg.TenantSlug,
-				UserID:     msg.UserID,
-				Name:       msg.Name,
-				Email:      msg.Email,
-			}
-
-			// Delegate to ProvisionerService business layer
-			_, err := c.provisionerService.ProvisionTenant(ctx, input)
-			if err != nil {
-				log.Printf("UserRegisteredConsumer Error: Failed to provision tenant schema: %v", err)
-				d.Nack(false, true)
-				continue
-			}
-
-			d.Ack(false)
 		}
 	}()
 

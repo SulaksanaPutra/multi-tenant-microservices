@@ -20,10 +20,10 @@ func NewClient(amqpURL string) (*Client, error) {
 	for i := 0; i < 10; i++ {
 		conn, err = amqp.Dial(amqpURL)
 		if err == nil {
-			log.Println("RabbitMQ Infrastructure Driver: Connected successfully")
+			log.Println("User Service RabbitMQ Infrastructure Driver: Connected successfully")
 			break
 		}
-		log.Printf("RabbitMQ connection attempt %d/10 failed: %v. Retrying in 2s...", i+1, err)
+		log.Printf("User Service RabbitMQ connection attempt %d/10 failed: %v. Retrying in 2s...", i+1, err)
 		time.Sleep(2 * time.Second)
 	}
 
@@ -55,6 +55,19 @@ func (c *Client) DeclareExchange(name, kind string) error {
 	)
 	if err != nil {
 		return fmt.Errorf("failed to declare exchange %s: %w", name, err)
+	}
+	return nil
+}
+
+func (c *Client) DeclareAndBindQueue(queueName, exchangeName, routingKey string) error {
+	q, err := c.Channel.QueueDeclare(queueName, true, false, false, false, nil)
+	if err != nil {
+		return fmt.Errorf("failed to declare queue %s: %w", queueName, err)
+	}
+
+	err = c.Channel.QueueBind(q.Name, routingKey, exchangeName, false, nil)
+	if err != nil {
+		return fmt.Errorf("failed to bind queue %s to exchange %s: %w", queueName, exchangeName, err)
 	}
 	return nil
 }

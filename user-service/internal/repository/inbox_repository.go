@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/lib/pq"
-	"notification-service/internal/infrastructure/postgres"
-	"notification-service/internal/txctx"
+	"user-service/internal/infrastructure/postgres"
+	"user-service/internal/txctx"
 )
 
 type InboxRepository interface {

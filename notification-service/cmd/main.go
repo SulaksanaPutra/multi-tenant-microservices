@@ -54,10 +54,10 @@ func main() {
 	inboxRepo := repository.NewInboxRepository(dbClient)
 
 	// 4. Initialize Domain Services
-	notifService := service.NewNotificationService(dbClient.DB, notifRepo, inboxRepo, m)
+	notifService := service.NewNotificationService(notifRepo, inboxRepo, m)
 
 	// 5. Register & Start Inbound Queue Consumers Collection
-	cRunner, err := registerConsumers(rmqClient, notifService)
+	cRunner, err := registerConsumers(dbClient, rmqClient, notifService)
 	if err != nil {
 		log.Fatalf("Failed to register consumers: %v", err)
 	}

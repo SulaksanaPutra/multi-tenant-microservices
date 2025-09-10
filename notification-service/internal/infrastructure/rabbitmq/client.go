@@ -44,7 +44,19 @@ func NewClient(amqpURL string) (*Client, error) {
 }
 
 func (c *Client) DeclareExchange(name, kind string) error {
-	return c.Channel.ExchangeDeclare(name, kind, true, false, false, false, nil)
+	err := c.Channel.ExchangeDeclare(
+		name,  // exchange name
+		kind,  // type e.g. "topic"
+		true,  // durable
+		false, // auto-deleted
+		false, // internal
+		false, // no-wait
+		nil,   // arguments
+	)
+	if err != nil {
+		return fmt.Errorf("failed to declare exchange %s: %w", name, err)
+	}
+	return nil
 }
 
 func (c *Client) DeclareAndBindQueue(queueName, exchangeName, routingKey string) error {

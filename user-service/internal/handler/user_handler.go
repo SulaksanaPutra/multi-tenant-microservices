@@ -1,10 +1,14 @@
 package handler
 
 import (
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"user-service/internal/utils"
 
 	"user-service/internal/service"
+	"user-service/internal/txctx"
 )
 
 type RegisterRequest struct {
@@ -14,40 +18,58 @@ type RegisterRequest struct {
 	TenantSlug string `json:"tenant_slug"`
 }
 
-type RegisterResponse struct {
-	Status   string `json:"status"`
+type RegisterResponseData struct {
 	UserID   string `json:"user_id"`
 	TenantID string `json:"tenant_id"`
 }
 
 type UserHandler struct {
+	db          *sql.DB
 	userService service.UserService
 }
 
-func NewUserHandler(userService service.UserService) *UserHandler {
+type UserHandlerParams struct {
+	DB          *sql.DB
+	UserService service.UserService
+}
+
+func NewUserHandler(params UserHandlerParams) *UserHandler {
 	return &UserHandler{
-		userService: userService,
+		db:          params.DB,
+		userService: params.UserService,
 	}
 }
 
 func (h *UserHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+		utils.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	var req RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		WriteError(w, http.StatusBadRequest, "invalid request payload")
+		utils.WriteError(w, http.StatusBadRequest, "invalid request payload")
 		return
 	}
 
 	if req.Email == "" || req.Name == "" || req.TenantName == "" || req.TenantSlug == "" {
-		WriteError(w, http.StatusBadRequest, "email, name, tenant_name, and tenant_slug are required")
+		utils.WriteError(w, http.StatusBadRequest, "email, name, tenant_name, and tenant_slug are required")
 		return
 	}
 
-	// Delegate to UserService business layer
+	tx, err := h.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to start database transaction: %v", err))
+		return
+	}
+	defer func(tx *sql.Tx) {
+		err := tx.Rollback()
+		if err != nil {
+			utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to rollback transaction: %v", err))
+		}
+	}(tx)
+
+	ctx := txctx.WithTx(r.Context(), tx)
 	input := service.RegisterUserInput{
 		Email:      req.Email,
 		Name:       req.Name,
@@ -55,14 +77,18 @@ func (h *UserHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 		TenantSlug: req.TenantSlug,
 	}
 
-	output, err := h.userService.RegisterUser(r.Context(), input)
+	output, err := h.userService.RegisterUser(ctx, input)
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, err.Error())
+		utils.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	WriteJSON(w, http.StatusAccepted, RegisterResponse{
-		Status:   "accepted",
+	if err := tx.Commit(); err != nil {
+		utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to commit transaction: %v", err))
+		return
+	}
+
+	utils.WriteSuccess(w, http.StatusAccepted, "User registration accepted", RegisterResponseData{
 		UserID:   output.UserID,
 		TenantID: output.TenantID,
 	})

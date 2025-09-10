@@ -25,11 +25,11 @@ func NewClient(host, port, user, password, dbname string) (*Client, error) {
 		if err == nil {
 			err = database.Ping()
 			if err == nil {
-				log.Println("PostgreSQL Infrastructure Driver: Connected successfully")
+				log.Println("User Service PostgreSQL Infrastructure Driver: Connected successfully")
 				return &Client{database}, nil
 			}
 		}
-		log.Printf("PostgreSQL connection attempt %d/10 failed: %v. Retrying in 2s...", i+1, err)
+		log.Printf("User Service PostgreSQL connection attempt %d/10 failed: %v. Retrying in 2s...", i+1, err)
 		time.Sleep(2 * time.Second)
 	}
 

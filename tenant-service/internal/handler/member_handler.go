@@ -58,5 +58,5 @@ func (h *MemberHandler) GetMembers(w http.ResponseWriter, r *http.Request) {
 		Members: members,
 	}
 
-	WriteJSON(w, http.StatusOK, resp)
+	WriteSuccess(w, http.StatusOK, "", resp)
 }

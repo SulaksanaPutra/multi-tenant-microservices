@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"notification-service/internal/consumer"
+	"notification-service/internal/infrastructure/postgres"
 	"notification-service/internal/infrastructure/rabbitmq"
 	"notification-service/internal/service"
 )
@@ -15,8 +16,8 @@ type consumerRunner struct {
 }
 
 // registerConsumers initializes all inbound RabbitMQ event queue consumers.
-func registerConsumers(rmqClient *rabbitmq.Client, notifService service.NotificationService) (*consumerRunner, error) {
-	tenantProvisionedConsumer, err := consumer.NewTenantProvisionedConsumer(rmqClient, notifService)
+func registerConsumers(dbClient *postgres.Client, rmqClient *rabbitmq.Client, notifService service.NotificationService) (*consumerRunner, error) {
+	tenantProvisionedConsumer, err := consumer.NewTenantProvisionedConsumer(dbClient.DB, rmqClient, notifService)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize TenantProvisionedConsumer: %w", err)
 	}

@@ -26,15 +26,17 @@ type OutboxWorker struct {
 	batchSize     int
 }
 
-func NewOutboxWorker(
-	outboxRepo repository.OutboxRepository,
-	pub publisher.UserEventPublisher,
-	eventType string,
-) *OutboxWorker {
+type OutboxWorkerParams struct {
+	OutboxRepo repository.OutboxRepository
+	Publisher  publisher.UserEventPublisher
+	EventType  string
+}
+
+func NewOutboxWorker(params OutboxWorkerParams) *OutboxWorker {
 	return &OutboxWorker{
-		outboxRepo:    outboxRepo,
-		publisher:     pub,
-		eventType:     eventType,
+		outboxRepo:    params.OutboxRepo,
+		publisher:     params.Publisher,
+		eventType:     params.EventType,
 		wakeUpChan:    make(chan struct{}, 1),
 		debounceDelay: defaultDebounceDelay,
 		pollInterval:  defaultPollInterval,
