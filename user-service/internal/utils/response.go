@@ -18,7 +18,7 @@ type ErrorResponse struct {
 func WriteJSON(w http.ResponseWriter, statusCode int, payload interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(payload)
+	_ = json.NewEncoder(w).Encode(payload)
 }
 
 func WriteSuccess(w http.ResponseWriter, statusCode int, message string, data interface{}) {
