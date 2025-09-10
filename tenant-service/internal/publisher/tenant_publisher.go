@@ -19,10 +19,13 @@ type TenantProvisionedEvent struct {
 	// EventID is the outbox row ID that generated this message.
 	// Consumers use this as a deduplication key in their Inbox table
 	// to safely handle duplicate deliveries after a crash.
-	EventID    string `json:"event_id"`
-	TenantID   string `json:"tenant_id"`
-	TenantSlug string `json:"tenant_slug"`
-	UserID     string `json:"user_id"`
+	EventID       string `json:"event_id"`
+	TenantID      string `json:"tenant_id"`
+	TenantSlug    string `json:"tenant_slug"`
+	UserID        string `json:"user_id"`
+	PlacementType string `json:"placement_type,omitempty"`
+	SchemaName    string `json:"schema_name,omitempty"`
+	DbDSN         string `json:"db_dsn,omitempty"`
 }
 
 type TenantEventPublisher interface {

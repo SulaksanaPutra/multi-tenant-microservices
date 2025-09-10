@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"user-service/internal/txctx"
 )
 
 const (
@@ -51,32 +53,29 @@ type OutboxMessage struct {
 }
 
 type OutboxRepository interface {
-	CreateOutboxMessage(ctx context.Context, tx *sql.Tx, msg OutboxMessage) error
-	// FetchAndClaimBatch atomically claims a batch of PENDING messages by moving them
-	// to PROCESSING status in a single CTE UPDATE query (Fix #1: eliminates duplicate delivery).
+	CreateOutboxMessage(ctx context.Context, msg OutboxMessage) error
 	FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]OutboxMessage, error)
-	// RecoverStuckClaims resets PROCESSING rows older than stuckClaimTimeout back to PENDING
-	// so they can be retried. Called by the fallback ticker sweep (Fix #1: crash recovery).
 	RecoverStuckClaims(ctx context.Context, eventType string) error
 	MarkPublished(ctx context.Context, id string) error
 	MarkFailed(ctx context.Context, id string, err error) error
 }
 
-type postgresOutboxRepository struct {
+type outboxRepository struct {
 	db *sql.DB
 }
 
 func NewOutboxRepository(db *sql.DB) OutboxRepository {
-	return &postgresOutboxRepository{db: db}
+	return &outboxRepository{db: db}
 }
 
-func (r *postgresOutboxRepository) CreateOutboxMessage(ctx context.Context, tx *sql.Tx, msg OutboxMessage) error {
+func (r *outboxRepository) CreateOutboxMessage(ctx context.Context, msg OutboxMessage) error {
+	exec := txctx.GetExecutor(ctx, r.db)
 	const query = `
 		INSERT INTO public.outbox (
 			id, tenant_id, aggregate_type, aggregate_id, event_type, payload, status, retry_count
 		) VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', 0);
 	`
-	if _, err := tx.ExecContext(ctx, query,
+	if _, err := exec.ExecContext(ctx, query,
 		msg.ID, msg.TenantID, msg.AggregateType, msg.AggregateID, msg.EventType, string(msg.Payload),
 	); err != nil {
 		return fmt.Errorf("failed to insert outbox message in transaction: %w", err)
@@ -84,11 +83,8 @@ func (r *postgresOutboxRepository) CreateOutboxMessage(ctx context.Context, tx *
 	return nil
 }
 
-// FetchAndClaimBatch uses an atomic CTE UPDATE with FOR UPDATE SKIP LOCKED.
-// This single query both selects and transitions rows PENDING → PROCESSING,
-// preventing any concurrent worker (scaled-out instance or overlapping ticker)
-// from claiming the same rows. (Fix #1)
-func (r *postgresOutboxRepository) FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]OutboxMessage, error) {
+func (r *outboxRepository) FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]OutboxMessage, error) {
+	exec := txctx.GetExecutor(ctx, r.db)
 	const query = `
 		WITH claimed AS (
 			UPDATE public.outbox
@@ -110,7 +106,7 @@ func (r *postgresOutboxRepository) FetchAndClaimBatch(ctx context.Context, event
 		)
 		SELECT * FROM claimed;
 	`
-	rows, err := r.db.QueryContext(ctx, query, eventType, maxRetries, limit)
+	rows, err := exec.QueryContext(ctx, query, eventType, maxRetries, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch and claim outbox batch: %w", err)
 	}
@@ -132,9 +128,8 @@ func (r *postgresOutboxRepository) FetchAndClaimBatch(ctx context.Context, event
 	return list, rows.Err()
 }
 
-// RecoverStuckClaims resets PROCESSING rows whose claimed_at has exceeded the
-// stuck timeout back to PENDING so the next worker cycle can retry them. (Fix #1)
-func (r *postgresOutboxRepository) RecoverStuckClaims(ctx context.Context, eventType string) error {
+func (r *outboxRepository) RecoverStuckClaims(ctx context.Context, eventType string) error {
+	exec := txctx.GetExecutor(ctx, r.db)
 	const query = `
 		UPDATE public.outbox
 		SET status     = 'PENDING',
@@ -143,14 +138,15 @@ func (r *postgresOutboxRepository) RecoverStuckClaims(ctx context.Context, event
 		  AND event_type = $1
 		  AND claimed_at < NOW() - $2::interval;
 	`
-	_, err := r.db.ExecContext(ctx, query, eventType, fmt.Sprintf("%d seconds", int(stuckClaimTimeout.Seconds())))
+	_, err := exec.ExecContext(ctx, query, eventType, fmt.Sprintf("%d seconds", int(stuckClaimTimeout.Seconds())))
 	if err != nil {
 		return fmt.Errorf("failed to recover stuck claimed outbox rows: %w", err)
 	}
 	return nil
 }
 
-func (r *postgresOutboxRepository) MarkPublished(ctx context.Context, id string) error {
+func (r *outboxRepository) MarkPublished(ctx context.Context, id string) error {
+	exec := txctx.GetExecutor(ctx, r.db)
 	const query = `
 		UPDATE public.outbox
 		SET status       = 'PUBLISHED',
@@ -158,15 +154,14 @@ func (r *postgresOutboxRepository) MarkPublished(ctx context.Context, id string)
 		    processed_at = NOW()
 		WHERE id = $1;
 	`
-	if _, err := r.db.ExecContext(ctx, query, id); err != nil {
+	if _, err := exec.ExecContext(ctx, query, id); err != nil {
 		return fmt.Errorf("failed to mark outbox record as published: %w", err)
 	}
 	return nil
 }
 
-// MarkFailed applies exponential backoff via next_retry_at and sanitizes the error
-// string before persisting it. After maxRetries the row is permanently FAILED. (Fix #4 + Fix #5)
-func (r *postgresOutboxRepository) MarkFailed(ctx context.Context, id string, err error) error {
+func (r *outboxRepository) MarkFailed(ctx context.Context, id string, err error) error {
+	exec := txctx.GetExecutor(ctx, r.db)
 	safeErr := sanitizeError(err)
 	const query = `
 		UPDATE public.outbox
@@ -184,7 +179,7 @@ func (r *postgresOutboxRepository) MarkFailed(ctx context.Context, id string, er
 		    END
 		WHERE id = $1;
 	`
-	if _, dbErr := r.db.ExecContext(ctx, query, id, safeErr, maxRetries); dbErr != nil {
+	if _, dbErr := exec.ExecContext(ctx, query, id, safeErr, maxRetries); dbErr != nil {
 		return fmt.Errorf("failed to mark outbox record as failed: %w", dbErr)
 	}
 	return nil

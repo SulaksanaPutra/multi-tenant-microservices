@@ -64,10 +64,10 @@ func main() {
 	wRunner.start(workerCtx)
 
 	// 4. Initialize Domain Services
-	provisionerService := service.NewProvisionerService(dbClient, provisionerRepo, outboxRepo, wRunner.OutboxWorker(), tenantMiddleware)
+	provisionerService := service.NewProvisionerService(provisionerRepo, outboxRepo, wRunner.OutboxWorker())
 
 	// 5. Register & Start Inbound Queue Consumers Collection
-	cRunner, err := registerConsumers(rmqClient, provisionerService)
+	cRunner, err := registerConsumers(dbClient, rmqClient, provisionerService)
 	if err != nil {
 		log.Fatalf("Failed to register consumers: %v", err)
 	}

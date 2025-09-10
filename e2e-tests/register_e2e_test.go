@@ -33,10 +33,15 @@ type RegisterRequest struct {
 	TenantSlug string `json:"tenant_slug"`
 }
 
-type RegisterResponse struct {
-	Status   string `json:"status"`
+type RegisterResponseData struct {
 	UserID   string `json:"user_id"`
 	TenantID string `json:"tenant_id"`
+}
+
+type RegisterResponse struct {
+	Status  string               `json:"status"`
+	Message string               `json:"message"`
+	Data    RegisterResponseData `json:"data"`
 }
 
 type TenantProvisionedEvent struct {
@@ -162,15 +167,15 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 		t.Fatalf("Failed to decode response JSON: %v", err)
 	}
 
-	if regResp.UserID == "" || !strings.HasPrefix(regResp.UserID, "usr_") {
-		t.Fatalf("Expected valid meaningful user_id starting with 'usr_', got '%s'", regResp.UserID)
+	if regResp.Data.UserID == "" || !strings.HasPrefix(regResp.Data.UserID, "usr_") {
+		t.Fatalf("Expected valid meaningful user_id starting with 'usr_', got '%s'", regResp.Data.UserID)
 	}
 
-	if regResp.TenantID != expectedSchema {
-		t.Fatalf("Expected tenant_id '%s', got '%s'", expectedSchema, regResp.TenantID)
+	if regResp.Data.TenantID != expectedSchema {
+		t.Fatalf("Expected tenant_id '%s', got '%s'", expectedSchema, regResp.Data.TenantID)
 	}
 
-	t.Logf("2. [User Service] Registration accepted via Gateway! user_id='%s', tenant_id='%s'", regResp.UserID, regResp.TenantID)
+	t.Logf("2. [User Service] Registration accepted via Gateway! user_id='%s', tenant_id='%s'", regResp.Data.UserID, regResp.Data.TenantID)
 
 	// 4. Verify PostgreSQL public.users and public.tenants records (Step 5.3)
 	db, err := sql.Open("postgres", postgresDSN)
@@ -180,23 +185,23 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 	defer db.Close()
 
 	var dbEmail, dbName string
-	err = db.QueryRow("SELECT email, name FROM public.users WHERE id = $1", regResp.UserID).Scan(&dbEmail, &dbName)
+	err = db.QueryRow("SELECT email, name FROM public.users WHERE id = $1", regResp.Data.UserID).Scan(&dbEmail, &dbName)
 	if err != nil {
 		t.Fatalf("Failed to find inserted user in public.users: %v", err)
 	}
 
 	var dbTenantName, dbTenantSlug, dbOwnerID string
-	err = db.QueryRow("SELECT name, slug, owner_id FROM public.tenants WHERE id = $1", regResp.TenantID).Scan(&dbTenantName, &dbTenantSlug, &dbOwnerID)
+	err = db.QueryRow("SELECT name, slug, owner_id FROM public.tenants WHERE id = $1", regResp.Data.TenantID).Scan(&dbTenantName, &dbTenantSlug, &dbOwnerID)
 	if err != nil {
 		t.Fatalf("Failed to find inserted tenant in public.tenants: %v", err)
 	}
 
-	if dbOwnerID != regResp.UserID {
-		t.Fatalf("Tenant owner_id mismatch in public.tenants! Expected '%s', got '%s'", regResp.UserID, dbOwnerID)
+	if dbOwnerID != regResp.Data.UserID {
+		t.Fatalf("Tenant owner_id mismatch in public.tenants! Expected '%s', got '%s'", regResp.Data.UserID, dbOwnerID)
 	}
 
 	t.Logf("3. [User Service] Verified public.users (id='%s') and public.tenants (id='%s', owner_id='%s') records!",
-		regResp.UserID, regResp.TenantID, dbOwnerID)
+		regResp.Data.UserID, regResp.Data.TenantID, dbOwnerID)
 
 	// 5. Verify RabbitMQ Management API for company.events exchange (Step 5.4)
 	rmqReq, _ := http.NewRequest("GET", rabbitmqAPI, nil)
@@ -216,8 +221,8 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 			t.Fatalf("Failed to unmarshal TenantProvisioned event payload: %v", err)
 		}
 
-		if event.UserID != regResp.UserID {
-			t.Fatalf("Event user_id mismatch! Expected '%s', got '%s'", regResp.UserID, event.UserID)
+		if event.UserID != regResp.Data.UserID {
+			t.Fatalf("Event user_id mismatch! Expected '%s', got '%s'", regResp.Data.UserID, event.UserID)
 		}
 
 		if event.TenantID != expectedSchema {
@@ -247,7 +252,7 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 	// Verify member role AND profile details (name & email) inside tenant schema
 	var memberUserID, memberName, memberEmail, memberRole string
 	queryMember := fmt.Sprintf("SELECT user_id, name, email, role FROM %s.tenant_members WHERE user_id = $1", expectedSchema)
-	err = db.QueryRow(queryMember, regResp.UserID).Scan(&memberUserID, &memberName, &memberEmail, &memberRole)
+	err = db.QueryRow(queryMember, regResp.Data.UserID).Scan(&memberUserID, &memberName, &memberEmail, &memberRole)
 	if err != nil {
 		t.Fatalf("Tenant member check failed inside schema '%s': %v", expectedSchema, err)
 	}
@@ -266,7 +271,7 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 	queryNotif := "SELECT id, recipient_email, status FROM public.notifications WHERE user_id = $1 AND tenant_id = $2"
 
 	for i := 0; i < 10; i++ {
-		err = db.QueryRow(queryNotif, regResp.UserID, expectedSchema).Scan(&notifID, &notifRecipient, &notifStatus)
+		err = db.QueryRow(queryNotif, regResp.Data.UserID, expectedSchema).Scan(&notifID, &notifRecipient, &notifStatus)
 		if err == nil {
 			break
 		}
@@ -282,7 +287,7 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 			testEmail, notifRecipient, notifStatus)
 	}
 
-	t.Logf("7. [Notification Service] Verified audit log in public.notifications! id=%d, user_id='%s', recipient=%s, status=%s", notifID, regResp.UserID, notifRecipient, notifStatus)
+	t.Logf("7. [Notification Service] Verified audit log in public.notifications! id=%d, user_id='%s', recipient=%s, status=%s", notifID, regResp.Data.UserID, notifRecipient, notifStatus)
 
 	// 9. Verify Welcome Email in Mailpit via REST API (Step 5.7)
 	var mailpitFound bool

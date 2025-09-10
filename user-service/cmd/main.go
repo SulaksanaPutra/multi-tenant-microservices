@@ -1,15 +1,14 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
+	"user-service/internal/utils"
 
 	"user-service/internal/handler"
 	"user-service/internal/infrastructure/postgres"
@@ -20,37 +19,36 @@ import (
 )
 
 func main() {
-	loadEnv(".env")
+	utils.LoadEnv(".env")
 	log.Println("Starting User Service...")
 
 	// Environment variables
-	dbHost := getEnv("DB_HOST", "localhost")
-	dbPort := getEnv("DB_PORT", "5432")
-	dbUser := getEnv("DB_USER", "postgres")
-	dbPassword := getEnv("DB_PASSWORD", "postgres")
-	dbName := getEnv("DB_NAME", "broker_db")
-	amqpURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
-	httpPort := getEnv("PORT", "8081")
+	dbHost := utils.GetEnv("DB_HOST", "localhost")
+	dbPort := utils.GetEnv("DB_PORT", "5432")
+	dbUser := utils.GetEnv("DB_USER", "postgres")
+	dbPassword := utils.GetEnv("DB_PASSWORD", "postgres")
+	dbName := utils.GetEnv("DB_NAME", "broker_db")
+	amqpURL := utils.GetEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+	httpPort := utils.GetEnv("PORT", "8081")
 
-	// 1. Connect Infrastructure Drivers
 	dbClient, err := postgres.NewClient(dbHost, dbPort, dbUser, dbPassword, dbName)
 	if err != nil {
 		log.Fatalf("Failed to initialize database client: %v", err)
 	}
 	defer dbClient.Close()
-
 	rmqClient, err := rabbitmq.NewClient(amqpURL)
 	if err != nil {
 		log.Fatalf("Failed to initialize RabbitMQ client: %v", err)
 	}
 	defer rmqClient.Close()
 
-	// 2. Initialize Repositories
-	userRepo := repository.NewUserRepository()
-	tenantRepo := repository.NewTenantRepository()
+	// Initialize Repositories
+	userRepo := repository.NewUserRepository(dbClient)
+	tenantRepo := repository.NewTenantRepository(dbClient)
 	outboxRepo := repository.NewOutboxRepository(dbClient.DB)
+	inboxRepo := repository.NewInboxRepository(dbClient)
 
-	// 3. Register & Start Background Workers Collection
+	// Register & Start Background Workers Collection
 	userPublisher, err := publisher.NewUserPublisher(rmqClient)
 	if err != nil {
 		log.Fatalf("Failed to initialize user publisher: %v", err)
@@ -60,12 +58,34 @@ func main() {
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	defer workerCancel()
 	wRunner.start(workerCtx)
+	outboxWorker := wRunner.OutboxWorker()
 
-	// 4. Initialize Domain Services
-	userService := service.NewUserService(dbClient, userRepo, tenantRepo, outboxRepo, wRunner.OutboxWorker())
+	// Initialize Domain Services
+	userService := service.NewUserService(service.UserServiceParams{
+		UserRepo:     userRepo,
+		TenantRepo:   tenantRepo,
+		OutboxRepo:   outboxRepo,
+		InboxRepo:    inboxRepo,
+		OutboxWorker: outboxWorker,
+	})
 
-	// 5. Register HTTP Router
-	userHandler := handler.NewUserHandler(userService)
+	// Register & Start Inbound Queue Consumers Collection
+	cRunner, err := registerConsumers(dbClient, rmqClient, userService)
+	if err != nil {
+		log.Fatalf("Failed to register consumers: %v", err)
+	}
+
+	consumerCtx, consumerCancel := context.WithCancel(context.Background())
+	defer consumerCancel()
+	if err := cRunner.start(consumerCtx); err != nil {
+		log.Fatalf("Failed to start consumers: %v", err)
+	}
+
+	// Register HTTP Router
+	userHandler := handler.NewUserHandler(handler.UserHandlerParams{
+		DB:          dbClient.DB,
+		UserService: userService,
+	})
 	httpRouter := newRouter(userHandler)
 	httpServer := &http.Server{
 		Addr:    ":" + httpPort,
@@ -79,43 +99,11 @@ func main() {
 		}
 	}()
 
-	// 6. Graceful Shutdown Setup
+	// Graceful Shutdown Setup
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	<-stop
 	log.Println("Shutting down User Service gracefully...")
 	_ = httpServer.Shutdown(context.Background())
-}
-
-func loadEnv(filepath string) {
-	file, err := os.Open(filepath)
-	if err != nil {
-		return
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) == 2 {
-			key := strings.TrimSpace(parts[0])
-			val := strings.TrimSpace(parts[1])
-			val = strings.Trim(val, `"'`)
-			if _, exists := os.LookupEnv(key); !exists {
-				_ = os.Setenv(key, val)
-			}
-		}
-	}
-}
-
-func getEnv(key, fallback string) string {
-	if value, exists := os.LookupEnv(key); exists {
-		return value
-	}
-	return fallback
 }

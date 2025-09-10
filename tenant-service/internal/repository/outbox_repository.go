@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"tenant-service/internal/txctx"
 )
 
 const (
@@ -15,8 +17,6 @@ const (
 	stuckClaimTimeout = 30 * time.Second
 )
 
-// sensitivePatterns scrubs known sensitive data from error strings before
-// persisting to the database (Fix #5: prevents infra topology leakage).
 var sensitivePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(password|passwd|pwd)\s*=\s*\S+`),
 	regexp.MustCompile(`(?i)(host|port|user|sslmode)\s*=\s*\S+`),
@@ -53,49 +53,38 @@ type OutboxMessage struct {
 }
 
 type OutboxRepository interface {
-	// CreateOutboxMessage writes an outbox record inside an existing database transaction.
-	CreateOutboxMessage(ctx context.Context, tx *sql.Tx, msg OutboxMessage) error
-	// FetchAndClaimBatch atomically claims a batch of PENDING messages from the default DB.
+	CreateOutboxMessage(ctx context.Context, msg OutboxMessage) error
 	FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]OutboxMessage, error)
-	// FetchAndClaimBatchFromDB atomically claims a batch from a specific target DB pool.
-	FetchAndClaimBatchFromDB(ctx context.Context, targetDB *sql.DB, eventType string, limit int) ([]OutboxMessage, error)
-	// RecoverStuckClaims resets PROCESSING rows older than stuckClaimTimeout back to PENDING on default DB.
 	RecoverStuckClaims(ctx context.Context, eventType string) error
-	// RecoverStuckClaimsFromDB resets PROCESSING rows on a specific target DB pool.
-	RecoverStuckClaimsFromDB(ctx context.Context, targetDB *sql.DB, eventType string) error
 	MarkPublished(ctx context.Context, id string) error
-	MarkPublishedOnDB(ctx context.Context, targetDB *sql.DB, id string) error
 	MarkFailed(ctx context.Context, id string, err error) error
-	MarkFailedOnDB(ctx context.Context, targetDB *sql.DB, id string, err error) error
 }
 
-type postgresOutboxRepository struct {
+type outboxRepository struct {
 	db *sql.DB
 }
 
 func NewOutboxRepository(db *sql.DB) OutboxRepository {
-	return &postgresOutboxRepository{db: db}
+	return &outboxRepository{db: db}
 }
 
-func (r *postgresOutboxRepository) CreateOutboxMessage(ctx context.Context, tx *sql.Tx, msg OutboxMessage) error {
+func (r *outboxRepository) CreateOutboxMessage(ctx context.Context, msg OutboxMessage) error {
+	exec := txctx.GetExecutor(ctx, r.db)
 	const query = `
 		INSERT INTO public.outbox (
 			id, tenant_id, aggregate_type, aggregate_id, event_type, payload, status, retry_count
 		) VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', 0);
 	`
-	if _, err := tx.ExecContext(ctx, query,
+	if _, err := exec.ExecContext(ctx, query,
 		msg.ID, msg.TenantID, msg.AggregateType, msg.AggregateID, msg.EventType, string(msg.Payload),
 	); err != nil {
-		return fmt.Errorf("failed to insert outbox message in transaction: %w", err)
+		return fmt.Errorf("failed to insert outbox message: %w", err)
 	}
 	return nil
 }
 
-func (r *postgresOutboxRepository) FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]OutboxMessage, error) {
-	return r.FetchAndClaimBatchFromDB(ctx, r.db, eventType, limit)
-}
-
-func (r *postgresOutboxRepository) FetchAndClaimBatchFromDB(ctx context.Context, targetDB *sql.DB, eventType string, limit int) ([]OutboxMessage, error) {
+func (r *outboxRepository) FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]OutboxMessage, error) {
+	exec := txctx.GetExecutor(ctx, r.db)
 	const query = `
 		WITH claimed AS (
 			UPDATE public.outbox
@@ -117,7 +106,7 @@ func (r *postgresOutboxRepository) FetchAndClaimBatchFromDB(ctx context.Context,
 		)
 		SELECT * FROM claimed;
 	`
-	rows, err := targetDB.QueryContext(ctx, query, eventType, maxRetries, limit)
+	rows, err := exec.QueryContext(ctx, query, eventType, maxRetries, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch and claim outbox batch: %w", err)
 	}
@@ -139,11 +128,8 @@ func (r *postgresOutboxRepository) FetchAndClaimBatchFromDB(ctx context.Context,
 	return list, rows.Err()
 }
 
-func (r *postgresOutboxRepository) RecoverStuckClaims(ctx context.Context, eventType string) error {
-	return r.RecoverStuckClaimsFromDB(ctx, r.db, eventType)
-}
-
-func (r *postgresOutboxRepository) RecoverStuckClaimsFromDB(ctx context.Context, targetDB *sql.DB, eventType string) error {
+func (r *outboxRepository) RecoverStuckClaims(ctx context.Context, eventType string) error {
+	exec := txctx.GetExecutor(ctx, r.db)
 	const query = `
 		UPDATE public.outbox
 		SET status     = 'PENDING',
@@ -152,18 +138,15 @@ func (r *postgresOutboxRepository) RecoverStuckClaimsFromDB(ctx context.Context,
 		  AND event_type = $1
 		  AND claimed_at < NOW() - $2::interval;
 	`
-	_, err := targetDB.ExecContext(ctx, query, eventType, fmt.Sprintf("%d seconds", int(stuckClaimTimeout.Seconds())))
+	_, err := exec.ExecContext(ctx, query, eventType, fmt.Sprintf("%d seconds", int(stuckClaimTimeout.Seconds())))
 	if err != nil {
 		return fmt.Errorf("failed to recover stuck claimed outbox rows: %w", err)
 	}
 	return nil
 }
 
-func (r *postgresOutboxRepository) MarkPublished(ctx context.Context, id string) error {
-	return r.MarkPublishedOnDB(ctx, r.db, id)
-}
-
-func (r *postgresOutboxRepository) MarkPublishedOnDB(ctx context.Context, targetDB *sql.DB, id string) error {
+func (r *outboxRepository) MarkPublished(ctx context.Context, id string) error {
+	exec := txctx.GetExecutor(ctx, r.db)
 	const query = `
 		UPDATE public.outbox
 		SET status       = 'PUBLISHED',
@@ -171,17 +154,14 @@ func (r *postgresOutboxRepository) MarkPublishedOnDB(ctx context.Context, target
 		    processed_at = NOW()
 		WHERE id = $1;
 	`
-	if _, err := targetDB.ExecContext(ctx, query, id); err != nil {
+	if _, err := exec.ExecContext(ctx, query, id); err != nil {
 		return fmt.Errorf("failed to mark outbox record as published: %w", err)
 	}
 	return nil
 }
 
-func (r *postgresOutboxRepository) MarkFailed(ctx context.Context, id string, err error) error {
-	return r.MarkFailedOnDB(ctx, r.db, id, err)
-}
-
-func (r *postgresOutboxRepository) MarkFailedOnDB(ctx context.Context, targetDB *sql.DB, id string, err error) error {
+func (r *outboxRepository) MarkFailed(ctx context.Context, id string, err error) error {
+	exec := txctx.GetExecutor(ctx, r.db)
 	safeErr := sanitizeError(err)
 	const query = `
 		UPDATE public.outbox
@@ -199,7 +179,7 @@ func (r *postgresOutboxRepository) MarkFailedOnDB(ctx context.Context, targetDB 
 		    END
 		WHERE id = $1;
 	`
-	if _, dbErr := targetDB.ExecContext(ctx, query, id, safeErr, maxRetries); dbErr != nil {
+	if _, dbErr := exec.ExecContext(ctx, query, id, safeErr, maxRetries); dbErr != nil {
 		return fmt.Errorf("failed to mark outbox record as failed: %w", dbErr)
 	}
 	return nil

@@ -2,8 +2,10 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
+
+	"user-service/internal/infrastructure/postgres"
+	"user-service/internal/txctx"
 )
 
 type User struct {
@@ -13,21 +15,24 @@ type User struct {
 }
 
 type UserRepository interface {
-	CreateUser(ctx context.Context, tx *sql.Tx, user User) error
+	CreateUser(ctx context.Context, user User) error
 }
 
-type postgresUserRepository struct{}
-
-func NewUserRepository() UserRepository {
-	return &postgresUserRepository{}
+type userRepository struct {
+	client *postgres.Client
 }
 
-func (r *postgresUserRepository) CreateUser(ctx context.Context, tx *sql.Tx, user User) error {
+func NewUserRepository(client *postgres.Client) UserRepository {
+	return &userRepository{client: client}
+}
+
+func (r *userRepository) CreateUser(ctx context.Context, user User) error {
+	exec := txctx.GetExecutor(ctx, r.client.DB)
 	query := `
 		INSERT INTO public.users (id, email, name)
 		VALUES ($1, $2, $3);
 	`
-	if _, err := tx.ExecContext(ctx, query, user.ID, user.Email, user.Name); err != nil {
+	if _, err := exec.ExecContext(ctx, query, user.ID, user.Email, user.Name); err != nil {
 		return fmt.Errorf("failed to insert user record into public.users: %w", err)
 	}
 	return nil
