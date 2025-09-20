@@ -2,32 +2,26 @@ package worker
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"log"
 	"time"
 
 	"tenant-service/internal/publisher"
 	"tenant-service/internal/repository"
-	"tenant-service/internal/txctx"
 )
 
 const (
 	defaultDebounceDelay = 10 * time.Millisecond
 	defaultPollInterval  = 5 * time.Second
 	defaultBatchSize     = 50
-)
 
-// DedicatedPoolRegistry provides access to all active dedicated tenant DB pools.
-type DedicatedPoolRegistry interface {
-	GetAllActiveDedicatedPools() map[string]*sql.DB
-}
+	EventTypeWorkspaceInitiated = "workspace.initiated"
+	EventTypeWorkspaceReady     = "workspace.ready"
+)
 
 type OutboxWorker struct {
 	outboxRepo    repository.OutboxRepository
 	publisher     publisher.TenantEventPublisher
-	eventType     string
-	registry      DedicatedPoolRegistry
 	wakeUpChan    chan struct{}
 	debounceDelay time.Duration
 	pollInterval  time.Duration
@@ -37,21 +31,15 @@ type OutboxWorker struct {
 func NewOutboxWorker(
 	outboxRepo repository.OutboxRepository,
 	pub publisher.TenantEventPublisher,
-	eventType string,
 ) *OutboxWorker {
 	return &OutboxWorker{
 		outboxRepo:    outboxRepo,
 		publisher:     pub,
-		eventType:     eventType,
 		wakeUpChan:    make(chan struct{}, 1),
 		debounceDelay: defaultDebounceDelay,
 		pollInterval:  defaultPollInterval,
 		batchSize:     defaultBatchSize,
 	}
-}
-
-func (w *OutboxWorker) SetConnectionRegistry(registry DedicatedPoolRegistry) {
-	w.registry = registry
 }
 
 // Poke sends a non-blocking wake-up signal to the worker loop.
@@ -63,8 +51,7 @@ func (w *OutboxWorker) Poke() {
 }
 
 func (w *OutboxWorker) Start(ctx context.Context) {
-	log.Printf("OutboxWorker [%s]: Started (debounce=%v, batch=%d, poll=%v)",
-		w.eventType, w.debounceDelay, w.batchSize, w.pollInterval)
+	log.Printf("OutboxWorker: Started (debounce=%v, batch=%d, poll=%v)", w.debounceDelay, w.batchSize, w.pollInterval)
 
 	ticker := time.NewTicker(w.pollInterval)
 	defer ticker.Stop()
@@ -72,7 +59,7 @@ func (w *OutboxWorker) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("OutboxWorker [%s]: Shutting down.", w.eventType)
+			log.Printf("OutboxWorker: Shutting down.")
 			return
 		case <-w.wakeUpChan:
 			w.debounceAndProcess(ctx)
@@ -97,73 +84,71 @@ drainLoop:
 		}
 	}
 
-	w.processBatch(ctx)
+	w.processBatch(ctx, EventTypeWorkspaceInitiated)
+	w.processBatch(ctx, EventTypeWorkspaceReady)
 }
 
 func (w *OutboxWorker) recoverAndProcess(ctx context.Context) {
-	if err := w.outboxRepo.RecoverStuckClaims(ctx, w.eventType); err != nil {
-		log.Printf("OutboxWorker [%s] Warning: Stuck-claim recovery failed: %v", w.eventType, err)
-	}
-
-	if w.registry != nil {
-		for tenantID, pool := range w.registry.GetAllActiveDedicatedPools() {
-			reqCtx := txctx.WithExecutor(ctx, pool)
-			if err := w.outboxRepo.RecoverStuckClaims(reqCtx, w.eventType); err != nil {
-				log.Printf("OutboxWorker [%s] Warning: Stuck-claim recovery failed for dedicated tenant %s: %v", w.eventType, tenantID, err)
-			}
+	for _, eventType := range []string{EventTypeWorkspaceInitiated, EventTypeWorkspaceReady} {
+		if err := w.outboxRepo.RecoverStuckClaims(ctx, eventType); err != nil {
+			log.Printf("OutboxWorker Warning: Stuck-claim recovery failed for '%s': %v", eventType, err)
 		}
-	}
-
-	w.processBatch(ctx)
-}
-
-func (w *OutboxWorker) processBatch(ctx context.Context) {
-	w.processBatchOnDB(ctx, nil)
-
-	if w.registry != nil {
-		for _, pool := range w.registry.GetAllActiveDedicatedPools() {
-			w.processBatchOnDB(ctx, pool)
-		}
+		w.processBatch(ctx, eventType)
 	}
 }
 
-func (w *OutboxWorker) processBatchOnDB(ctx context.Context, targetDB *sql.DB) {
-	reqCtx := ctx
-	if targetDB != nil {
-		reqCtx = txctx.WithExecutor(ctx, targetDB)
-	}
-
-	messages, err := w.outboxRepo.FetchAndClaimBatch(reqCtx, w.eventType, w.batchSize)
+func (w *OutboxWorker) processBatch(ctx context.Context, eventType string) {
+	messages, err := w.outboxRepo.FetchAndClaimBatch(ctx, eventType, w.batchSize)
 	if err != nil {
-		log.Printf("OutboxWorker [%s] Error: Failed to claim outbox batch: %v", w.eventType, err)
+		log.Printf("OutboxWorker Error: Failed to claim outbox batch for '%s': %v", eventType, err)
 		return
 	}
 	if len(messages) == 0 {
 		return
 	}
 
-	log.Printf("OutboxWorker [%s]: Processing batch of %d claimed messages.", w.eventType, len(messages))
+	log.Printf("OutboxWorker: Processing batch of %d '%s' messages.", len(messages), eventType)
 
 	for _, msg := range messages {
-		var evt publisher.TenantProvisionedEvent
-		if err := json.Unmarshal(msg.Payload, &evt); err != nil {
-			log.Printf("OutboxWorker [%s] Error: Bad payload for id='%s': %v", w.eventType, msg.ID, err)
-			_ = w.outboxRepo.MarkFailed(reqCtx, msg.ID, err)
+		var pubErr error
+
+		switch eventType {
+		case EventTypeWorkspaceInitiated:
+			var evt publisher.WorkspaceInitiatedEvent
+			if err := json.Unmarshal(msg.Payload, &evt); err != nil {
+				log.Printf("OutboxWorker Error: Bad payload for id='%s': %v", msg.ID, err)
+				_ = w.outboxRepo.MarkFailed(ctx, msg.ID, err)
+				continue
+			}
+			pubErr = w.publisher.PublishWorkspaceInitiated(ctx, evt)
+
+		case EventTypeWorkspaceReady:
+			var evt publisher.WorkspaceReadyEvent
+			if err := json.Unmarshal(msg.Payload, &evt); err != nil {
+				log.Printf("OutboxWorker Error: Bad payload for id='%s': %v", msg.ID, err)
+				_ = w.outboxRepo.MarkFailed(ctx, msg.ID, err)
+				continue
+			}
+			pubErr = w.publisher.PublishWorkspaceReady(ctx, evt)
+
+		default:
+			log.Printf("OutboxWorker Warning: Unknown event_type='%s' for id='%s'. Skipping.", eventType, msg.ID)
 			continue
 		}
 
-		if pubErr := w.publisher.PublishTenantProvisioned(ctx, evt); pubErr != nil {
-			log.Printf("OutboxWorker [%s] Warning: Publish failed for id='%s': %v", w.eventType, msg.ID, pubErr)
-			_ = w.outboxRepo.MarkFailed(reqCtx, msg.ID, pubErr)
+		if pubErr != nil {
+			log.Printf("OutboxWorker Warning: Publish failed for id='%s': %v", msg.ID, pubErr)
+			_ = w.outboxRepo.MarkFailed(ctx, msg.ID, pubErr)
 		} else {
-			if markErr := w.outboxRepo.MarkPublished(reqCtx, msg.ID); markErr != nil {
-				log.Printf("OutboxWorker [%s] Error: MarkPublished failed for id='%s': %v", w.eventType, msg.ID, markErr)
+			if markErr := w.outboxRepo.MarkPublished(ctx, msg.ID); markErr != nil {
+				log.Printf("OutboxWorker Error: MarkPublished failed for id='%s': %v", msg.ID, markErr)
 			}
 		}
 	}
 
+	// If we filled the entire batch, chain immediately to catch remaining rows.
 	if len(messages) == w.batchSize {
-		log.Printf("OutboxWorker [%s]: Full batch processed — re-poking for remaining messages.", w.eventType)
+		log.Printf("OutboxWorker: Full batch for '%s' — re-poking for more.", eventType)
 		w.Poke()
 	}
 }

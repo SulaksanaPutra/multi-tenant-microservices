@@ -30,7 +30,6 @@ func (m *Mailer) SendWelcomeEmail(toEmail, tenantID string) (string, string, err
 
 	addr := fmt.Sprintf("%s:%s", m.smtpHost, m.smtpPort)
 
-	// Format standard RFC 822 email message
 	msg := []string{
 		fmt.Sprintf("From: %s", m.from),
 		fmt.Sprintf("To: %s", toEmail),
@@ -42,7 +41,6 @@ func (m *Mailer) SendWelcomeEmail(toEmail, tenantID string) (string, string, err
 	}
 	messageBytes := []byte(strings.Join(msg, "\r\n"))
 
-	// Connect to SMTP server (Mailpit does not require auth)
 	err := smtp.SendMail(addr, nil, m.from, []string{toEmail}, messageBytes)
 	if err != nil {
 		return subject, body, fmt.Errorf("failed to send SMTP email via %s: %w", addr, err)

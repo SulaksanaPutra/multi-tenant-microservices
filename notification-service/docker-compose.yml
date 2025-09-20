@@ -10,7 +10,7 @@ services:
       DB_PORT: ${DB_PORT:-5432}
       DB_USER: ${DB_USER:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      DB_NAME: ${DB_NAME:-broker_db}
+      DB_NAME: ${DB_NAME:-notification_db}
       RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@broker-rabbitmq:5672/}
       SMTP_HOST: ${SMTP_HOST:-broker-mailpit}
       SMTP_PORT: ${SMTP_PORT:-1025}

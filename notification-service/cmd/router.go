@@ -2,15 +2,21 @@ package main
 
 import (
 	"net/http"
+
+	"notification-service/internal/utils"
+
+	"github.com/gin-gonic/gin"
 )
 
 // newRouter initializes HTTP routes and health endpoints for Notification Service.
 func newRouter() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("OK"))
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(gin.Recovery(), gin.Logger())
+
+	r.GET("/health", func(c *gin.Context) {
+		utils.WriteSuccess[any](c, http.StatusOK, "OK", nil)
 	})
 
-	return mux
+	return r
 }

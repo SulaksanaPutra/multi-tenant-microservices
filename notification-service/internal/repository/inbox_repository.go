@@ -2,11 +2,13 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
-	"github.com/lib/pq"
 	"notification-service/internal/infrastructure/postgres"
 	"notification-service/internal/txctx"
+
+	"github.com/lib/pq"
 )
 
 type InboxRepository interface {
@@ -26,7 +28,8 @@ func (r *inboxRepository) TryInsert(ctx context.Context, eventID string) (bool, 
 	const query = `INSERT INTO public.inbox (event_id) VALUES ($1);`
 	_, err := exec.ExecContext(ctx, query, eventID)
 	if err != nil {
-		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
 			return true, nil // isDuplicate = true
 		}
 		return false, fmt.Errorf("failed to insert event_id into inbox: %w", err)

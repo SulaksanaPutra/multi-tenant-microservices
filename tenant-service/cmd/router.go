@@ -4,28 +4,33 @@ import (
 	"net/http"
 
 	"tenant-service/internal/handler"
-	"tenant-service/internal/middleware"
-	"tenant-service/internal/repository"
 	"tenant-service/internal/service"
-	"tenant-service/internal/types"
+	"tenant-service/internal/txctx"
+
+	"github.com/gin-gonic/gin"
 )
 
-// newRouter initializes all HTTP routes, middleware, and handler factories.
-func newRouter(tenantMiddleware *middleware.TenantMiddleware) http.Handler {
-	// Handler Factory for Member API
-	memberHandlerFactory := func(cfg types.TenantConfig) http.HandlerFunc {
-		memberRepo := repository.NewMemberRepository(cfg)
-		memberService := service.NewMemberService(memberRepo)
-		memberHandler := handler.NewMemberHandler(memberService)
-		return memberHandler.GetMembers
+func newRouter(txManager txctx.TxManager, workspaceService service.WorkspaceService) http.Handler {
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(gin.Recovery(), gin.Logger())
+
+	workspaceHandler := handler.NewWorkspaceHandler(txManager, workspaceService)
+
+	// Public registration endpoint
+	r.POST("/api/register", workspaceHandler.RegisterWorkspace)
+
+	// Internal Control Plane endpoints
+	internal := r.Group("/internal/tenants")
+	{
+		internal.PATCH("/:tenant_id/infrastructure", workspaceHandler.UpdateInfrastructure)
+		internal.GET("/:tenant_id/infrastructure/:service_name", workspaceHandler.GetServiceInfrastructure)
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/members", tenantMiddleware.ResolveTenant(memberHandlerFactory))
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("OK"))
+	// Health check
+	r.GET("/health", func(c *gin.Context) {
+		c.String(http.StatusOK, "OK")
 	})
 
-	return mux
+	return r
 }
