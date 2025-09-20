@@ -1,0 +1,32 @@
+services:
+  order-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: order-service
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      SHARED_DB_HOST: ${SHARED_DB_HOST:-broker-postgres}
+      SHARED_DB_PORT: ${SHARED_DB_PORT:-5432}
+      SHARED_DB_USER: ${SHARED_DB_USER:-postgres}
+      SHARED_DB_PASSWORD: ${SHARED_DB_PASSWORD:-postgres}
+      SHARED_DB_NAME: ${SHARED_DB_NAME:-shared_db}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@broker-rabbitmq:5672/}
+      TENANT_SERVICE_URL: ${TENANT_SERVICE_URL:-http://tenant-service:8082}
+      PORT: ${PORT:-8084}
+    ports:
+      - "${PORT:-8084}:${PORT:-8084}"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=broker-network"
+      - "traefik.http.routers.order-service.rule=PathPrefix(`/api/orders`)"
+      - "traefik.http.routers.order-service.entrypoints=web"
+      - "traefik.http.services.order-service.loadbalancer.server.port=${PORT:-8084}"
+    networks:
+      - broker-network
+
+networks:
+  broker-network:
+    external: true

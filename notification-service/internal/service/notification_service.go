@@ -10,9 +10,9 @@ import (
 )
 
 type SendWelcomeNotificationInput struct {
-	EventID  string
-	UserID   string
-	TenantID string
+	EventID    string
+	TenantID   string
+	OwnerEmail string
 }
 
 type NotificationService interface {
@@ -38,7 +38,6 @@ func NewNotificationService(
 }
 
 func (s *notificationService) SendWelcomeNotification(ctx context.Context, input SendWelcomeNotificationInput) error {
-	// 1. Inbox Pattern Guard (uses transaction from ctx passed by consumer)
 	isDuplicate, err := s.inboxRepo.TryInsert(ctx, input.EventID)
 	if err != nil {
 		return fmt.Errorf("inbox guard failed: %w", err)
@@ -48,13 +47,6 @@ func (s *notificationService) SendWelcomeNotification(ctx context.Context, input
 		return nil
 	}
 
-	// 2. Fetch recipient email
-	userEmail, err := s.repo.GetUserEmailByID(ctx, input.UserID)
-	if err != nil {
-		return fmt.Errorf("failed to fetch user email for notification: %w", err)
-	}
-
-	// 3. Persist Notification Audit Log (shares same transaction via ctx)
 	subject := "Welcome! Your Tenant Workspace is Ready"
 	bodyText := fmt.Sprintf(
 		"Hello,\n\nYour tenant workspace '%s' has been successfully provisioned and is ready for use.\n\nThank you for choosing our platform!",
@@ -62,9 +54,8 @@ func (s *notificationService) SendWelcomeNotification(ctx context.Context, input
 	)
 
 	auditLog := repository.NotificationLog{
-		UserID:         input.UserID,
 		TenantID:       input.TenantID,
-		RecipientEmail: userEmail,
+		RecipientEmail: input.OwnerEmail,
 		Subject:        subject,
 		Body:           bodyText,
 		Status:         "sent",
@@ -76,13 +67,12 @@ func (s *notificationService) SendWelcomeNotification(ctx context.Context, input
 
 	log.Printf("NotificationService: Prepared notification for event_id='%s', audit log id=%d", input.EventID, logID)
 
-	// 4. Send email via Mailer
-	_, _, mailErr := s.mailer.SendWelcomeEmail(userEmail, input.TenantID)
+	_, _, mailErr := s.mailer.SendWelcomeEmail(input.OwnerEmail, input.TenantID)
 	if mailErr != nil {
-		log.Printf("NotificationService: Failed to send welcome email to '%s': %v", userEmail, mailErr)
+		log.Printf("NotificationService: Failed to send welcome email to '%s': %v", input.OwnerEmail, mailErr)
 		return mailErr
 	}
 
-	log.Printf("NotificationService: Welcome email dispatched to '%s' for tenant='%s'", userEmail, input.TenantID)
+	log.Printf("NotificationService: Welcome email dispatched to '%s' for tenant='%s'", input.OwnerEmail, input.TenantID)
 	return nil
 }

@@ -11,25 +11,31 @@ import (
 )
 
 const (
-	ExchangeCompanyEvents       = "company.events"
-	RoutingKeyTenantProvisioned = "tenant.provisioned"
+	ExchangeCompanyEvents        = "company.events"
+	RoutingKeyWorkspaceInitiated = "workspace.initiated"
+	RoutingKeyWorkspaceReady     = "workspace.ready"
 )
 
-type TenantProvisionedEvent struct {
-	// EventID is the outbox row ID that generated this message.
-	// Consumers use this as a deduplication key in their Inbox table
-	// to safely handle duplicate deliveries after a crash.
-	EventID       string `json:"event_id"`
-	TenantID      string `json:"tenant_id"`
-	TenantSlug    string `json:"tenant_slug"`
-	UserID        string `json:"user_id"`
-	PlacementType string `json:"placement_type,omitempty"`
-	SchemaName    string `json:"schema_name,omitempty"`
-	DbDSN         string `json:"db_dsn,omitempty"`
+// WorkspaceInitiatedEvent is published when a new tenant workspace is registered.
+// EventID serves as the outbox row ID for consumer Inbox deduplication.
+type WorkspaceInitiatedEvent struct {
+	EventID    string `json:"event_id"`
+	TenantID   string `json:"tenant_id"`
+	Plan       string `json:"plan"`
+	OwnerEmail string `json:"owner_email"`
+	OwnerName  string `json:"owner_name"`
+}
+
+// WorkspaceReadyEvent is published once all required domain services have checked in.
+type WorkspaceReadyEvent struct {
+	EventID    string `json:"event_id"`
+	TenantID   string `json:"tenant_id"`
+	OwnerEmail string `json:"owner_email"`
 }
 
 type TenantEventPublisher interface {
-	PublishTenantProvisioned(ctx context.Context, evt TenantProvisionedEvent) error
+	PublishWorkspaceInitiated(ctx context.Context, evt WorkspaceInitiatedEvent) error
+	PublishWorkspaceReady(ctx context.Context, evt WorkspaceReadyEvent) error
 }
 
 type RabbitMQTenantPublisher struct {
@@ -40,33 +46,51 @@ func NewTenantPublisher(client *rabbitmq.Client) (*RabbitMQTenantPublisher, erro
 	if err := client.DeclareExchange(ExchangeCompanyEvents, "topic"); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange for tenant publisher: %w", err)
 	}
-
-	return &RabbitMQTenantPublisher{
-		client: client,
-	}, nil
+	return &RabbitMQTenantPublisher{client: client}, nil
 }
 
-func (p *RabbitMQTenantPublisher) PublishTenantProvisioned(ctx context.Context, evt TenantProvisionedEvent) error {
+func (p *RabbitMQTenantPublisher) PublishWorkspaceInitiated(ctx context.Context, evt WorkspaceInitiatedEvent) error {
 	body, err := json.Marshal(evt)
 	if err != nil {
-		return fmt.Errorf("failed to marshal TenantProvisioned event: %w", err)
+		return fmt.Errorf("failed to marshal WorkspaceInitiated event: %w", err)
 	}
-
 	err = p.client.Channel.PublishWithContext(
 		ctx,
-		ExchangeCompanyEvents,       // exchange
-		RoutingKeyTenantProvisioned, // routing key
-		false,                       // mandatory
-		false,                       // immediate
+		ExchangeCompanyEvents,
+		RoutingKeyWorkspaceInitiated,
+		false,
+		false,
 		amqp.Publishing{
 			ContentType: "application/json",
 			Body:        body,
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("failed to publish TenantProvisioned event: %w", err)
+		return fmt.Errorf("failed to publish WorkspaceInitiated event: %w", err)
 	}
+	log.Printf("TenantPublisher: Published WorkspaceInitiated for tenant_id='%s' plan='%s'", evt.TenantID, evt.Plan)
+	return nil
+}
 
-	log.Printf("TenantPublisher: Published TenantProvisioned event for tenant_id='%s' (user_id='%s')", evt.TenantID, evt.UserID)
+func (p *RabbitMQTenantPublisher) PublishWorkspaceReady(ctx context.Context, evt WorkspaceReadyEvent) error {
+	body, err := json.Marshal(evt)
+	if err != nil {
+		return fmt.Errorf("failed to marshal WorkspaceReady event: %w", err)
+	}
+	err = p.client.Channel.PublishWithContext(
+		ctx,
+		ExchangeCompanyEvents,
+		RoutingKeyWorkspaceReady,
+		false,
+		false,
+		amqp.Publishing{
+			ContentType: "application/json",
+			Body:        body,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to publish WorkspaceReady event: %w", err)
+	}
+	log.Printf("TenantPublisher: Published WorkspaceReady for tenant_id='%s'", evt.TenantID)
 	return nil
 }

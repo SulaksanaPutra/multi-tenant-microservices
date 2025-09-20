@@ -3,16 +3,20 @@ package main
 import (
 	"net/http"
 
-	"user-service/internal/handler"
+	"user-service/internal/utils"
+
+	"github.com/gin-gonic/gin"
 )
 
-func newRouter(userHandler *handler.UserHandler) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/register", userHandler.RegisterUser)
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("OK"))
+// newRouter initializes all HTTP routes, middleware, and handlers for User Service.
+func newRouter() http.Handler {
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(gin.Recovery(), gin.Logger())
+
+	r.GET("/health", func(c *gin.Context) {
+		utils.WriteSuccess[any](c, http.StatusOK, "OK", nil)
 	})
 
-	return mux
+	return r
 }

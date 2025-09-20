@@ -13,22 +13,22 @@ import (
 
 	"tenant-service/internal/infrastructure/postgres"
 	"tenant-service/internal/infrastructure/rabbitmq"
-	"tenant-service/internal/middleware"
 	"tenant-service/internal/publisher"
 	"tenant-service/internal/repository"
 	"tenant-service/internal/service"
+	"tenant-service/internal/txctx"
 )
 
 func main() {
 	loadEnv(".env")
-	log.Println("Starting Tenant Service...")
+	log.Println("Starting Tenant Service (Control Plane)...")
 
 	// Environment variables
 	dbHost := getEnv("DB_HOST", "localhost")
 	dbPort := getEnv("DB_PORT", "5432")
 	dbUser := getEnv("DB_USER", "postgres")
 	dbPassword := getEnv("DB_PASSWORD", "postgres")
-	dbName := getEnv("DB_NAME", "broker_db")
+	dbName := getEnv("DB_NAME", "tenant_manager_db")
 	amqpURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
 	httpPort := getEnv("PORT", "8082")
 
@@ -45,41 +45,40 @@ func main() {
 	}
 	defer rmqClient.Close()
 
-	// 2. Initialize Repositories & Tenant Middleware (Pool Registry & Resolution)
-	provisionerRepo := repository.NewProvisionerRepository(dbClient)
-	controlPlaneRepo := repository.NewControlPlaneRepository(dbClient)
+	// 2. Initialize Repositories & Transaction Manager
+	txManager := txctx.NewTxManager(dbClient.DB)
+	controlRepo := repository.NewControlPlaneRepository(dbClient)
 	outboxRepo := repository.NewOutboxRepository(dbClient.DB)
-	tenantMiddleware := middleware.NewTenantMiddleware(controlPlaneRepo, dbClient.DB)
-	defer tenantMiddleware.CloseAll()
 
-	// 3. Register & Start Background Workers Collection
+	// 3. Initialize Publisher
 	tenantPublisher, err := publisher.NewTenantPublisher(rmqClient)
 	if err != nil {
 		log.Fatalf("Failed to initialize tenant publisher: %v", err)
 	}
 
-	wRunner := registerWorkers(outboxRepo, tenantPublisher, tenantMiddleware)
+	// 4. Register & Start Background Workers
+	wRunner := registerWorkers(outboxRepo, tenantPublisher)
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	defer workerCancel()
 	wRunner.start(workerCtx)
 
-	// 4. Initialize Domain Services
-	provisionerService := service.NewProvisionerService(provisionerRepo, outboxRepo, wRunner.OutboxWorker())
+	// 5. Initialize Domain Services
+	workspaceService := service.NewWorkspaceService(service.WorkspaceServiceParams{
+		ControlRepo:  controlRepo,
+		OutboxRepo:   outboxRepo,
+		OutboxWorker: wRunner.OutboxWorker(),
+	})
 
-	// 5. Register & Start Inbound Queue Consumers Collection
-	cRunner, err := registerConsumers(dbClient, rmqClient, provisionerService)
-	if err != nil {
-		log.Fatalf("Failed to register consumers: %v", err)
-	}
-
+	// 6. Register & Start Inbound Queue Consumers (none — tenant-service is a pure producer)
+	cRunner := registerConsumers()
 	consumerCtx, consumerCancel := context.WithCancel(context.Background())
 	defer consumerCancel()
 	if err := cRunner.start(consumerCtx); err != nil {
 		log.Fatalf("Failed to start consumers: %v", err)
 	}
 
-	// 6. Register HTTP Router
-	httpRouter := newRouter(tenantMiddleware)
+	// 7. Register HTTP Router
+	httpRouter := newRouter(txManager, workspaceService)
 	httpServer := &http.Server{
 		Addr:    ":" + httpPort,
 		Handler: httpRouter,
@@ -92,7 +91,7 @@ func main() {
 		}
 	}()
 
-	// 7. Graceful Shutdown Setup
+	// 8. Graceful Shutdown Setup
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
@@ -106,7 +105,12 @@ func loadEnv(filepath string) {
 	if err != nil {
 		return
 	}
-	defer file.Close()
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			println(err.Error())
+		}
+	}(file)
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {

@@ -16,15 +16,8 @@ func registerWorkers(
 	outboxRepo repository.OutboxRepository,
 	userPublisher publisher.UserEventPublisher,
 ) *workerRunner {
-	outboxWorker := worker.NewOutboxWorker(worker.OutboxWorkerParams{
-		OutboxRepo: outboxRepo,
-		Publisher:  userPublisher,
-		EventType:  "user.registered",
-	})
-
-	return &workerRunner{
-		outboxWorker: outboxWorker,
-	}
+	outboxWorker := worker.NewOutboxWorker(outboxRepo, userPublisher)
+	return &workerRunner{outboxWorker: outboxWorker}
 }
 
 func (wr *workerRunner) start(ctx context.Context) {

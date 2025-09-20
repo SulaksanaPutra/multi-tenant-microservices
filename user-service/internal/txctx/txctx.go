@@ -3,6 +3,7 @@ package txctx
 import (
 	"context"
 	"database/sql"
+	"fmt"
 )
 
 type execKey struct{}
@@ -12,6 +13,43 @@ type DBExecutor interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// TxManager executes operations within a database transaction boundary.
+type TxManager interface {
+	WithTransaction(ctx context.Context, fn func(txCtx context.Context) error) error
+}
+
+type sqlTxManager struct {
+	db *sql.DB
+}
+
+// NewTxManager returns a new TxManager instance backed by standard *sql.DB.
+func NewTxManager(db *sql.DB) TxManager {
+	return &sqlTxManager{db: db}
+}
+
+func (m *sqlTxManager) WithTransaction(ctx context.Context, fn func(txCtx context.Context) error) (err error) {
+	tx, err := m.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	txCtx := WithTx(ctx, tx)
+
+	defer func() {
+		if r := recover(); r != nil {
+			_ = tx.Rollback()
+			panic(r)
+		} else if err != nil {
+			_ = tx.Rollback()
+		} else {
+			err = tx.Commit()
+		}
+	}()
+
+	err = fn(txCtx)
+	return err
 }
 
 // WithTx returns a new Context that carries the provided *sql.Tx.

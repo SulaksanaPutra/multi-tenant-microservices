@@ -110,7 +110,12 @@ func (r *outboxRepository) FetchAndClaimBatch(ctx context.Context, eventType str
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch and claim outbox batch: %w", err)
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		err := rows.Close()
+		if err != nil {
+			println(err.Error())
+		}
+	}(rows)
 
 	var list []OutboxMessage
 	for rows.Next() {
@@ -164,21 +169,20 @@ func (r *outboxRepository) MarkFailed(ctx context.Context, id string, err error)
 	exec := txctx.GetExecutor(ctx, r.db)
 	safeErr := sanitizeError(err)
 	const query = `
-		UPDATE public.outbox
-		SET retry_count  = retry_count + 1,
-		    last_error   = $2,
-		    claimed_at   = NULL,
-		    next_retry_at = CASE
-		        WHEN retry_count + 1 < $3
-		        THEN NOW() + (INTERVAL '1 second' * POWER(2, retry_count + 1))
-		        ELSE NULL
-		    END,
-		    status = CASE
-		        WHEN retry_count + 1 >= $3 THEN 'FAILED'
-		        ELSE 'PENDING'
-		    END
-		WHERE id = $1;
-	`
+			UPDATE public.outbox
+			SET retry_count  = retry_count + 1,
+				last_error   = $2,
+				claimed_at   = NULL,
+				next_retry_at = CASE
+					WHEN retry_count + 1 < $3
+					THEN NOW() + (INTERVAL '1 second' * POWER(2, retry_count + 1))
+					END,
+				status = CASE
+					WHEN retry_count + 1 >= $3 THEN 'FAILED'
+					ELSE 'PENDING'
+				END
+			WHERE id = $1;
+		`
 	if _, dbErr := exec.ExecContext(ctx, query, id, safeErr, maxRetries); dbErr != nil {
 		return fmt.Errorf("failed to mark outbox record as failed: %w", dbErr)
 	}

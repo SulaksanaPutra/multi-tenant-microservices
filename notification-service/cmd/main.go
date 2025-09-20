@@ -16,6 +16,7 @@ import (
 	"notification-service/internal/mailer"
 	"notification-service/internal/repository"
 	"notification-service/internal/service"
+	"notification-service/internal/txctx"
 )
 
 func main() {
@@ -27,7 +28,7 @@ func main() {
 	dbPort := getEnv("DB_PORT", "5432")
 	dbUser := getEnv("DB_USER", "postgres")
 	dbPassword := getEnv("DB_PASSWORD", "postgres")
-	dbName := getEnv("DB_NAME", "broker_db")
+	dbName := getEnv("DB_NAME", "notification_db")
 	amqpURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
 	smtpHost := getEnv("SMTP_HOST", "localhost")
 	smtpPort := getEnv("SMTP_PORT", "1025")
@@ -49,7 +50,8 @@ func main() {
 	// 2. Initialize Infrastructure Mailer
 	m := mailer.NewMailer(smtpHost, smtpPort, "no-reply@company.com")
 
-	// 3. Initialize Repositories (Data Access Layer & Inbox Pattern)
+	// 3. Initialize Repositories (Data Access Layer & Inbox Pattern) & TxManager
+	txManager := txctx.NewTxManager(dbClient.DB)
 	notifRepo := repository.NewNotificationRepository(dbClient)
 	inboxRepo := repository.NewInboxRepository(dbClient)
 
@@ -57,7 +59,7 @@ func main() {
 	notifService := service.NewNotificationService(notifRepo, inboxRepo, m)
 
 	// 5. Register & Start Inbound Queue Consumers Collection
-	cRunner, err := registerConsumers(dbClient, rmqClient, notifService)
+	cRunner, err := registerConsumers(txManager, rmqClient, notifService)
 	if err != nil {
 		log.Fatalf("Failed to register consumers: %v", err)
 	}
