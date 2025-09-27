@@ -84,14 +84,16 @@ func (c *UserCreatedConsumer) Start(ctx context.Context) error {
 					continue
 				}
 
-				input := service.SendWelcomeNotificationInput{
+				input := service.ProcessEventInput{
 					EventID:    evt.EventID,
 					TenantID:   evt.TenantID,
+					EventType:  "user.created",
 					OwnerEmail: evt.Email,
+					Payload:    d.Body,
 				}
 
 				err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-					return c.notificationService.SendWelcomeNotification(txCtx, input)
+					return c.notificationService.ProcessEventAndTrySendWelcome(txCtx, input)
 				})
 
 				if err != nil {
