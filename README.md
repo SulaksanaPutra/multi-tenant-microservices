@@ -1,221 +1,253 @@
-# Broker API Workspace (Polyrepo Simulation)
+# Broker API Workspace (Multi-Tenant Microservices Architecture)
 
-This workspace is structured as a collection of independent, unlinked directories to simulate a **Polyrepo** architecture. Each directory operates as a standalone project with equal status, running on a shared Docker network.
+This workspace demonstrates a **Multi-Tenant Microservices Architecture** supporting both **Shared (Schema-per-Tenant)** and **Dedicated (Database-per-Tenant via Docker)** isolation models.
 
 ---
 
-## 1. Network & Orchestration Flow
+## 1. System Architecture Overview
 
-Each folder represents an independent project. To connect them, the `broker/` infrastructure service spins up PostgreSQL, RabbitMQ, Mailpit, and Traefik Gateway on a shared external Docker network called `broker-network`.
+```text
++-----------------------------------------------------------------------------------+
+|                            System Architecture Overview                           |
++-----------------------------------------------------------------------------------+
 
-```mermaid
-graph TD
-    subgraph broker/ Folder (Infrastructure & Compose)
-        TR[Traefik Gateway (Port 80)]
-        DB[(PostgreSQL)]
-        MQ[RabbitMQ]
-        SMTP[Mailpit]
-    end
-
-    subgraph Independent Service Folders (Same directory level)
-        US[user-service]
-        TS[tenant-service]
-        NS[notification-service]
-    end
-
-    TR -->|Proxy /api/v1/register| US
-
-    US -->|Port 5672| MQ
-    US -->|Port 5432| DB
-    
-    TS -->|Port 5672| MQ
-    TS -->|Port 5432| DB
-
-    NS -->|Port 5672| MQ
-    NS -->|Port 5432| DB
-    NS -->|Port 1025| SMTP
-
-    classDef infra fill:#f9f,stroke:#333,stroke-width:2px;
-    classDef service fill:#bbf,stroke:#333,stroke-width:2px;
-    class DB,MQ,SMTP,TR infra;
-    class US,TS,NS service;
+[ Client App ]
+      │  HTTP Requests (POST /api/register, POST /api/orders, GET /api/orders)
+      ▼
+[ Traefik Gateway :8000 ]
+      │
+      ├─────► POST /api/register  ────────► [ tenant-service :8082 ]
+      │                                             │ (Outbox Write)
+      │                                             ▼
+      │                                     [ tenantManagerDB ]
+      │                                             │
+      │                                             ▼ (Publish)
+      │                                     [ RabbitMQ Broker ]
+      │                                             │
+      │         ┌───────────────────────────────────┼─────────────────────────┬─────────────────────────┐
+      │         ▼                                   ▼                         ▼                         ▼
+      └─────► POST / GET /api/orders ──► [ order-service :8083 ]    [ user-service :8081 ]   [ notification-service :8084 ]
+                                                    │                         │                         │
+                            ┌───────────────────────┴───────────┐             ▼                         ▼
+                            ▼                                   ▼         [ userDB ]            [ notificationDB ]
+                   (Shared Plan: Schema)                 (Dedicated Plan)                        [ Mailpit SMTP ]
+                       [ sharedDB ]                      [ Docker Engine ]
+                                                                │
+                                                                ▼
+                                                    [ dedicated_order_db_<id> ]
 ```
 
 ---
 
-## 2. Dynamic Workflow & Events Sequence
+## 2. Workflows & Sequences
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Client
-    participant Traefik as Traefik Gateway (Port 80)
-    participant UserSvc as User Service
-    participant RabbitMQ
-    participant TenantSvc as Tenant Service
-    participant DB as PostgreSQL
-    participant NotifSvc as Notification Service
-    participant SMTP as Mailpit (Mock SMTP)
+### 2.1 Registration & Dynamic Infrastructure Provisioning (`POST /api/register`)
 
-    Client->>Traefik: 1. POST http://localhost/api/v1/register
-    Traefik->>UserSvc: 2. Proxy request to user-service:8081
-    critical User DB Commit
-        UserSvc->>DB: 3. Create row in users table (main database)
-    end
-    UserSvc->>RabbitMQ: 4. Publish "UserRegistered" event
-    UserSvc-->>Traefik: 5. Return 202 Accepted
-    Traefik-->>Client: 6. Return 202 Accepted (Sync HTTP over)
+```text
++-----------------------------------------------------------------------------------+
+|                            POST /api/register Workflow                            |
++-----------------------------------------------------------------------------------+
 
-    rect rgb(220, 240, 255)
-        note right of TenantSvc: Async Tenant Provisioning
-        RabbitMQ->>TenantSvc: 7. Consume "UserRegistered"
-        TenantSvc->>DB: 8. Connect & generate new sub-schema
-        TenantSvc->>DB: 9. Run migrations & seed initial tenant data
-        TenantSvc->>RabbitMQ: 10. Publish "TenantProvisioned" event
-    end
-
-    rect rgb(240, 255, 240)
-        note right of NotifSvc: Async Notification
-        RabbitMQ->>NotifSvc: 11. Consume "TenantProvisioned"
-        NotifSvc->>DB: 12. Connect & fill notification table
-        NotifSvc->>SMTP: 13. Fire off welcome email
-    end
+[ Client ] 
+    │  POST /api/register (email, name, tenant_plan)
+    ▼
+[ tenant-service ] 
+    │  1. Save tenant metadata (status: pending)
+    │  2. Save event payload to Outbox table
+    │     ───► (Inside ONE Database Transaction)
+    │  3. Return HTTP 202 Accepted to Client
+    ▼
+[ Outbox Worker ] 
+    │  Reads outbox table & publishes event to queue
+    ▼
+[ RabbitMQ Queue ] ──► (user.registered)
+    │
+    ├───────────────────────────────┬──────────────────────────────┐
+    ▼                               ▼                              ▼
+[ order-service ]               [ user-service ]          [ notification-service ]
+    │ Check Inbox table             │ Save user profile        │ Log notification
+    │                               ▼                          │ Send welcome email
+    ├─► Shared Plan:            [ userDB ]                     ▼
+    │   CREATE SCHEMA                                      [ notificationDB ]
+    │   order_db_<tenantID>                                [ Mailpit SMTP ]
+    │
+    ├─► Dedicated Plan:
+    │   Spin Postgres Container
+    │   dedicated_order_db_<tenantID>
+    │
+    ▼ Run SQL Migrations
+[ Target Order Database ]
+    │
+    ▼ Directory Write-Back (PATCH /internal/tenants/{tenantID}/infrastructure)
+[ tenant-service (tenantManagerDB) ]
 ```
 
+#### Step-by-Step Breakdown:
+1. **User Registration:** Client sends `POST /api/register` specifying `email`, `name`, and `tenant_plan` (`Shared` vs. `Dedicated`).
+2. **Atomic Write (Outbox Pattern):** `tenant-service` writes tenant details and an outbox event in **a single database transaction**, returning HTTP `202 Accepted`.
+3. **Event Dispatching:** The outbox worker reads the outbox table and publishes `user.registered` to RabbitMQ.
+4. **Idempotent Consumption (Inbox Pattern):** `order-service` consumes the event, checking its `inbox` table to skip duplicate executions.
+5. **Dynamic Infrastructure Provisioning:**
+   - **Shared Plan:** `order-service` creates a PostgreSQL schema (`CREATE SCHEMA order_db_<tenantID>;`).
+   - **Dedicated Plan:** `order-service` talks to Docker API to launch a standalone PostgreSQL container (`dedicated_order_db_<tenantID>`).
+6. **Directory Write-Back:** `order-service` registers the database DSN back to `tenant-service` (`PATCH /internal/tenants/{tenantID}/infrastructure`).
+
 ---
 
-## 3. RabbitMQ Event Design
+### 2.2 Orders Workflow (`POST /api/orders` & `GET /api/orders`)
 
-### Exchange: `company.events` (Topic Exchange)
+```text
++-----------------------------------------------------------------------------------+
+|                        POST / GET /api/orders Workflow                            |
++-----------------------------------------------------------------------------------+
 
-| Event Name | Routing Key | Publisher | Subscriber(s) | Payload Example |
-| :--- | :--- | :--- | :--- | :--- |
-| **User Registered** | `user.registered` | User Service | Tenant Service | `{"user_id": 123}` |
-| **Tenant Provisioned** | `tenant.provisioned` | Tenant Service | Notification Service | `{"tenant_id": "abc-123", "user_id": 123}` |
+[ Client ]
+    │  POST /api/orders or GET /api/orders (Header: tenant-x-id)
+    ▼
+[ order-service ]
+    │
+    ├────────────► [ Check internal sync.Map cache: map[tenantID]*sql.DB ]
+    │                                   │
+    │  ┌────────────────────────────────┴────────────────────────────────┐
+    │  │                                                                 │
+    │  ▼ (Cache Hit - Fast Path)                                         ▼ (Cache Miss - Slow Path)
+    │  Use existing *sql.DB pool                                        Call tenant-service HTTP:
+    │                                                                   GET /internal/tenants/{tenantID}/infrastructure/order-service
+    │                                                                    │
+    │                                                                    ▼ Returns DSN
+    │                                                                   Open *sql.DB connection pool
+    │                                                                   Save pool into sync.Map
+    │  ┌─────────────────────────────────────────────────────────────────┘
+    │  │
+    ▼  ▼
+[ Tenant Database (Shared Schema or Dedicated Container) ]
+    │ Execute INSERT or SELECT query
+    ▼
+[ Return Response to Client (201 Created or 200 OK) ]
+```
+
+#### Step-by-Step Breakdown:
+1. **Request Ingress:** Client sends `POST /api/orders` (create order) or `GET /api/orders` (fetch orders) with `tenant-x-id` in the HTTP header.
+2. **Cache Lookup:** `order-service` checks its internal Go `sync.Map` for an active database connection pool.
+3. **Fast Path (Cache Hit):** If present, `order-service` executes the query immediately against the tenant's isolated database.
+4. **Slow Path (Cache Miss):** If missing, `order-service` calls `tenant-service` (`GET /internal/tenants/{tenantID}/infrastructure/order-service`) to retrieve the DSN, opens a connection pool, caches it in `sync.Map`, and executes the query.
 
 ---
 
-## 4. Directory Structure
-
-All projects live in the `/broker-api` workspace but operate as **equal, decoupled entities**:
+## 3. Directory Structure
 
 ```text
 broker-api/
-├── README.md                     # Architecture documentation
-├── ROADMAP.md                    # Actionable execution plan & checklist
+├── README.md                     # Workspace & Architecture Documentation
+├── repomix.config.json           # Repomix code bundle configuration
+├── repomix-output.xml            # Compressed repository snapshot
 │
-├── broker/                       # Infrastructure & Orchestration (Simulating Infra Repo)
-│   ├── init.sql                  # Base DDL for public schema (users, tenants, notifications)
-│   └── docker-compose.yml        # Configures Postgres, RabbitMQ, Mailpit, Traefik, broker-network
+├── broker/                       # Infrastructure & Orchestration
+│   ├── init.sql                  # Base database initialization scripts
+│   └── docker-compose.yml        # Configures Postgres, RabbitMQ, Mailpit, Traefik
 │
-├── user-service/                 # Standalone Go REST API (Controller-Service-Repository Pattern)
-│   ├── cmd/main.go               # Port 8081 - HTTP REST API Entrypoint & DI Wireup
+├── tenant-service/               # Control-Plane Tenant Management & Outbox Service
+│   ├── cmd/main.go               # Port 8082 - HTTP API & DSN Directory Service
 │   ├── internal/
-│   │   ├── utils/                # Pure Utilities (slug.go)
-│   │   ├── infrastructure/       # Postgres & RabbitMQ Drivers (postgres/client.go, rabbitmq/client.go)
-│   │   ├── repository/           # Data Access Layer (user_repository.go, tenant_repository.go)
-│   │   ├── service/              # Business Logic & Orchestration (user_service.go)
-│   │   ├── publisher/            # Outbound Event Publisher (user_publisher.go)
-│   │   └── handler/              # HTTP Controllers & Response Helpers (register.go, response.go)
+│   │   ├── repository/           # Tenant metadata & outbox storage
+│   │   └── handler/              # Register & internal infrastructure endpoints
 │   └── Dockerfile
 │
-├── tenant-service/               # Standalone Go Async Worker (Controller-Service-Repository Pattern)
-│   ├── cmd/main.go               # Background Async Worker Entrypoint
-│   ├── internal/
-│   │   ├── utils/                # Pure Utilities (slug.go)
-│   │   ├── infrastructure/       # Postgres & RabbitMQ Drivers
-│   │   ├── repository/           # Provisioner Data Access Layer (provisioner_repository.go)
-│   │   ├── publisher/            # Outbound Event Publisher (tenant_publisher.go)
-│   │   ├── service/              # Provisioner Business Logic (tenant_service.go)
-│   │   └── consumer/             # Inbound Transport Consumer (user_registered_consumer.go)
-│   ├── migrations/               # Schema-per-tenant migration SQL templates
+├── user-service/                 # User Identity Service
+│   ├── cmd/main.go               # Port 8081 - User Management & Event Consumer
 │   └── Dockerfile
 │
-├── notification-service/         # Standalone Go Async Worker (Controller-Service-Repository Pattern)
-│   ├── cmd/main.go               # Background Async Worker Entrypoint
+├── order-service/                # Dynamic Multi-Tenant Data-Plane Service
+│   ├── cmd/main.go               # Port 8083 - Orders API & Provisioner Worker
 │   ├── internal/
-│   │   ├── infrastructure/       # Postgres & RabbitMQ Drivers
-│   │   ├── mailer/               # SMTP Mailer Driver (Mailpit)
-│   │   ├── repository/           # Notification Audit Repository (notification_repository.go)
-│   │   ├── service/              # Notification Business Logic (notification_service.go)
-│   │   └── consumer/             # Inbound Transport Consumer (tenant_provisioned_consumer.go)
+│   │   ├── infrastructure/       # DSN caching & database connection manager
+│   │   └── provisioner/          # Schema & Dedicated container provisioner
 │   └── Dockerfile
 │
-└── e2e-tests/                    # Automated E2E Test Suite (gofakeit integration)
-    ├── go.mod
-    └── register_e2e_test.go      # End-to-end integration test suite
+├── notification-service/         # Async Notification Worker
+│   ├── cmd/main.go               # Port 8084 - Audit Logger & Mailpit Dispatcher
+│   └── Dockerfile
+│
+└── e2e-tests/                    # Automated Integration Tests
+    └── register_e2e_test.go      # Dynamic registration & order flow test suite
 ```
 
 ---
 
-## 5. Port Map & Dashboards
+## 4. Port Map & Component Dashboard
 
-| Component | Container | Port | Web Dashboard / Endpoint |
+| Service / Tool | Port | Endpoint / Dashboard | Description |
 | :--- | :--- | :--- | :--- |
-| **Traefik Gateway** | `traefik` | `8000` | Entry point for API requests (`http://localhost:8000/api/v1/register`) |
-| **Traefik Dashboard** | `traefik` | `8080` | `http://localhost:8080` |
-| **PostgreSQL** | `postgres` | `5432` | `localhost:5432` |
-| **RabbitMQ AMQP** | `rabbitmq` | `5672` | `localhost:5672` |
-| **RabbitMQ Management** | `rabbitmq` | `15672` | `http://localhost:15672` (guest / guest) |
-| **Mailpit SMTP** | `mailpit` | `1025` | `localhost:1025` |
-| **Mailpit Dashboard** | `mailpit` | `8025` | `http://localhost:8025` |
+| **Traefik Gateway** | `8000` | `http://localhost:8000` | Gateway entrypoint for API requests |
+| **Traefik Dashboard** | `8080` | `http://localhost:8080` | Route & proxy dashboard |
+| **tenant-service** | `8082` | `tenant-service:8082` | Control-plane directory & registration API |
+| **order-service** | `8083` | `order-service:8083` | Orders data-plane & provisioner worker |
+| **user-service** | `8081` | `user-service:8081` | User profile service |
+| **notification-service** | `8084` | `notification-service:8084` | Email notification worker |
+| **RabbitMQ Management**| `15672` | `http://localhost:15672` | Queue dashboard (`guest` / `guest`) |
+| **Mailpit Dashboard** | `8025` | `http://localhost:8025` | Mock email inbox UI |
 
 ---
 
-## 6. How to Run & Stop the Application
+## 5. How to Run & Stop the Application
 
-### 🚀 Starting the Infrastructure & Services
+### Starting Infrastructure & Microservices
 
 1. **Start Shared Infrastructure (`broker/`)**:
    ```bash
    cd broker && docker compose up -d
    ```
-   *Spuns up PostgreSQL, RabbitMQ, Mailpit, Traefik Gateway, and creates `broker-network`.*
+   *Spins up PostgreSQL, RabbitMQ, Mailpit, Traefik Gateway, and creates `broker-network`.*
 
 2. **Start Microservices**:
-   Run each service in a separate terminal or sequentially:
+   Run each service sequentially or in separate terminals:
    ```bash
+   # Start Tenant Service (Control Plane & Outbox Worker)
+   cd tenant-service && docker compose up -d --build
+
    # Start User Service
-   cd user-service && docker compose up -d --build
+   cd ../user-service && docker compose up -d --build
 
-   # Start Tenant Service (Background Worker)
-   cd ../tenant-service && docker compose up -d --build
+   # Start Order Service (Data Plane & Dynamic Provisioner)
+   cd ../order-service && docker compose up -d --build
 
-   # Start Notification Service (Background Worker)
+   # Start Notification Service (Async Worker)
    cd ../notification-service && docker compose up -d --build
    ```
 
-3. **Run Automated E2E Tests**:
+3. **Run Automated E2E Integration Tests**:
    ```bash
    cd e2e-tests && CGO_ENABLED=0 go test -v ./...
    ```
 
 ---
 
-### 🛑 Stopping All Services
+### Stopping All Services
 
-To shut down all containers and clean up the shared network, run:
+To shut down all microservices and shared infrastructure:
 
 ```bash
 (cd notification-service && docker compose down) && \
-(cd tenant-service && docker compose down) && \
+(cd order-service && docker compose down) && \
 (cd user-service && docker compose down) && \
+(cd tenant-service && docker compose down) && \
 (cd broker && docker compose down)
 ```
 
 ---
 
-### 🧹 Fresh Start / Reset Database Completely
+### Fresh Start / Reset Database Completely
 
-PostgreSQL persists database state in a named Docker volume (`broker_postgres_data`). Standard `docker compose down` leaves the database volume intact.
+PostgreSQL persists database state in a named Docker volume (`broker_postgres_data`). Standard `docker compose down` leaves the volume intact.
 
 To **wipe the database completely** and start fresh from scratch:
 
 ```bash
 # 1. Stop all microservices
 (cd notification-service && docker compose down) && \
-(cd tenant-service && docker compose down) && \
-(cd user-service && docker compose down)
+(cd order-service && docker compose down) && \
+(cd user-service && docker compose down) && \
+(cd tenant-service && docker compose down)
 
 # 2. Wipe infrastructure and persistent volume (-v flag)
 cd broker && docker compose down -v
@@ -223,37 +255,4 @@ cd broker && docker compose down -v
 # 3. Start fresh infrastructure (auto-recreates DB & runs init.sql)
 cd broker && docker compose up -d
 ```
-
----
-
-## 7. Connecting DataGrip to the Database
-
-Follow these steps to connect JetBrains **DataGrip** (or DBeaver / TablePlus) to the multi-tenant PostgreSQL database:
-
-### 1. New Data Source Configuration
-In DataGrip:
-1. Click **+** (New Data Source) ➔ **PostgreSQL**.
-2. Fill in the connection settings:
-   - **Host**: `localhost`
-   - **Port**: `5432`
-   - **User**: `postgres`
-   - **Password**: `postgres`
-   - **Database**: `broker_db`
-   - **URL**: `jdbc:postgresql://localhost:5432/broker_db`
-
-### 2. Enable Multi-Tenant Schemas (Crucial Step!)
-Since `tenant-service` dynamically creates schema-per-tenant (`tenant_<slug>`):
-1. In the Data Source properties window, switch to the **Schemas** tab.
-2. Check **All schemas** (or select `public` and `tenant_*` patterns).
-3. Click **Test Connection**, then click **Apply** and **OK**.
-
-### 3. Exploring Tables in DataGrip
-After connecting:
-- `public` schema contains:
-  - `public.users`: Global user accounts with meaningful IDs (e.g. `usr_a1b8d37e47684bd2`, `email`, `name`).
-  - `public.tenants`: Global tenant registry (`id` e.g. `tenant_acme`, `name`, `slug`, `owner_id` FK to `public.users.id`).
-  - `public.notifications`: Notification audit logs (`id`, `user_id`, `tenant_id`, `recipient_email`, `status`).
-- `tenant_<slug>` dynamic schemas (e.g. `tenant_acme`, `tenant_stark`, `tenant_wayne`) contain:
-  - `tenant_settings`: Key-value configuration (`plan`, `status`).
-  - `tenant_members`: User roles and full member profile (`user_id`, `name`, `email`, `role`).
 
