@@ -1,76 +1,124 @@
--- Base DDL script for initializing the public schema in PostgreSQL
--- Mounted to /docker-entrypoint-initdb.d/init.sql
+-- Master Initialization Script for Primary PostgreSQL Container (broker-postgres)
+-- Provisions core microservice databases: user_db, tenant_manager_db, notification_db, and shared_db
+
+CREATE DATABASE user_db;
+CREATE DATABASE tenant_manager_db;
+CREATE DATABASE notification_db;
+CREATE DATABASE shared_db;
+
+-- 1. Setup user_db schema (user-service)
+\c user_db;
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Table: public.users (Meaningful string ID e.g. usr_<uuid>)
 CREATE TABLE IF NOT EXISTS public.users (
-    id VARCHAR(255) PRIMARY KEY,
-    email VARCHAR(255) NOT NULL UNIQUE,
-    name VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    id         VARCHAR(255) PRIMARY KEY,
+    email      VARCHAR(255) NOT NULL UNIQUE,
+    name       VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Table: public.tenants (Control Plane Tenant Catalog: supports SHARED and DEDICATED)
-CREATE TABLE IF NOT EXISTS public.tenants (
-    id VARCHAR(255) PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    slug VARCHAR(255) NOT NULL UNIQUE,
-    owner_id VARCHAR(255) NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-    placement_type VARCHAR(50) NOT NULL DEFAULT 'SHARED',
-    schema_name VARCHAR(255),
-    db_dsn VARCHAR(500),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Table: public.notifications
-CREATE TABLE IF NOT EXISTS public.notifications (
-    id SERIAL PRIMARY KEY,
-    user_id VARCHAR(255) NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-    tenant_id VARCHAR(255) NOT NULL,
-    recipient_email VARCHAR(255) NOT NULL,
-    subject VARCHAR(255) NOT NULL,
-    body TEXT NOT NULL,
-    status VARCHAR(50) DEFAULT 'sent',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Table: public.inbox (Idempotent Consumer Deduplication Table)
--- Used by notification-service to record already-processed event_ids.
--- A PRIMARY KEY violation (23505) on INSERT signals a duplicate message.
 CREATE TABLE IF NOT EXISTS public.inbox (
     event_id     VARCHAR(255) PRIMARY KEY,
-    processed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    tenant_id    VARCHAR(255),
+    event_type   VARCHAR(255),
+    payload      JSONB,
+    processed_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Table: public.outbox (Hardened Transactional Outbox Pattern)
--- Status lifecycle: PENDING -> PROCESSING -> PUBLISHED | FAILED
--- PROCESSING rows older than 30s are considered stuck and re-claimed by the sweeper.
 CREATE TABLE IF NOT EXISTS public.outbox (
-    id VARCHAR(255) PRIMARY KEY,
-    tenant_id VARCHAR(255),
+    id             VARCHAR(255) PRIMARY KEY,
+    tenant_id      VARCHAR(255),
     aggregate_type VARCHAR(255) NOT NULL,
-    aggregate_id VARCHAR(255) NOT NULL,
-    event_type VARCHAR(255) NOT NULL,
-    payload JSONB NOT NULL,
-    status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
-    retry_count INT NOT NULL DEFAULT 0,
-    last_error VARCHAR(500),
-    next_retry_at TIMESTAMP WITH TIME ZONE,
-    claimed_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    processed_at TIMESTAMP WITH TIME ZONE
+    aggregate_id   VARCHAR(255) NOT NULL,
+    event_type     VARCHAR(255) NOT NULL,
+    payload        JSONB NOT NULL,
+    status         VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+    retry_count    INT NOT NULL DEFAULT 0,
+    last_error     VARCHAR(500),
+    next_retry_at  TIMESTAMPTZ,
+    claimed_at     TIMESTAMPTZ,
+    created_at     TIMESTAMPTZ DEFAULT NOW(),
+    processed_at   TIMESTAMPTZ
 );
 
--- Indexes
 CREATE INDEX IF NOT EXISTS idx_users_email ON public.users(email);
+CREATE INDEX IF NOT EXISTS idx_inbox_tenant_event ON public.inbox(tenant_id, event_type);
+CREATE INDEX IF NOT EXISTS idx_outbox_pending ON public.outbox(event_type, next_retry_at, created_at) WHERE status IN ('PENDING', 'PROCESSING');
+
+-- 2. Setup tenant_manager_db schema (tenant-service)
+\c tenant_manager_db;
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+CREATE TABLE IF NOT EXISTS public.tenants (
+    id           VARCHAR(36)  PRIMARY KEY,
+    name         VARCHAR(255) NOT NULL,
+    slug         VARCHAR(255) NOT NULL UNIQUE,
+    owner_email  VARCHAR(255) NOT NULL,
+    owner_name   VARCHAR(255) NOT NULL,
+    plan         VARCHAR(50)  NOT NULL CHECK (plan IN ('shared', 'dedicated')),
+    status       VARCHAR(50)  NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active')),
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.tenant_service_registry (
+    tenant_id     VARCHAR(36)  NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
+    service_name  VARCHAR(100) NOT NULL,
+    dsn           TEXT         NOT NULL,
+    schema_name   VARCHAR(255),
+    checked_in_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (tenant_id, service_name)
+);
+
+CREATE TABLE IF NOT EXISTS public.outbox (
+    id             VARCHAR(255) PRIMARY KEY,
+    tenant_id      VARCHAR(36),
+    aggregate_type VARCHAR(100) NOT NULL,
+    aggregate_id   VARCHAR(255) NOT NULL,
+    event_type     VARCHAR(100) NOT NULL,
+    payload        TEXT         NOT NULL,
+    status         VARCHAR(50)  NOT NULL DEFAULT 'PENDING',
+    retry_count    INT          NOT NULL DEFAULT 0,
+    last_error     TEXT,
+    next_retry_at  TIMESTAMPTZ,
+    claimed_at     TIMESTAMPTZ,
+    created_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    processed_at   TIMESTAMPTZ
+);
+
 CREATE INDEX IF NOT EXISTS idx_tenants_slug ON public.tenants(slug);
+CREATE INDEX IF NOT EXISTS idx_outbox_status_event_type ON public.outbox (status, event_type, retry_count, created_at);
+
+-- 3. Setup notification_db schema (notification-service)
+\c notification_db;
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+CREATE TABLE IF NOT EXISTS public.notifications (
+    id              SERIAL PRIMARY KEY,
+    user_id         VARCHAR(255) NOT NULL,
+    tenant_id       VARCHAR(255) NOT NULL,
+    recipient_email VARCHAR(255) NOT NULL,
+    subject         VARCHAR(255) NOT NULL,
+    body            TEXT NOT NULL,
+    status          VARCHAR(50) DEFAULT 'sent',
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.inbox (
+    event_id     VARCHAR(255) PRIMARY KEY,
+    tenant_id    VARCHAR(255),
+    event_type   VARCHAR(255),
+    payload      JSONB,
+    processed_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON public.notifications(user_id);
--- Partial index: only index actionable rows (PENDING/PROCESSING), not terminal PUBLISHED/FAILED rows.
--- This keeps the index small and fast as the outbox table grows over time.
-CREATE INDEX IF NOT EXISTS idx_outbox_pending ON public.outbox(event_type, next_retry_at, created_at)
-    WHERE status IN ('PENDING', 'PROCESSING');
-CREATE INDEX IF NOT EXISTS idx_outbox_tenant_id ON public.outbox(tenant_id);
--- No additional index needed for public.inbox — PRIMARY KEY on event_id is already optimal.
+CREATE INDEX IF NOT EXISTS idx_inbox_tenant_event ON public.inbox(tenant_id, event_type);
+
+-- 4. Setup shared_db (order-service shared tenant schemas dynamically provisioned here)
+\c shared_db;
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

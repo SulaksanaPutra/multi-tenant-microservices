@@ -18,10 +18,11 @@ const (
 	reaperInterval = 5 * time.Minute
 )
 
-// poolEntry wraps a *sql.DB with its last-used timestamp for TTL eviction.
+// poolEntry wraps a *sql.DB and schemaName with its last-used timestamp for TTL eviction.
 type poolEntry struct {
-	db       *sql.DB
-	lastUsed time.Time
+	db         *sql.DB
+	schemaName string
+	lastUsed   time.Time
 }
 
 // PoolRegistry is a thread-safe, TTL-aware cache of tenant *sql.DB pools.
@@ -46,10 +47,10 @@ func NewPoolRegistry() *PoolRegistry {
 	}
 }
 
-// GetOrFetch returns the cached *sql.DB for tenantID.
-// On a cache miss, it calls fetchDSN to get the DSN, opens a new pool,
+// GetOrFetch returns the cached *sql.DB and schemaName for tenantID.
+// On a cache miss, it calls fetchDSN to get the DSN and schemaName, opens a new pool,
 // caches it, and returns it. Thread-safe.
-func (r *PoolRegistry) GetOrFetch(tenantID string, fetchDSN func() (*sql.DB, error)) (*sql.DB, error) {
+func (r *PoolRegistry) GetOrFetch(tenantID string, fetchDSN func() (*sql.DB, string, error)) (*sql.DB, string, error) {
 	// Fast path: read lock
 	r.mu.RLock()
 	entry, ok := r.entries[tenantID]
@@ -59,7 +60,7 @@ func (r *PoolRegistry) GetOrFetch(tenantID string, fetchDSN func() (*sql.DB, err
 		r.mu.Lock()
 		entry.lastUsed = time.Now()
 		r.mu.Unlock()
-		return entry.db, nil
+		return entry.db, entry.schemaName, nil
 	}
 
 	// Slow path: write lock, double-check, then open
@@ -69,17 +70,17 @@ func (r *PoolRegistry) GetOrFetch(tenantID string, fetchDSN func() (*sql.DB, err
 	// Double-check after acquiring write lock — another goroutine may have populated it
 	if entry, ok = r.entries[tenantID]; ok {
 		entry.lastUsed = time.Now()
-		return entry.db, nil
+		return entry.db, entry.schemaName, nil
 	}
 
-	db, err := fetchDSN()
+	db, schemaName, err := fetchDSN()
 	if err != nil {
-		return nil, fmt.Errorf("pool registry: failed to open pool for tenant '%s': %w", tenantID, err)
+		return nil, "", fmt.Errorf("pool registry: failed to open pool for tenant '%s': %w", tenantID, err)
 	}
 
-	r.entries[tenantID] = &poolEntry{db: db, lastUsed: time.Now()}
-	log.Printf("PoolRegistry: Opened new pool for tenant '%s'", tenantID)
-	return db, nil
+	r.entries[tenantID] = &poolEntry{db: db, schemaName: schemaName, lastUsed: time.Now()}
+	log.Printf("PoolRegistry: Opened new pool for tenant '%s' (schema: '%s')", tenantID, schemaName)
+	return db, schemaName, nil
 }
 
 // Evict closes and removes the pool for a specific tenantID.

@@ -14,6 +14,7 @@ import (
 
 	"order-service/internal/infrastructure/docker"
 	"order-service/internal/infrastructure/rabbitmq"
+	"order-service/internal/infrastructure/tenantdb"
 	"order-service/internal/registry"
 	"order-service/internal/repository"
 	"order-service/internal/service"
@@ -56,11 +57,16 @@ func main() {
 	defer reaperCancel()
 	poolRegistry.StartReaper(reaperCtx)
 
+	tenantDBResolver := tenantdb.NewResolver(tenantdb.ResolverParams{
+		Registry:         poolRegistry,
+		TenantServiceURL: tenantServiceURL,
+	})
+
 	// 4. Initialize Services (zero static database connection handles at startup)
 	provisioner, err := service.NewProvisionerService(service.ProvisionerServiceParams{
 		SharedProvisionerDSN: sharedProvisionerDSN,
-		DockerClient:  dockerClient,
-		MigrationFile: "migrations/001_create_orders.sql",
+		DockerClient:         dockerClient,
+		MigrationFile:        "migrations/001_create_orders.sql",
 	})
 	if err != nil {
 		log.Fatalf("Failed to initialize ProvisionerService: %v", err)
@@ -68,9 +74,8 @@ func main() {
 
 	orderRepo := repository.NewOrderRepository()
 	orderService := service.NewOrderService(service.OrderServiceParams{
-		Registry:         poolRegistry,
-		OrderRepo:        orderRepo,
-		TenantServiceURL: tenantServiceURL,
+		DBResolver: tenantDBResolver,
+		OrderRepo:  orderRepo,
 	})
 
 	// 5. Register & Start Inbound Consumers

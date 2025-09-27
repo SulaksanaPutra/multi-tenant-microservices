@@ -16,6 +16,7 @@ type Order struct {
 
 type OrderRepository interface {
 	GetOrders(ctx context.Context, db *sql.DB, schemaName string) ([]Order, error)
+	CreateOrder(ctx context.Context, db *sql.DB, schemaName string, order Order) error
 }
 
 type orderRepository struct{}
@@ -47,4 +48,17 @@ func (r *orderRepository) GetOrders(ctx context.Context, db *sql.DB, schemaName 
 		orders = append(orders, o)
 	}
 	return orders, rows.Err()
+}
+
+func (r *orderRepository) CreateOrder(ctx context.Context, db *sql.DB, schemaName string, order Order) error {
+	query := fmt.Sprintf(`
+		INSERT INTO %s.orders (id, tenant_id, customer_id, status, amount, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+	`, schemaName)
+
+	_, err := db.ExecContext(ctx, query, order.ID, order.TenantID, order.CustomerID, order.Status, order.Amount)
+	if err != nil {
+		return fmt.Errorf("failed to insert order into schema '%s': %w", schemaName, err)
+	}
+	return nil
 }

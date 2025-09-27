@@ -18,6 +18,7 @@ type NotificationLog struct {
 
 type NotificationRepository interface {
 	CreateNotificationLog(ctx context.Context, log NotificationLog) (int, error)
+	HasSentNotification(ctx context.Context, tenantID string) (bool, error)
 }
 
 type notificationRepository struct {
@@ -41,4 +42,18 @@ func (r *notificationRepository) CreateNotificationLog(ctx context.Context, log 
 		return 0, fmt.Errorf("failed to insert notification log: %w", err)
 	}
 	return id, nil
+}
+
+func (r *notificationRepository) HasSentNotification(ctx context.Context, tenantID string) (bool, error) {
+	exec := txctx.GetExecutor(ctx, r.client.DB)
+	const query = `
+		SELECT COUNT(1)
+		FROM public.notifications
+		WHERE tenant_id = $1 AND status = 'sent';
+	`
+	var count int
+	if err := exec.QueryRowContext(ctx, query, tenantID).Scan(&count); err != nil {
+		return false, fmt.Errorf("failed to check notification status for tenant_id='%s': %w", tenantID, err)
+	}
+	return count > 0, nil
 }

@@ -9,14 +9,16 @@ import (
 	"notification-service/internal/repository"
 )
 
-type SendWelcomeNotificationInput struct {
+type ProcessEventInput struct {
 	EventID    string
 	TenantID   string
+	EventType  string
 	OwnerEmail string
+	Payload    []byte
 }
 
 type NotificationService interface {
-	SendWelcomeNotification(ctx context.Context, input SendWelcomeNotificationInput) error
+	ProcessEventAndTrySendWelcome(ctx context.Context, input ProcessEventInput) error
 }
 
 type notificationService struct {
@@ -37,14 +39,54 @@ func NewNotificationService(
 	}
 }
 
-func (s *notificationService) SendWelcomeNotification(ctx context.Context, input SendWelcomeNotificationInput) error {
-	isDuplicate, err := s.inboxRepo.TryInsert(ctx, input.EventID)
+func (s *notificationService) ProcessEventAndTrySendWelcome(ctx context.Context, input ProcessEventInput) error {
+	inboxMsg := repository.InboxMessage{
+		EventID:   input.EventID,
+		TenantID:  input.TenantID,
+		EventType: input.EventType,
+		Payload:   input.Payload,
+	}
+
+	isDup, err := s.inboxRepo.TryInsert(ctx, inboxMsg)
 	if err != nil {
 		return fmt.Errorf("inbox guard failed: %w", err)
 	}
-	if isDuplicate {
+	if isDup {
 		log.Printf("NotificationService: Duplicate event_id='%s' detected by Inbox guard. Skipping.", input.EventID)
 		return nil
+	}
+
+	events, err := s.inboxRepo.GetEventsByTenantID(ctx, input.TenantID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch inbox events for tenant_id='%s': %w", input.TenantID, err)
+	}
+	var hasUserCreated, hasWorkspaceReady bool
+	for _, evt := range events {
+		if evt.EventType == "user.created" {
+			hasUserCreated = true
+		} else if evt.EventType == "workspace.ready" {
+			hasWorkspaceReady = true
+		}
+	}
+
+	if !hasUserCreated || !hasWorkspaceReady {
+		log.Printf("NotificationService: Tenant_id='%s' recorded '%s' event, but barrier condition not met yet (user_created=%v, workspace_ready=%v). Waiting...",
+			input.TenantID, input.EventType, hasUserCreated, hasWorkspaceReady)
+		return nil
+	}
+
+	alreadySent, err := s.repo.HasSentNotification(ctx, input.TenantID)
+	if err != nil {
+		return fmt.Errorf("failed checking welcome email sent status for tenant_id='%s': %w", input.TenantID, err)
+	}
+	if alreadySent {
+		log.Printf("NotificationService: Both barrier events present for tenant_id='%s', but welcome email was already dispatched. Skipping.", input.TenantID)
+		return nil
+	}
+
+	recipientEmail := input.OwnerEmail
+	if recipientEmail == "" {
+		recipientEmail = "owner@tenant.com"
 	}
 
 	subject := "Welcome! Your Tenant Workspace is Ready"
@@ -55,7 +97,7 @@ func (s *notificationService) SendWelcomeNotification(ctx context.Context, input
 
 	auditLog := repository.NotificationLog{
 		TenantID:       input.TenantID,
-		RecipientEmail: input.OwnerEmail,
+		RecipientEmail: recipientEmail,
 		Subject:        subject,
 		Body:           bodyText,
 		Status:         "sent",
@@ -65,14 +107,14 @@ func (s *notificationService) SendWelcomeNotification(ctx context.Context, input
 		return fmt.Errorf("failed to persist notification audit log: %w", dbErr)
 	}
 
-	log.Printf("NotificationService: Prepared notification for event_id='%s', audit log id=%d", input.EventID, logID)
+	log.Printf("NotificationService: Barrier condition met! Prepared notification for event_id='%s', audit log id=%d", input.EventID, logID)
 
-	_, _, mailErr := s.mailer.SendWelcomeEmail(input.OwnerEmail, input.TenantID)
+	_, _, mailErr := s.mailer.SendWelcomeEmail(recipientEmail, input.TenantID)
 	if mailErr != nil {
-		log.Printf("NotificationService: Failed to send welcome email to '%s': %v", input.OwnerEmail, mailErr)
+		log.Printf("NotificationService: Failed to send welcome email to '%s': %v", recipientEmail, mailErr)
 		return mailErr
 	}
 
-	log.Printf("NotificationService: Welcome email dispatched to '%s' for tenant='%s'", input.OwnerEmail, input.TenantID)
+	log.Printf("NotificationService: Welcome email successfully dispatched to '%s' for tenant='%s'", recipientEmail, input.TenantID)
 	return nil
 }
