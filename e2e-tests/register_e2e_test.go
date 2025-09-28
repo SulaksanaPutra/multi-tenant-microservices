@@ -23,7 +23,6 @@ const (
 	rabbitmqURL = "amqp://guest:guest@localhost:5672/"
 	rabbitmqAPI = "http://localhost:15672/api/exchanges/%2F/company.events"
 	mailpitAPI  = "http://localhost:8025/api/v1/messages"
-	traefikAPI  = "http://localhost:8080/api/http/routers"
 )
 
 type RegisterRequest struct {
@@ -76,20 +75,7 @@ func generateFakeTenantData() (name, email, tenantName, tenantSlug, schemaName s
 }
 
 func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
-	// 1. Verify Traefik Gateway Dashboard & Router Auto-Discovery (Step 5.8)
-	traefikResp, err := http.Get(traefikAPI)
-	if err != nil || traefikResp.StatusCode != http.StatusOK {
-		t.Fatalf("Failed to query Traefik Dashboard API (%s): %v", traefikAPI, err)
-	}
-	traefikBytes, _ := io.ReadAll(traefikResp.Body)
-	traefikResp.Body.Close()
-
-	if !bytes.Contains(traefikBytes, []byte("user-service@docker")) {
-		t.Fatalf("Traefik auto-discovery failed! Router 'user-service@docker' not found in Traefik Dashboard API response")
-	}
-	t.Logf("1. [Traefik Gateway] Verified Traefik auto-discovered router 'user-service@docker' in Traefik Dashboard API!")
-
-	// 2. Setup RabbitMQ listener on topic exchange "company.events" for "tenant.provisioned" events
+	// 1. Setup RabbitMQ listener on topic exchange "company.events" for "tenant.provisioned" events
 	rmqConn, err := amqp.Dial(rabbitmqURL)
 	if err != nil {
 		t.Fatalf("Failed to connect to RabbitMQ AMQP: %v", err)

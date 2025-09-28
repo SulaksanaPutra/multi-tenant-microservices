@@ -76,16 +76,32 @@ services:
     environment:
       DOCKER_API_VERSION: "1.46"
     command:
-      - "--api.insecure=true"
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
       - "--providers.docker.network=broker-network"
       - "--entrypoints.web.address=:80"
     ports:
       - "${TRAEFIK_HTTP_PORT:-8000}:80"
-      - "${TRAEFIK_DASHBOARD_PORT:-8080}:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - broker-network
+
+  web-ui:
+    build:
+      context: ./web-ui
+      dockerfile: Dockerfile
+    container_name: broker-web-ui
+    restart: always
+    environment:
+      PORT: 3000
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=broker-network"
+      - "traefik.http.routers.web-ui.rule=PathExact(`/`) || PathPrefix(`/ui`)"
+      - "traefik.http.routers.web-ui.entrypoints=web"
+      - "traefik.http.routers.web-ui.priority=1"
+      - "traefik.http.services.web-ui.loadbalancer.server.port=3000"
     networks:
       - broker-network
 

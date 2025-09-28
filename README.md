@@ -151,10 +151,6 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
 broker-api/
 ├── README.md                     # Workspace & Architecture Documentation
 │
-├── broker/                       # Infrastructure & Orchestration
-│   ├── init.sql                  # Base database initialization scripts
-│   └── docker-compose.yml        # Configures Postgres, RabbitMQ, Mailpit, Traefik
-│
 ├── tenant-service/               # Control-Plane Tenant Management & Outbox Service
 │   ├── cmd/main.go               # Port 8082 - HTTP API & DSN Directory Service
 │   ├── internal/
@@ -177,6 +173,18 @@ broker-api/
 │   ├── cmd/main.go               # Port 8084 - Audit Logger & Mailpit Dispatcher
 │   └── Dockerfile
 │
+├── infrastructure/               # Shared Infrastructure, Gateway & Flow Web UI
+│   ├── init.sql                  # Base database initialization scripts
+│   ├── init-dedicated.sql        # Dedicated DB init schema
+│   ├── docker-compose.yml        # Configures Postgres, RabbitMQ, Mailpit, Traefik, Web-UI
+│   └── web-ui/                   # Flow Demonstration Web UI
+│       ├── main.go               # Serves functional HTML UI
+│       ├── index.html            # Functional unstyled HTML UI
+│       └── Dockerfile
+│
+├── docs/                         # Architectural Deep-Dives & Technical Design Challenges
+│   └── 1-what-happens-if-the-broadcaster-breaks...md
+│
 └── e2e-tests/                    # Automated Integration Tests
     └── register_e2e_test.go      # Dynamic registration & order flow test suite
 ```
@@ -187,8 +195,8 @@ broker-api/
 
 | Service / Tool | Port | Endpoint / Dashboard | Description |
 | :--- | :--- | :--- | :--- |
-| **Traefik Gateway** | `8000` | `http://localhost:8000` | Gateway entrypoint for API requests |
-| **Traefik Dashboard** | `8080` | `http://localhost:8080` | Route & proxy dashboard |
+| **Traefik Gateway** | `8000` | `http://localhost:8000` | Gateway entrypoint for APIs & Web UI |
+| **Flow Demo Web UI** | `8000` | `http://localhost:8000/` | Functional zero-CSS workflow demo UI |
 | **tenant-service** | `8082` | `tenant-service:8082` | Control-plane directory & registration API |
 | **order-service** | `8083` | `order-service:8083` | Orders data-plane & provisioner worker |
 | **user-service** | `8081` | `user-service:8081` | User profile service |
@@ -202,11 +210,11 @@ broker-api/
 
 ### Starting Infrastructure & Microservices
 
-1. **Start Shared Infrastructure (`broker/`)**:
+1. **Start Shared Infrastructure (`infrastructure/`)**:
    ```bash
-   cd broker && docker compose up -d
+   cd infrastructure && docker compose up -d
    ```
-   *Spins up PostgreSQL, RabbitMQ, Mailpit, Traefik Gateway, and creates `broker-network`.*
+   *Spins up PostgreSQL, RabbitMQ, Mailpit, Traefik Gateway, Web UI, and creates `broker-network`.*
 
 2. **Start Microservices**:
    Run each service sequentially or in separate terminals:
@@ -240,7 +248,7 @@ To shut down all microservices and shared infrastructure:
 (cd order-service && docker compose down) && \
 (cd user-service && docker compose down) && \
 (cd tenant-service && docker compose down) && \
-(cd broker && docker compose down)
+(cd infrastructure && docker compose down)
 ```
 
 ---
@@ -259,9 +267,9 @@ To **wipe the database completely** and start fresh from scratch:
 (cd tenant-service && docker compose down)
 
 # 2. Wipe infrastructure and persistent volume (-v flag)
-cd broker && docker compose down -v
+cd infrastructure && docker compose down -v
 
 # 3. Start fresh infrastructure (auto-recreates DB & runs init.sql)
-cd broker && docker compose up -d
+cd infrastructure && docker compose up -d
 ```
 

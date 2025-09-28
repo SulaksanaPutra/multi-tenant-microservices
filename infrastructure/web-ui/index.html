@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Tenant Broker API - Functional Demo UI</title>
+</head>
+<body>
+    <h1>Multi-Tenant Microservices Flow Demonstration</h1>
+    <p>This is a minimal, unstyled UI to test and demonstrate the end-to-end multi-tenant workflow via Traefik Gateway (port 8000).</p>
+    <hr>
+
+    <!-- STEP 1: REGISTER TENANT -->
+    <h2>Step 1: Register Tenant (Control Plane)</h2>
+    <p>Submits <code>POST /api/register</code> to <code>tenant-service</code> via Traefik Gateway.</p>
+    <form id="register-form">
+        <div>
+            <label for="reg-owner-name">Owner Name:</label><br>
+            <input type="text" id="reg-owner-name" name="owner_name" value="John Doe" required>
+        </div>
+        <br>
+        <div>
+            <label for="reg-owner-email">Owner Email:</label><br>
+            <input type="email" id="reg-owner-email" name="owner_email" value="john@example.com" required>
+        </div>
+        <br>
+        <div>
+            <label for="reg-tenant-name">Tenant Name:</label><br>
+            <input type="text" id="reg-tenant-name" name="tenant_name" value="Acme Corp" required>
+        </div>
+        <br>
+        <div>
+            <label for="reg-plan">Isolation Plan:</label><br>
+            <select id="reg-plan" name="plan" required>
+                <option value="shared" selected>Shared (Schema-per-Tenant)</option>
+                <option value="dedicated">Dedicated (Database-per-Tenant Docker Container)</option>
+            </select>
+        </div>
+        <br>
+        <button type="submit">Submit Registration</button>
+    </form>
+    <h3>Response Output:</h3>
+    <pre id="register-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
+
+    <hr>
+
+    <!-- STEP 2: CREATE ORDER -->
+    <h2>Step 2: Create Order (Data Plane)</h2>
+    <p>Submits <code>POST /api/orders</code> with header <code>X-Tenant-ID</code> to <code>order-service</code> via Traefik Gateway.</p>
+    <p><em>Note: If you just registered a new tenant, allow 1–2 seconds for background provisioning (RabbitMQ + schema/container migration) before creating orders.</em></p>
+    <form id="create-order-form">
+        <div>
+            <label for="order-tenant-id">Tenant ID (Header X-Tenant-ID):</label><br>
+            <input type="text" id="order-tenant-id" name="tenant_id" placeholder="e.g. tenant_acme_corp_1234" style="width:350px;" required>
+        </div>
+        <br>
+        <div>
+            <label for="order-customer-id">Customer ID:</label><br>
+            <input type="text" id="order-customer-id" name="customer_id" value="cust_101" required>
+        </div>
+        <br>
+        <div>
+            <label for="order-amount">Amount ($):</label><br>
+            <input type="number" step="0.01" id="order-amount" name="amount" value="150.75" required>
+        </div>
+        <br>
+        <div>
+            <label for="order-status">Order Status:</label><br>
+            <input type="text" id="order-status" name="status" value="pending" required>
+        </div>
+        <br>
+        <button type="submit">Create Order</button>
+    </form>
+    <h3>Response Output:</h3>
+    <pre id="create-order-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
+
+    <hr>
+
+    <!-- STEP 3: GET ORDERS -->
+    <h2>Step 3: Fetch Tenant Orders (Data Plane)</h2>
+    <p>Submits <code>GET /api/orders</code> with header <code>X-Tenant-ID</code> to <code>order-service</code> via Traefik Gateway.</p>
+    <form id="get-orders-form">
+        <div>
+            <label for="get-tenant-id">Tenant ID (Header X-Tenant-ID):</label><br>
+            <input type="text" id="get-tenant-id" name="tenant_id" placeholder="e.g. tenant_acme_corp_1234" style="width:350px;" required>
+        </div>
+        <br>
+        <button type="submit">Fetch Orders</button>
+    </form>
+    <h3>Response Output:</h3>
+    <pre id="get-orders-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
+
+    <script>
+        // Form 1: Register Tenant
+        document.getElementById('register-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const outputEl = document.getElementById('register-output');
+            outputEl.textContent = 'Submitting registration...';
+
+            const payload = {
+                owner_name: document.getElementById('reg-owner-name').value,
+                owner_email: document.getElementById('reg-owner-email').value,
+                tenant_name: document.getElementById('reg-tenant-name').value,
+                plan: document.getElementById('reg-plan').value
+            };
+
+            try {
+                const res = await fetch('/api/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                outputEl.textContent = `HTTP Status: ${res.status}\n` + JSON.stringify(data, null, 2);
+
+                // Auto-fill tenant_id if available
+                if (data && data.data && data.data.tenant_id) {
+                    const tenantId = data.data.tenant_id;
+                    document.getElementById('order-tenant-id').value = tenantId;
+                    document.getElementById('get-tenant-id').value = tenantId;
+                }
+            } catch (err) {
+                outputEl.textContent = 'Error: ' + err.message;
+            }
+        });
+
+        // Form 2: Create Order
+        document.getElementById('create-order-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const outputEl = document.getElementById('create-order-output');
+            outputEl.textContent = 'Creating order...';
+
+            const tenantId = document.getElementById('order-tenant-id').value;
+            const payload = {
+                customer_id: document.getElementById('order-customer-id').value,
+                amount: parseFloat(document.getElementById('order-amount').value),
+                status: document.getElementById('order-status').value
+            };
+
+            try {
+                const res = await fetch('/api/orders', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Tenant-ID': tenantId
+                    },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                outputEl.textContent = `HTTP Status: ${res.status}\n` + JSON.stringify(data, null, 2);
+            } catch (err) {
+                outputEl.textContent = 'Error: ' + err.message;
+            }
+        });
+
+        // Form 3: Get Orders
+        document.getElementById('get-orders-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const outputEl = document.getElementById('get-orders-output');
+            outputEl.textContent = 'Fetching orders...';
+
+            const tenantId = document.getElementById('get-tenant-id').value;
+
+            try {
+                const res = await fetch('/api/orders', {
+                    method: 'GET',
+                    headers: {
+                        'X-Tenant-ID': tenantId
+                    }
+                });
+                const data = await res.json();
+                outputEl.textContent = `HTTP Status: ${res.status}\n` + JSON.stringify(data, null, 2);
+            } catch (err) {
+                outputEl.textContent = 'Error: ' + err.message;
+            }
+        });
+    </script>
+</body>
+</html>
