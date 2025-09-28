@@ -62,35 +62,46 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
     ▼
 [ RabbitMQ Queue ] ──► (user.registered)
     │
-    ├───────────────────────────────┬──────────────────────────────┐
-    ▼                               ▼                              ▼
-[ order-service ]               [ user-service ]          [ notification-service ]
-    │ Check Inbox table             │ Save user profile        │ Log notification
-    │                               ▼                          │ Send welcome email
-    ├─► Shared Plan:            [ userDB ]                     ▼
-    │   CREATE SCHEMA                                      [ notificationDB ]
-    │   order_db_<tenantID>                                [ Mailpit SMTP ]
-    │
-    ├─► Dedicated Plan:
-    │   Spin Postgres Container
-    │   dedicated_order_db_<tenantID>
-    │
-    ▼ Run SQL Migrations
-[ Target Order Database ]
-    │
-    ▼ Directory Write-Back (PATCH /internal/tenants/{tenantID}/infrastructure)
-[ tenant-service (tenantManagerDB) ]
+    ├─────────────────────────────────────────────────┐
+    ▼                                                 ▼
+[ order-service ]                                 [ user-service ]
+    │ Check Inbox table                               │ Check Inbox table
+    │                                                 │ Save user profile in userDB
+    ├─► Shared Plan:                                  │
+    │   CREATE SCHEMA order_db_<tenantID>             ▼ Emits event: user.created
+    │                                             [ RabbitMQ Queue ]
+    ├─► Dedicated Plan:                               │
+    │   Spin Postgres Container                       │
+    │   dedicated_order_db_<tenantID>                 │
+    │                                                 │
+    ▼ Run SQL Migrations                              │
+[ Target Order Database ]                             │
+    │                                                 │
+    ▼ Directory Write-Back (PATCH /internal/...)      │
+[ tenant-service ]                                    │
+    │ Emits event: workspace.ready                    │
+    ▼                                                 │
+[ RabbitMQ Queue ]                                    │
+    │                                                 │
+    └────────────────────────┬────────────────────────┘
+                             │ Both events received (Barrier Sync)
+                             ▼
+                 [ notification-service ]
+                             │ 1. Verify user_created=true AND workspace_ready=true
+                             │ 2. Log notification in notificationDB
+                             │ 3. Dispatch Welcome Email via Mailpit
 ```
 
 #### Step-by-Step Breakdown:
 1. **User Registration:** Client sends `POST /api/register` specifying `email`, `name`, and `tenant_plan` (`Shared` vs. `Dedicated`).
 2. **Atomic Write (Outbox Pattern):** `tenant-service` writes tenant details and an outbox event in **a single database transaction**, returning HTTP `202 Accepted`.
-3. **Event Dispatching:** The outbox worker reads the outbox table and publishes `user.registered` to RabbitMQ.
-4. **Idempotent Consumption (Inbox Pattern):** `order-service` consumes the event, checking its `inbox` table to skip duplicate executions.
-5. **Dynamic Infrastructure Provisioning:**
-   - **Shared Plan:** `order-service` creates a PostgreSQL schema (`CREATE SCHEMA order_db_<tenantID>;`).
-   - **Dedicated Plan:** `order-service` talks to Docker API to launch a standalone PostgreSQL container (`dedicated_order_db_<tenantID>`).
-6. **Directory Write-Back:** `order-service` registers the database DSN back to `tenant-service` (`PATCH /internal/tenants/{tenantID}/infrastructure`).
+3. **Event Dispatching:** Outbox worker reads the outbox table and publishes `user.registered` to RabbitMQ.
+4. **Provisioning & Account Creation (Concurrent Stage):**
+   - **`order-service`:** Consumes `user.registered`, provisions the database (Shared schema or Dedicated container), executes migrations, and updates `tenant-service` directory, triggering `workspace.ready`.
+   - **`user-service`:** Consumes `user.registered`, creates the user in `userDB`, and emits `user.created`.
+5. **Notification Barrier Synchronization:**
+   - **`notification-service`:** Consumes both `user.created` and `workspace.ready` events into its inbox.
+   - Once **both barrier conditions** are satisfied for `<tenantID>`, it logs the audit record in `notificationDB` and dispatches the welcome email via Mailpit.
 
 ---
 
@@ -106,22 +117,22 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
     ▼
 [ order-service ]
     │
-    ├────────────► [ Check internal sync.Map cache: map[tenantID]*sql.DB ]
-    │                                   │
-    │  ┌────────────────────────────────┴────────────────────────────────┐
-    │  │                                                                 │
-    │  ▼ (Cache Hit - Fast Path)                                         ▼ (Cache Miss - Slow Path)
-    │  Use existing *sql.DB pool                                        Call tenant-service HTTP:
-    │                                                                   GET /internal/tenants/{tenantID}/infrastructure/order-service
-    │                                                                    │
-    │                                                                    ▼ Returns DSN
-    │                                                                   Open *sql.DB connection pool
-    │                                                                   Save pool into sync.Map
-    │  ┌─────────────────────────────────────────────────────────────────┘
-    │  │
-    ▼  ▼
+    └─────► Check sync.Map cache: map[tenantID]*sql.DB
+                 │
+                 ├─────────────────────────────────────────┐
+                 ▼ (Cache Hit - Fast Path)                 ▼ (Cache Miss - Slow Path)
+      Use existing *sql.DB pool                   Call tenant-service HTTP:
+                 │                                GET /internal/tenants/...
+                 │                                         │
+                 │                                         ▼ Returns DSN
+                 │                                Open *sql.DB connection pool
+                 │                                Save pool into sync.Map
+                 │                                         │
+                 ├─────────────────────────────────────────┘
+                 │
+                 ▼
 [ Tenant Database (Shared Schema or Dedicated Container) ]
-    │ Execute INSERT or SELECT query
+    │  Execute INSERT or SELECT query
     ▼
 [ Return Response to Client (201 Created or 200 OK) ]
 ```
@@ -139,8 +150,6 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
 ```text
 broker-api/
 ├── README.md                     # Workspace & Architecture Documentation
-├── repomix.config.json           # Repomix code bundle configuration
-├── repomix-output.xml            # Compressed repository snapshot
 │
 ├── broker/                       # Infrastructure & Orchestration
 │   ├── init.sql                  # Base database initialization scripts
