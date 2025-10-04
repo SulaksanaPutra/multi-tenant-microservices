@@ -3,22 +3,26 @@ package repository
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"notification-service/internal/infrastructure/postgres"
 	"notification-service/internal/txctx"
 )
 
 type NotificationLog struct {
-	TenantID       string
-	RecipientEmail string
-	Subject        string
-	Body           string
-	Status         string
+	ID             int       `json:"id"`
+	TenantID       string    `json:"tenant_id"`
+	RecipientEmail string    `json:"recipient_email"`
+	Subject        string    `json:"subject"`
+	Body           string    `json:"body"`
+	Status         string    `json:"status"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 type NotificationRepository interface {
 	CreateNotificationLog(ctx context.Context, log NotificationLog) (int, error)
 	HasSentNotification(ctx context.Context, tenantID string) (bool, error)
+	GetNotifications(ctx context.Context, tenantID string) ([]NotificationLog, error)
 }
 
 type notificationRepository struct {
@@ -56,4 +60,46 @@ func (r *notificationRepository) HasSentNotification(ctx context.Context, tenant
 		return false, fmt.Errorf("failed to check notification status for tenant_id='%s': %w", tenantID, err)
 	}
 	return count > 0, nil
+}
+
+func (r *notificationRepository) GetNotifications(ctx context.Context, tenantID string) ([]NotificationLog, error) {
+	exec := txctx.GetExecutor(ctx, r.client.DB)
+	var query string
+	var args []interface{}
+
+	if tenantID != "" {
+		query = `
+			SELECT id, tenant_id, recipient_email, subject, body, status, created_at
+			FROM public.notifications
+			WHERE tenant_id = $1
+			ORDER BY created_at DESC;
+		`
+		args = append(args, tenantID)
+	} else {
+		query = `
+			SELECT id, tenant_id, recipient_email, subject, body, status, created_at
+			FROM public.notifications
+			ORDER BY created_at DESC
+			LIMIT 50;
+		`
+	}
+
+	rows, err := exec.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query notifications: %w", err)
+	}
+	defer rows.Close()
+
+	var logs []NotificationLog
+	for rows.Next() {
+		var l NotificationLog
+		if err := rows.Scan(&l.ID, &l.TenantID, &l.RecipientEmail, &l.Subject, &l.Body, &l.Status, &l.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan notification row: %w", err)
+		}
+		logs = append(logs, l)
+	}
+	if logs == nil {
+		logs = []NotificationLog{}
+	}
+	return logs, nil
 }

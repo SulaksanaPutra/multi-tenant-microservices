@@ -1,3 +1,5 @@
+name: broker
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -98,7 +100,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=broker-network"
-      - "traefik.http.routers.web-ui.rule=PathExact(`/`) || PathPrefix(`/ui`)"
+      - "traefik.http.routers.web-ui.rule=PathPrefix(`/`)"
       - "traefik.http.routers.web-ui.entrypoints=web"
       - "traefik.http.routers.web-ui.priority=1"
       - "traefik.http.services.web-ui.loadbalancer.server.port=3000"

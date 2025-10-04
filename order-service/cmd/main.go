@@ -25,12 +25,12 @@ func main() {
 	log.Println("Starting Order Service...")
 
 	// Config for shared-plan schema provisioner (used dynamically on demand)
-	sharedProvisionerHost := getEnv("SHARED_DB_HOST", getEnv("DB_HOST", "localhost"))
+	sharedProvisionerHost := getEnv("SHARED_DB_HOST", getEnv("DB_HOST", "broker-postgres"))
 	sharedProvisionerPort := getEnv("SHARED_DB_PORT", getEnv("DB_PORT", "5432"))
 	sharedProvisionerUser := getEnv("SHARED_DB_USER", getEnv("DB_USER", "postgres"))
 	sharedProvisionerPassword := getEnv("SHARED_DB_PASSWORD", getEnv("DB_PASSWORD", "postgres"))
 	sharedProvisionerDBName := getEnv("SHARED_DB_NAME", "shared_db")
-	amqpURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+	amqpURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@broker-rabbitmq:5672/")
 	httpPort := getEnv("PORT", "8084")
 	tenantServiceURL := getEnv("TENANT_SERVICE_URL", "http://tenant-service:8082")
 
@@ -139,7 +139,7 @@ func loadEnv(filepath string) {
 }
 
 func getEnv(key, fallback string) string {
-	if value, exists := os.LookupEnv(key); exists {
+	if value, exists := os.LookupEnv(key); exists && strings.TrimSpace(value) != "" {
 		return value
 	}
 	return fallback
