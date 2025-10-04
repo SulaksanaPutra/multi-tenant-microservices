@@ -1,96 +1,238 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multi-Tenant Broker API - Functional Demo UI</title>
+    <title>Multi-Tenant Broker API - Flow Demonstration UI</title>
 </head>
+
 <body>
     <h1>Multi-Tenant Microservices Flow Demonstration</h1>
-    <p>This is a minimal, unstyled UI to test and demonstrate the end-to-end multi-tenant workflow via Traefik Gateway (port 8000).</p>
     <hr>
 
-    <!-- STEP 1: REGISTER TENANT -->
-    <h2>Step 1: Register Tenant (Control Plane)</h2>
-    <p>Submits <code>POST /api/register</code> to <code>tenant-service</code> via Traefik Gateway.</p>
-    <form id="register-form">
-        <div>
-            <label for="reg-owner-name">Owner Name:</label><br>
-            <input type="text" id="reg-owner-name" name="owner_name" value="John Doe" required>
-        </div>
-        <br>
-        <div>
-            <label for="reg-owner-email">Owner Email:</label><br>
-            <input type="email" id="reg-owner-email" name="owner_email" value="john@example.com" required>
-        </div>
-        <br>
-        <div>
-            <label for="reg-tenant-name">Tenant Name:</label><br>
-            <input type="text" id="reg-tenant-name" name="tenant_name" value="Acme Corp" required>
-        </div>
-        <br>
-        <div>
-            <label for="reg-plan">Isolation Plan:</label><br>
-            <select id="reg-plan" name="plan" required>
-                <option value="shared" selected>Shared (Schema-per-Tenant)</option>
-                <option value="dedicated">Dedicated (Database-per-Tenant Docker Container)</option>
-            </select>
-        </div>
-        <br>
-        <button type="submit">Submit Registration</button>
-    </form>
-    <h3>Response Output:</h3>
-    <pre id="register-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
-
+    <!-- NAVIGATION TABS -->
+    <div id="nav-tabs" style="margin-bottom: 20px;">
+        <button type="button" onclick="showTab('tab-register')"><b>1. Register Tenant (Control Plane)</b></button>
+        <button type="button" onclick="showTab('tab-create-order')"><b>2. Create Order (Data Plane)</b></button>
+        <button type="button" onclick="showTab('tab-get-orders')"><b>3. Fetch Tenant Orders (Data Plane)</b></button>
+        <button type="button" onclick="showTab('tab-registry')"><b>4. Registered Tenants Registry (<span
+                    id="tenant-count-badge">0</span>)</b></button>
+    </div>
     <hr>
 
-    <!-- STEP 2: CREATE ORDER -->
-    <h2>Step 2: Create Order (Data Plane)</h2>
-    <p>Submits <code>POST /api/orders</code> with header <code>X-Tenant-ID</code> to <code>order-service</code> via Traefik Gateway.</p>
-    <p><em>Note: If you just registered a new tenant, allow 1–2 seconds for background provisioning (RabbitMQ + schema/container migration) before creating orders.</em></p>
-    <form id="create-order-form">
-        <div>
-            <label for="order-tenant-id">Tenant ID (Header X-Tenant-ID):</label><br>
-            <input type="text" id="order-tenant-id" name="tenant_id" placeholder="e.g. tenant_acme_corp_1234" style="width:350px;" required>
-        </div>
-        <br>
-        <div>
-            <label for="order-customer-id">Customer ID:</label><br>
-            <input type="text" id="order-customer-id" name="customer_id" value="cust_101" required>
-        </div>
-        <br>
-        <div>
-            <label for="order-amount">Amount ($):</label><br>
-            <input type="number" step="0.01" id="order-amount" name="amount" value="150.75" required>
-        </div>
-        <br>
-        <div>
-            <label for="order-status">Order Status:</label><br>
-            <input type="text" id="order-status" name="status" value="pending" required>
-        </div>
-        <br>
-        <button type="submit">Create Order</button>
-    </form>
-    <h3>Response Output:</h3>
-    <pre id="create-order-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
+    <!-- TAB 1: REGISTER TENANT -->
+    <div id="tab-register" class="tab-content">
+        <h2>Step 1: Register Tenant (Control Plane)</h2>
+        <p>Submits <code>POST /api/register</code> to <code>tenant-service</code> via Traefik Gateway.</p>
+        <form id="register-form">
+            <div>
+                <label for="reg-owner-name">Owner Name:</label><br>
+                <input type="text" id="reg-owner-name" name="owner_name" value="John Doe" required>
+            </div>
+            <br>
+            <div>
+                <label for="reg-owner-email">Owner Email:</label><br>
+                <input type="email" id="reg-owner-email" name="owner_email" value="john@example.com" required>
+            </div>
+            <br>
+            <div>
+                <label for="reg-tenant-name">Tenant Name:</label><br>
+                <input type="text" id="reg-tenant-name" name="tenant_name" value="Acme Corp" required>
+            </div>
+            <br>
+            <div>
+                <label for="reg-plan">Isolation Plan:</label><br>
+                <select id="reg-plan" name="plan" required>
+                    <option value="shared" selected>Shared (Schema-per-Tenant)</option>
+                    <option value="dedicated">Dedicated (Database-per-Tenant Docker Container)</option>
+                </select>
+            </div>
+            <br>
+            <button type="submit">Submit Registration</button>
+        </form>
+        <h3>Response Output:</h3>
+        <pre id="register-output"
+            style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
+    </div>
 
-    <hr>
+    <!-- TAB 2: CREATE ORDER -->
+    <div id="tab-create-order" class="tab-content" style="display:none;">
+        <h2>Step 2: Create Order (Data Plane)</h2>
+        <p>Submits <code>POST /api/orders</code> with header <code>X-Tenant-ID</code> to <code>order-service</code> via
+            Traefik Gateway.</p>
+        <p><em>Note: If you just registered a new tenant, allow 1–2 seconds for background provisioning (RabbitMQ +
+                schema/container migration) before creating orders.</em></p>
+        <form id="create-order-form">
+            <div>
+                <label for="order-tenant-select">Select Tenant ID (Populated from Local Session):</label><br>
+                <select id="order-tenant-select" style="min-width:350px;" required>
+                    <!-- Dynamically populated -->
+                </select>
+            </div>
+            <br>
+            <div>
+                <label for="order-customer-id">Customer ID:</label><br>
+                <input type="text" id="order-customer-id" name="customer_id" value="cust_101" required>
+            </div>
+            <br>
+            <div>
+                <label for="order-amount">Amount ($):</label><br>
+                <input type="number" step="0.01" id="order-amount" name="amount" value="150.75" required>
+            </div>
+            <br>
+            <div>
+                <label for="order-status">Order Status:</label><br>
+                <input type="text" id="order-status" name="status" value="pending" required>
+            </div>
+            <br>
+            <button type="submit">Create Order</button>
+        </form>
+        <h3>Response Output:</h3>
+        <pre id="create-order-output"
+            style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
+    </div>
 
-    <!-- STEP 3: GET ORDERS -->
-    <h2>Step 3: Fetch Tenant Orders (Data Plane)</h2>
-    <p>Submits <code>GET /api/orders</code> with header <code>X-Tenant-ID</code> to <code>order-service</code> via Traefik Gateway.</p>
-    <form id="get-orders-form">
-        <div>
-            <label for="get-tenant-id">Tenant ID (Header X-Tenant-ID):</label><br>
-            <input type="text" id="get-tenant-id" name="tenant_id" placeholder="e.g. tenant_acme_corp_1234" style="width:350px;" required>
-        </div>
+    <!-- TAB 3: GET ORDERS -->
+    <div id="tab-get-orders" class="tab-content" style="display:none;">
+        <h2>Step 3: Fetch Tenant Orders (Data Plane)</h2>
+        <p>Submits <code>GET /api/orders</code> with header <code>X-Tenant-ID</code> to <code>order-service</code> via
+            Traefik Gateway.</p>
+        <form id="get-orders-form">
+            <div>
+                <label for="get-tenant-select">Select Tenant ID (Populated from Local Session):</label><br>
+                <select id="get-tenant-select" style="min-width:350px;" required>
+                    <!-- Dynamically populated -->
+                </select>
+            </div>
+            <br>
+            <button type="submit">Fetch Orders</button>
+        </form>
+        <h3>Response Output:</h3>
+        <pre id="get-orders-output"
+            style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
+    </div>
+
+    <!-- TAB 4: LOCAL TENANT REGISTRY -->
+    <div id="tab-registry" class="tab-content" style="display:none;">
+        <h2>Session Tenant Registry</h2>
+        <p>List of tenants registered in this server session (auto-purged whenever containers restart or start fresh).
+        </p>
+        <table border="1" cellpadding="8" cellspacing="0" id="tenant-registry-table">
+            <thead>
+                <tr>
+                    <th>Tenant ID</th>
+                    <th>Tenant Name</th>
+                    <th>Plan</th>
+                    <th>Owner Name</th>
+                    <th>Owner Email</th>
+                    <th>Registered At</th>
+                </tr>
+            </thead>
+            <tbody id="tenant-registry-body">
+                <!-- Dynamically populated -->
+            </tbody>
+        </table>
         <br>
-        <button type="submit">Fetch Orders</button>
-    </form>
-    <h3>Response Output:</h3>
-    <pre id="get-orders-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
+        <button type="button" onclick="clearLocalState()">Clear Local State Manually</button>
+    </div>
 
     <script>
+        const CURRENT_SESSION_ID = "{{SERVER_SESSION_ID}}";
+        const STORAGE_KEY_TENANTS = "broker_demo_tenants";
+        const STORAGE_KEY_SESSION = "broker_demo_session_id";
+
+        // Auto-purge state on server fresh start / restart
+        function initSessionState() {
+            const savedSession = localStorage.getItem(STORAGE_KEY_SESSION);
+            if (savedSession !== CURRENT_SESSION_ID) {
+                localStorage.clear();
+                localStorage.setItem(STORAGE_KEY_SESSION, CURRENT_SESSION_ID);
+                localStorage.setItem(STORAGE_KEY_TENANTS, JSON.stringify([]));
+                console.log("Fresh server session detected. Local state purged cleanly!");
+            }
+            renderTenants();
+        }
+
+        function getSavedTenants() {
+            try {
+                return JSON.parse(localStorage.getItem(STORAGE_KEY_TENANTS)) || [];
+            } catch (e) {
+                return [];
+            }
+        }
+
+        function saveTenant(tenantObj) {
+            const tenants = getSavedTenants();
+            // Avoid duplicates
+            const existingIdx = tenants.findIndex(t => t.tenant_id === tenantObj.tenant_id);
+            if (existingIdx >= 0) {
+                tenants[existingIdx] = tenantObj;
+            } else {
+                tenants.unshift(tenantObj); // Latest first
+            }
+            localStorage.setItem(STORAGE_KEY_TENANTS, JSON.stringify(tenants));
+            renderTenants();
+        }
+
+        function renderTenants() {
+            const tenants = getSavedTenants();
+            document.getElementById('tenant-count-badge').textContent = tenants.length;
+
+            // Render Select Dropdowns
+            const orderSelect = document.getElementById('order-tenant-select');
+            const getSelect = document.getElementById('get-tenant-select');
+
+            orderSelect.innerHTML = '';
+            getSelect.innerHTML = '';
+
+            if (tenants.length === 0) {
+                const emptyOption = '<option value="" disabled selected>No tenants registered yet (Register in Tab 1)</option>';
+                orderSelect.innerHTML = emptyOption;
+                getSelect.innerHTML = emptyOption;
+            } else {
+                tenants.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t.tenant_id;
+                    opt.textContent = `${t.tenant_name} (${t.tenant_id}) - [Plan: ${t.plan.toUpperCase()}]`;
+                    orderSelect.appendChild(opt.cloneNode(true));
+                    getSelect.appendChild(opt.cloneNode(true));
+                });
+            }
+
+            // Render Table
+            const tableBody = document.getElementById('tenant-registry-body');
+            tableBody.innerHTML = '';
+
+            if (tenants.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="6" style="text-align:center;">No tenants registered in this session.</td></tr>';
+            } else {
+                tenants.forEach(t => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td><code>${t.tenant_id}</code></td>
+                        <td>${t.tenant_name}</td>
+                        <td><b>${t.plan.toUpperCase()}</b></td>
+                        <td>${t.owner_name}</td>
+                        <td>${t.owner_email}</td>
+                        <td>${new Date(t.created_at).toLocaleTimeString()}</td>
+                    `;
+                    tableBody.appendChild(tr);
+                });
+            }
+        }
+
+        function clearLocalState() {
+            localStorage.setItem(STORAGE_KEY_TENANTS, JSON.stringify([]));
+            renderTenants();
+            alert('Local state cleared!');
+        }
+
+        function showTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+            document.getElementById(tabId).style.display = 'block';
+        }
+
         // Form 1: Register Tenant
         document.getElementById('register-form').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -113,11 +255,15 @@
                 const data = await res.json();
                 outputEl.textContent = `HTTP Status: ${res.status}\n` + JSON.stringify(data, null, 2);
 
-                // Auto-fill tenant_id if available
                 if (data && data.data && data.data.tenant_id) {
-                    const tenantId = data.data.tenant_id;
-                    document.getElementById('order-tenant-id').value = tenantId;
-                    document.getElementById('get-tenant-id').value = tenantId;
+                    saveTenant({
+                        tenant_id: data.data.tenant_id,
+                        tenant_name: payload.tenant_name,
+                        plan: payload.plan,
+                        owner_name: payload.owner_name,
+                        owner_email: payload.owner_email,
+                        created_at: new Date().toISOString()
+                    });
                 }
             } catch (err) {
                 outputEl.textContent = 'Error: ' + err.message;
@@ -130,7 +276,12 @@
             const outputEl = document.getElementById('create-order-output');
             outputEl.textContent = 'Creating order...';
 
-            const tenantId = document.getElementById('order-tenant-id').value;
+            const tenantId = document.getElementById('order-tenant-select').value;
+            if (!tenantId) {
+                alert('Please select or register a tenant first!');
+                return;
+            }
+
             const payload = {
                 customer_id: document.getElementById('order-customer-id').value,
                 amount: parseFloat(document.getElementById('order-amount').value),
@@ -159,7 +310,11 @@
             const outputEl = document.getElementById('get-orders-output');
             outputEl.textContent = 'Fetching orders...';
 
-            const tenantId = document.getElementById('get-tenant-id').value;
+            const tenantId = document.getElementById('get-tenant-select').value;
+            if (!tenantId) {
+                alert('Please select or register a tenant first!');
+                return;
+            }
 
             try {
                 const res = await fetch('/api/orders', {
@@ -174,6 +329,10 @@
                 outputEl.textContent = 'Error: ' + err.message;
             }
         });
+
+        // Initialize state on load
+        initSessionState();
     </script>
 </body>
+
 </html>

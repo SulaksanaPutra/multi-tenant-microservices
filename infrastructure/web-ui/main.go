@@ -1,14 +1,19 @@
 package main
 
 import (
+	"bytes"
 	"embed"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"time"
 )
 
 //go:embed index.html
 var content embed.FS
+
+var serverSessionID = fmt.Sprintf("session_%d", time.Now().UnixNano())
 
 func main() {
 	port := os.Getenv("PORT")
@@ -27,12 +32,16 @@ func main() {
 			http.Error(w, "Could not read index.html", http.StatusInternalServerError)
 			return
 		}
+
+		// Inject server session ID into HTML response
+		output := bytes.ReplaceAll(data, []byte("{{SERVER_SESSION_ID}}"), []byte(serverSessionID))
+
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(data)
+		_, _ = w.Write(output)
 	})
 
-	log.Printf("Web UI server listening on port %s...", port)
+	log.Printf("Web UI server listening on port %s (Session ID: %s)...", port, serverSessionID)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatalf("Web UI server failed: %v", err)
 	}

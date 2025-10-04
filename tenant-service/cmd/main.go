@@ -24,12 +24,12 @@ func main() {
 	log.Println("Starting Tenant Service (Control Plane)...")
 
 	// Environment variables
-	dbHost := getEnv("DB_HOST", "localhost")
+	dbHost := getEnv("DB_HOST", "broker-postgres")
 	dbPort := getEnv("DB_PORT", "5432")
 	dbUser := getEnv("DB_USER", "postgres")
 	dbPassword := getEnv("DB_PASSWORD", "postgres")
 	dbName := getEnv("DB_NAME", "tenant_manager_db")
-	amqpURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+	amqpURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@broker-rabbitmq:5672/")
 	httpPort := getEnv("PORT", "8082")
 
 	// 1. Connect Infrastructure Drivers
@@ -131,7 +131,7 @@ func loadEnv(filepath string) {
 }
 
 func getEnv(key, fallback string) string {
-	if value, exists := os.LookupEnv(key); exists {
+	if value, exists := os.LookupEnv(key); exists && strings.TrimSpace(value) != "" {
 		return value
 	}
 	return fallback

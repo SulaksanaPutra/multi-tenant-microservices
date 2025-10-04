@@ -37,7 +37,7 @@ func LoadEnv(filepath string) {
 }
 
 func GetEnv(key, fallback string) string {
-	if value, exists := os.LookupEnv(key); exists {
+	if value, exists := os.LookupEnv(key); exists && strings.TrimSpace(value) != "" {
 		return value
 	}
 	return fallback

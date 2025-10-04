@@ -212,7 +212,7 @@ broker-api/
 
 1. **Start Shared Infrastructure (`infrastructure/`)**:
    ```bash
-   cd infrastructure && docker compose up -d
+   (cd infrastructure && docker compose up -d)
    ```
    *Spins up PostgreSQL, RabbitMQ, Mailpit, Traefik Gateway, Web UI, and creates `broker-network`.*
 
@@ -220,21 +220,28 @@ broker-api/
    Run each service sequentially or in separate terminals:
    ```bash
    # Start Tenant Service (Control Plane & Outbox Worker)
-   cd tenant-service && docker compose up -d --build
+   (cd tenant-service && docker compose up -d --build)
 
    # Start User Service
-   cd ../user-service && docker compose up -d --build
+   (cd user-service && docker compose up -d --build)
 
    # Start Order Service (Data Plane & Dynamic Provisioner)
-   cd ../order-service && docker compose up -d --build
+   (cd order-service && docker compose up -d --build)
 
    # Start Notification Service (Async Worker)
-   cd ../notification-service && docker compose up -d --build
+   (cd notification-service && docker compose up -d --build)
+   ```
+   *Or start all microservices in a single command:*
+   ```bash
+   (cd tenant-service && docker compose up -d --build) && \
+   (cd user-service && docker compose up -d --build) && \
+   (cd order-service && docker compose up -d --build) && \
+   (cd notification-service && docker compose up -d --build)
    ```
 
 3. **Run Automated E2E Integration Tests**:
    ```bash
-   cd e2e-tests && CGO_ENABLED=0 go test -v ./...
+   (cd e2e-tests && CGO_ENABLED=0 go test -v ./...)
    ```
 
 ---
@@ -267,9 +274,9 @@ To **wipe the database completely** and start fresh from scratch:
 (cd tenant-service && docker compose down)
 
 # 2. Wipe infrastructure and persistent volume (-v flag)
-cd infrastructure && docker compose down -v
+(cd infrastructure && docker compose down -v)
 
 # 3. Start fresh infrastructure (auto-recreates DB & runs init.sql)
-cd infrastructure && docker compose up -d
+(cd infrastructure && docker compose up -d)
 ```
 
