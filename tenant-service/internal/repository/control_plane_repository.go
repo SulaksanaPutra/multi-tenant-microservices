@@ -75,7 +75,7 @@ func (r *controlPlaneRepository) CreateTenant(ctx context.Context, input CreateT
 func (r *controlPlaneRepository) UpsertServiceInfrastructure(ctx context.Context, tenantID, serviceName, dsn, schemaName string) error {
 	exec := txctx.GetExecutor(ctx, r.dbClient)
 	const query = `
-		INSERT INTO public.tenant_service_registry (tenant_id, service_name, dsn, schema_name, checked_in_at)
+		INSERT INTO public.tenant_services (tenant_id, service_name, dsn, schema_name, checked_in_at)
 		VALUES ($1, $2, $3, $4, NOW())
 		ON CONFLICT (tenant_id, service_name) DO UPDATE
 		  SET dsn           = EXCLUDED.dsn,
@@ -110,7 +110,7 @@ func (r *controlPlaneRepository) GetPendingServiceCount(ctx context.Context, ten
 		) AS required(service_name)
 		WHERE required.service_name NOT IN (
 			SELECT service_name
-			FROM public.tenant_service_registry
+			FROM public.tenant_services
 			WHERE tenant_id = $1
 		);
 	`, strings.Join(placeholders, ", "))
@@ -138,7 +138,7 @@ func (r *controlPlaneRepository) GetServiceDSN(ctx context.Context, tenantID, se
 	exec := txctx.GetExecutor(ctx, r.dbClient)
 	const query = `
 		SELECT dsn, COALESCE(schema_name, '')
-		FROM public.tenant_service_registry
+		FROM public.tenant_services
 		WHERE tenant_id = $1 AND service_name = $2;
 	`
 	var dsn, schemaName string

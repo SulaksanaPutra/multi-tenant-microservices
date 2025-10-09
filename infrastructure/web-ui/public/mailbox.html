@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2. Dev Mailpit Inbox - Multi-Tenant Flow</title>
+</head>
+<body>
+    <div id="nav-container"></div>
+
+    <h2>Step 2: Dev Mailpit Inbox</h2>
+    <div style="padding:10px; background:#e8f4f8; border:1px solid #b8daff; margin-bottom:15px;">
+        Local Dev Tool: This inbox queries Mailpit SMTP Trapper via <code>/api/mailpit/messages</code> proxy to display outbound emails sent by <code>notification-service</code>. Receiving a Workspace Ready email marks the tenant as READY.
+    </div>
+
+    <div>
+        <button type="button" onclick="fetchMailbox()">Refresh Mailbox</button>
+        <span id="mailbox-status" style="margin-left:10px; font-weight:bold;"></span>
+    </div>
+    <br>
+
+    <div style="display:flex; gap:20px;">
+        <div style="flex:1;">
+            <h3>Received Emails:</h3>
+            <table border="1" cellpadding="8" cellspacing="0" style="width:100%;">
+                <thead>
+                    <tr>
+                        <th>From</th>
+                        <th>To</th>
+                        <th>Subject</th>
+                        <th>Date</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="mailbox-body">
+                    <tr><td colspan="5">(Click Refresh Mailbox to load emails...)</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div style="flex:1; border:1px solid #ccc; padding:15px; background:#f9f9f9;">
+            <h3>Email Detail Inspector:</h3>
+            <div id="email-detail">(Select an email to view full content)</div>
+        </div>
+    </div>
+
+    <script src="/nav.js"></script>
+    <script>
+        renderNavHeader("mailbox");
+        fetchMailbox();
+
+        async function fetchMailbox() {
+            const statusEl = document.getElementById("mailbox-status");
+            const bodyEl = document.getElementById("mailbox-body");
+            statusEl.textContent = "Fetching from Mailpit proxy...";
+
+            try {
+                const response = await fetch("/api/mailpit/messages");
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const data = await response.json();
+                statusEl.textContent = `Total emails: ${data.total || 0}`;
+
+                if (!data.messages || data.messages.length === 0) {
+                    bodyEl.innerHTML = `<tr><td colspan="5"><em>No emails in Mailpit inbox yet. Register a tenant to trigger emails.</em></td></tr>`;
+                    return;
+                }
+
+                const tenants = getSavedTenants();
+                let updatedAnyTenant = false;
+
+                let html = "";
+                data.messages.forEach(msg => {
+                    const toStr = msg.To ? msg.To.map(t => t.Address).join(", ") : "N/A";
+                    const fromStr = msg.From ? msg.From.Address : "N/A";
+                    const dateStr = msg.Created ? new Date(msg.Created).toLocaleTimeString() : "N/A";
+                    const subject = msg.Subject || "";
+
+                    // Auto-detect readiness and match with registered tenant owner email
+                    const isReadyEmail = subject.includes("Ready") || subject.includes("Workspace");
+                    if (isReadyEmail && tenants.length > 0) {
+                        tenants.forEach(t => {
+                            if (t.owner_email && toStr.includes(t.owner_email)) {
+                                if (t.status !== "READY") {
+                                    updateTenantStatus(t.tenant_id, "READY");
+                                    updatedAnyTenant = true;
+                                }
+                            }
+                        });
+                    }
+
+                    html += `<tr>
+                        <td>${fromStr}</td>
+                        <td><b>${toStr}</b></td>
+                        <td>${subject} ${isReadyEmail ? '<span style="color:green; font-weight:bold;">[READY EMAIL]</span>' : ''}</td>
+                        <td>${dateStr}</td>
+                        <td><button type="button" onclick="viewEmailDetail('${msg.ID}')">View Email</button></td>
+                    </tr>`;
+                });
+                bodyEl.innerHTML = html;
+
+                if (updatedAnyTenant) {
+                    renderNavHeader("mailbox");
+                }
+            } catch (err) {
+                statusEl.textContent = "Failed to connect to Mailpit proxy";
+                bodyEl.innerHTML = `<tr><td colspan="5" style="color:red;">Error fetching emails: ${err.message}.</td></tr>`;
+            }
+        }
+
+        async function viewEmailDetail(msgId) {
+            const detailEl = document.getElementById("email-detail");
+            detailEl.textContent = "Loading email content...";
+
+            try {
+                const response = await fetch(`/api/mailpit/message/${msgId}`);
+                const msg = await response.json();
+
+                let content = `<b>ID:</b> ${msg.ID}<br>`;
+                content += `<b>From:</b> ${msg.From ? msg.From.Address : 'N/A'}<br>`;
+                content += `<b>To:</b> ${msg.To ? msg.To.map(t => t.Address).join(', ') : 'N/A'}<br>`;
+                content += `<b>Subject:</b> ${msg.Subject}<br>`;
+                content += `<b>Date:</b> ${msg.Date}<br><hr>`;
+                content += `<h4>Text Body:</h4><pre style="background:#fff; padding:10px; border:1px solid #eee;">${msg.Text || '(No text content)'}</pre>`;
+
+                detailEl.innerHTML = content;
+            } catch (err) {
+                detailEl.textContent = "Error fetching email detail: " + err.message;
+            }
+        }
+    </script>
+</body>
+</html>

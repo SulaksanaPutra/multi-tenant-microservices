@@ -86,6 +86,7 @@ func (c *UserCreatedConsumer) Start(ctx context.Context) error {
 
 				input := service.ProcessEventInput{
 					EventID:    evt.EventID,
+					UserID:     evt.UserID,
 					TenantID:   evt.TenantID,
 					EventType:  "user.created",
 					OwnerEmail: evt.Email,

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>1. Register Tenant - Multi-Tenant Flow</title>
+</head>
+<body>
+    <div id="nav-container"></div>
+
+    <h2>Step 1: Register Tenant (Control Plane)</h2>
+    <p>Submits <code>POST /api/register</code> to <code>tenant-service</code> via Traefik Gateway.</p>
+    <form id="register-form">
+        <div>
+            <label for="reg-owner-name">Owner Name:</label><br>
+            <input type="text" id="reg-owner-name" name="owner_name" value="John Doe" required>
+        </div>
+        <br>
+        <div>
+            <label for="reg-owner-email">Owner Email:</label><br>
+            <input type="email" id="reg-owner-email" name="owner_email" value="john@example.com" required>
+        </div>
+        <br>
+        <div>
+            <label for="reg-tenant-name">Tenant Name:</label><br>
+            <input type="text" id="reg-tenant-name" name="tenant_name" value="Acme Corp" required>
+        </div>
+        <br>
+        <div>
+            <label for="reg-plan">Isolation Plan:</label><br>
+            <select id="reg-plan" name="plan" required>
+                <option value="shared" selected>Shared (Schema-per-Tenant)</option>
+                <option value="dedicated">Dedicated (Database-per-Tenant Docker Container)</option>
+            </select>
+        </div>
+        <br>
+        <button type="submit">Submit Registration</button>
+    </form>
+    <h3>Response Output:</h3>
+    <pre id="register-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
+
+    <script src="/nav.js"></script>
+    <script>
+        renderNavHeader("register");
+
+        document.getElementById("register-form").addEventListener("submit", async function(e) {
+            e.preventDefault();
+            const outputEl = document.getElementById("register-output");
+            outputEl.textContent = "Submitting registration request...";
+
+            const payload = {
+                owner_name: document.getElementById("reg-owner-name").value.trim(),
+                owner_email: document.getElementById("reg-owner-email").value.trim(),
+                tenant_name: document.getElementById("reg-tenant-name").value.trim(),
+                plan: document.getElementById("reg-plan").value
+            };
+
+            try {
+                const response = await fetch("/api/register", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                outputEl.textContent = JSON.stringify(data, null, 2);
+
+                if (response.ok && data.data && data.data.tenant_id) {
+                    saveTenant({
+                        tenant_id: data.data.tenant_id,
+                        tenant_name: data.data.tenant_name || payload.tenant_name,
+                        plan: data.data.plan || payload.plan,
+                        owner_email: payload.owner_email,
+                        status: data.data.status || "PROVISIONING",
+                        registered_at: new Date().toLocaleTimeString()
+                    });
+                    renderNavHeader("register");
+                }
+            } catch (err) {
+                outputEl.textContent = "Network Error: " + err.message;
+            }
+        });
+    </script>
+</body>
+</html>

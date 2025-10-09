@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 
@@ -11,6 +12,7 @@ import (
 
 type ProcessEventInput struct {
 	EventID    string
+	UserID     string
 	TenantID   string
 	EventType  string
 	OwnerEmail string
@@ -19,6 +21,7 @@ type ProcessEventInput struct {
 
 type NotificationService interface {
 	ProcessEventAndTrySendWelcome(ctx context.Context, input ProcessEventInput) error
+	GetNotifications(ctx context.Context, tenantID string) ([]repository.NotificationLog, error)
 }
 
 type notificationService struct {
@@ -37,6 +40,10 @@ func NewNotificationService(
 		inboxRepo: inboxRepo,
 		mailer:    mailer,
 	}
+}
+
+func (s *notificationService) GetNotifications(ctx context.Context, tenantID string) ([]repository.NotificationLog, error) {
+	return s.repo.GetNotifications(ctx, tenantID)
 }
 
 func (s *notificationService) ProcessEventAndTrySendWelcome(ctx context.Context, input ProcessEventInput) error {
@@ -61,12 +68,45 @@ func (s *notificationService) ProcessEventAndTrySendWelcome(ctx context.Context,
 		return fmt.Errorf("failed to fetch inbox events for tenant_id='%s': %w", input.TenantID, err)
 	}
 	var hasUserCreated, hasWorkspaceReady bool
+	var userID, recipientEmail string
+
 	for _, evt := range events {
 		if evt.EventType == "user.created" {
 			hasUserCreated = true
+			var userEvt struct {
+				UserID string `json:"user_id"`
+				Email  string `json:"email"`
+			}
+			if err := json.Unmarshal(evt.Payload, &userEvt); err == nil {
+				if userEvt.UserID != "" {
+					userID = userEvt.UserID
+				}
+				if userEvt.Email != "" {
+					recipientEmail = userEvt.Email
+				}
+			}
 		} else if evt.EventType == "workspace.ready" {
 			hasWorkspaceReady = true
+			var wsEvt struct {
+				OwnerEmail string `json:"owner_email"`
+			}
+			if err := json.Unmarshal(evt.Payload, &wsEvt); err == nil && recipientEmail == "" {
+				recipientEmail = wsEvt.OwnerEmail
+			}
 		}
+	}
+
+	if userID == "" {
+		userID = input.UserID
+	}
+	if userID == "" {
+		userID = "usr_unknown"
+	}
+	if recipientEmail == "" {
+		recipientEmail = input.OwnerEmail
+	}
+	if recipientEmail == "" {
+		recipientEmail = "owner@tenant.com"
 	}
 
 	if !hasUserCreated || !hasWorkspaceReady {
@@ -84,11 +124,6 @@ func (s *notificationService) ProcessEventAndTrySendWelcome(ctx context.Context,
 		return nil
 	}
 
-	recipientEmail := input.OwnerEmail
-	if recipientEmail == "" {
-		recipientEmail = "owner@tenant.com"
-	}
-
 	subject := "Welcome! Your Tenant Workspace is Ready"
 	bodyText := fmt.Sprintf(
 		"Hello,\n\nYour tenant workspace '%s' has been successfully provisioned and is ready for use.\n\nThank you for choosing our platform!",
@@ -96,6 +131,7 @@ func (s *notificationService) ProcessEventAndTrySendWelcome(ctx context.Context,
 	)
 
 	auditLog := repository.NotificationLog{
+		UserID:         userID,
 		TenantID:       input.TenantID,
 		RecipientEmail: recipientEmail,
 		Subject:        subject,

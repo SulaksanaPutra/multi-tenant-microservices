@@ -1,51 +1,30 @@
-name: broker
+name: microservice-api
 
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: broker-postgres
+    container_name: postgres
     restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-shared_db}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-shared_db}"]
       interval: 5s
       timeout: 5s
       retries: 5
     networks:
-      - broker-network
-
-  postgres-dedicated:
-    image: postgres:16-alpine
-    container_name: broker-postgres-dedicated
-    restart: always
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DEDICATED_DB:-broker_dedicated_db}
-    ports:
-      - "${POSTGRES_DEDICATED_PORT:-5433}:5432"
-    volumes:
-      - ./init-dedicated.sql:/docker-entrypoint-initdb.d/init.sql:ro
-      - postgres_dedicated_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DEDICATED_DB:-broker_dedicated_db}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - broker-network
+      - microservice-network
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
-    container_name: broker-rabbitmq
+    container_name: rabbitmq
     restart: always
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-guest}
@@ -59,59 +38,58 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - broker-network
+      - microservice-network
 
   mailpit:
     image: axllent/mailpit:latest
-    container_name: broker-mailpit
+    container_name: mailpit
     restart: always
     ports:
       - "${MAILPIT_SMTP_PORT:-1025}:1025"
       - "${MAILPIT_DASHBOARD_PORT:-8025}:8025"
     networks:
-      - broker-network
+      - microservice-network
 
   traefik:
     image: traefik:latest
-    container_name: broker-traefik
+    container_name: traefik
     restart: always
     environment:
       DOCKER_API_VERSION: "1.46"
     command:
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
-      - "--providers.docker.network=broker-network"
+      - "--providers.docker.network=microservice-network"
       - "--entrypoints.web.address=:80"
     ports:
       - "${TRAEFIK_HTTP_PORT:-8000}:80"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
-      - broker-network
+      - microservice-network
 
   web-ui:
     build:
       context: ./web-ui
       dockerfile: Dockerfile
-    container_name: broker-web-ui
+    container_name: web-ui
     restart: always
     environment:
       PORT: 3000
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=broker-network"
+      - "traefik.docker.network=microservice-network"
       - "traefik.http.routers.web-ui.rule=PathPrefix(`/`)"
       - "traefik.http.routers.web-ui.entrypoints=web"
       - "traefik.http.routers.web-ui.priority=1"
       - "traefik.http.services.web-ui.loadbalancer.server.port=3000"
     networks:
-      - broker-network
+      - microservice-network
 
 networks:
-  broker-network:
-    name: broker-network
+  microservice-network:
+    name: microservice-network
     driver: bridge
 
 volumes:
   postgres_data:
-  postgres_dedicated_data:

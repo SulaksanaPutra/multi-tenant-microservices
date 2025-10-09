@@ -11,28 +11,18 @@ import (
 	_ "github.com/lib/pq"
 )
 
-const (
-	sharedSchemaPrefix = "order_db_"
-)
-
 type ProvisionerService interface {
 	ProvisionShared(ctx context.Context, tenantID string) (dsn string, schemaName string, err error)
 	ProvisionDedicated(ctx context.Context, tenantID string) (dsn string, err error)
 }
 
-type DockerProvisioner interface {
-	CheckOrCreate(ctx context.Context, tenantID string) (hostPort string, err error)
-}
-
 type provisionerService struct {
-	sharedProvisionerDSN string // Admin DSN template for sharedDB host (opened on demand during provisioning)
-	dockerClient         DockerProvisioner
-	migrationSQL         string // content of the orders migration file
+	adminDSN     string // Admin DSN template for primary PostgreSQL host
+	migrationSQL string // content of the orders migration file
 }
 
 type ProvisionerServiceParams struct {
 	SharedProvisionerDSN string
-	DockerClient         DockerProvisioner
 	MigrationFile        string // path to migrations/001_create_orders.sql
 }
 
@@ -42,19 +32,18 @@ func NewProvisionerService(params ProvisionerServiceParams) (ProvisionerService,
 		return nil, fmt.Errorf("failed to read migration file '%s': %w", params.MigrationFile, err)
 	}
 	return &provisionerService{
-		sharedProvisionerDSN: params.SharedProvisionerDSN,
-		dockerClient:         params.DockerClient,
-		migrationSQL:         string(migrationBytes),
+		adminDSN:     params.SharedProvisionerDSN,
+		migrationSQL: string(migrationBytes),
 	}, nil
 }
 
 func (s *provisionerService) ProvisionShared(ctx context.Context, tenantID string) (string, string, error) {
-	schemaName := sharedSchemaPrefix + sanitizeTenantID(tenantID)
+	schemaName := fmt.Sprintf("%s_order_db", sanitizeTenantID(tenantID))
 
 	log.Printf("ProvisionerService: Connecting dynamically to sharedDB host for tenant '%s'...", tenantID)
 
 	// Open on-demand temporary connection to sharedDB host
-	db, err := sql.Open("postgres", s.sharedProvisionerDSN)
+	db, err := sql.Open("postgres", s.adminDSN)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to connect to sharedDB host on demand: %w", err)
 	}
@@ -77,30 +66,57 @@ func (s *provisionerService) ProvisionShared(ctx context.Context, tenantID strin
 	}
 
 	log.Printf("ProvisionerService: Shared schema '%s' provisioned for tenant '%s'", schemaName, tenantID)
-	return s.sharedProvisionerDSN, schemaName, nil
+	return s.adminDSN, schemaName, nil
 }
 
 func (s *provisionerService) ProvisionDedicated(ctx context.Context, tenantID string) (string, error) {
-	hostPort, err := s.dockerClient.CheckOrCreate(ctx, tenantID)
+	dbName := fmt.Sprintf("%s_order_db", sanitizeTenantID(tenantID))
+
+	log.Printf("ProvisionerService: Connecting to primary postgres host to provision dedicated DB '%s'...", dbName)
+
+	// 1. Connect to primary Postgres instance via admin DSN
+	adminDB, err := sql.Open("postgres", s.adminDSN)
 	if err != nil {
-		return "", fmt.Errorf("docker provisioning failed for tenant '%s': %w", tenantID, err)
+		return "", fmt.Errorf("failed to connect to admin DB: %w", err)
+	}
+	defer adminDB.Close()
+
+	if err := adminDB.PingContext(ctx); err != nil {
+		return "", fmt.Errorf("failed to ping admin DB host: %w", err)
 	}
 
-	dsn := fmt.Sprintf("host=localhost port=%s user=postgres password=postgres dbname=orders sslmode=disable", hostPort)
+	// 2. Check if dedicated database already exists
+	var exists bool
+	checkQuery := "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1);"
+	if err := adminDB.QueryRowContext(ctx, checkQuery, dbName).Scan(&exists); err != nil {
+		return "", fmt.Errorf("failed to check existing database '%s': %w", dbName, err)
+	}
 
-	// Open on-demand temporary connection to dedicated DB container
-	db, err := sql.Open("postgres", dsn)
+	if !exists {
+		log.Printf("ProvisionerService: Creating dedicated database '%s' for tenant '%s'...", dbName, tenantID)
+		if _, err := adminDB.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s;", dbName)); err != nil {
+			return "", fmt.Errorf("failed to create dedicated database '%s': %w", dbName, err)
+		}
+	} else {
+		log.Printf("ProvisionerService: Dedicated database '%s' already exists.", dbName)
+	}
+
+	// 3. Construct dedicated DSN on the same postgres host
+	dedicatedDSN := replaceDBName(s.adminDSN, dbName)
+
+	// 4. Open connection to newly created dedicated database and run migrations
+	dedicatedDB, err := sql.Open("postgres", dedicatedDSN)
 	if err != nil {
-		return "", fmt.Errorf("failed to open dedicated DB for tenant '%s': %w", tenantID, err)
+		return "", fmt.Errorf("failed to open dedicated DB '%s': %w", dbName, err)
 	}
-	defer db.Close()
+	defer dedicatedDB.Close()
 
-	if err := s.runMigrations(ctx, db, "public"); err != nil {
-		return "", fmt.Errorf("migration failed on dedicated DB for tenant '%s': %w", tenantID, err)
+	if err := s.runMigrations(ctx, dedicatedDB, "public"); err != nil {
+		return "", fmt.Errorf("migration failed on dedicated DB '%s': %w", dbName, err)
 	}
 
-	log.Printf("ProvisionerService: Dedicated DB provisioned for tenant '%s' on port %s", tenantID, hostPort)
-	return dsn, nil
+	log.Printf("ProvisionerService: Dedicated DB '%s' provisioned successfully for tenant '%s'", dbName, tenantID)
+	return dedicatedDSN, nil
 }
 
 func (s *provisionerService) runMigrations(ctx context.Context, db *sql.DB, schemaName string) error {
@@ -109,6 +125,22 @@ func (s *provisionerService) runMigrations(ctx context.Context, db *sql.DB, sche
 		return fmt.Errorf("failed to execute migration: %w", err)
 	}
 	return nil
+}
+
+func replaceDBName(dsn, newDBName string) string {
+	parts := strings.Split(dsn, " ")
+	found := false
+	for i, p := range parts {
+		if strings.HasPrefix(p, "dbname=") {
+			parts[i] = "dbname=" + newDBName
+			found = true
+			break
+		}
+	}
+	if !found {
+		parts = append(parts, "dbname="+newDBName)
+	}
+	return strings.Join(parts, " ")
 }
 
 func sanitizeTenantID(id string) string {
