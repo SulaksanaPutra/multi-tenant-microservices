@@ -6,21 +6,28 @@ services:
     container_name: notification-service
     restart: always
     environment:
-      DB_HOST: broker-postgres
-      DB_PORT: "5432"
+      DB_HOST: postgres
+      DB_PORT: 5432
       DB_USER: postgres
       DB_PASSWORD: postgres
       DB_NAME: notification_db
-      RABBITMQ_URL: amqp://guest:guest@broker-rabbitmq:5672/
-      SMTP_HOST: broker-mailpit
-      SMTP_PORT: "1025"
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
       SMTP_FROM: no-reply@company.com
-      PORT: "8083"
+      PORT: 8083
     ports:
       - "${PORT:-8083}:${PORT:-8083}"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=microservice-network"
+      - "traefik.http.routers.notification-service.rule=PathPrefix(`/api/notifications`)"
+      - "traefik.http.routers.notification-service.entrypoints=web"
+      - "traefik.http.services.notification-service.loadbalancer.server.port=8083"
     networks:
-      - broker-network
+      - microservice-network
 
 networks:
-  broker-network:
+  microservice-network:
+    name: microservice-network
     external: true

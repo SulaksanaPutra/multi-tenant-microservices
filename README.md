@@ -1,4 +1,4 @@
-# Broker API Workspace (Multi-Tenant Microservices Architecture)
+# Microservice API Workspace (Multi-Tenant Microservices Architecture)
 
 This workspace demonstrates a **Multi-Tenant Microservices Architecture** supporting both **Shared (Schema-per-Tenant)** and **Dedicated (Database-per-Tenant via Docker)** isolation models.
 
@@ -30,11 +30,11 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
                                                     │                         │                         │
                             ┌───────────────────────┴───────────┐             ▼                         ▼
                             ▼                                   ▼         [ userDB ]            [ notificationDB ]
-                   (Shared Plan: Schema)                 (Dedicated Plan)                        [ Mailpit SMTP ]
-                       [ sharedDB ]                      [ Docker Engine ]
-                                                                │
-                                                                ▼
-                                                    [ dedicated_order_db_<id> ]
+                   (Shared Plan: Schema)            (Dedicated Plan: Database)                   [ Mailpit SMTP ]
+                        [ shared_db ]                  [ postgres Container ]
+                             │                                  │
+                             ▼                                  ▼
+                   [ <tenantID>_order_db ]             [ <tenantID>_order_db ]
 ```
 
 ---
@@ -68,11 +68,11 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
     │ Check Inbox table                               │ Check Inbox table
     │                                                 │ Save user profile in userDB
     ├─► Shared Plan:                                  │
-    │   CREATE SCHEMA order_db_<tenantID>             ▼ Emits event: user.created
+    │   CREATE SCHEMA <tenantID>_order_db             ▼ Emits event: user.created
     │                                             [ RabbitMQ Queue ]
     ├─► Dedicated Plan:                               │
-    │   Spin Postgres Container                       │
-    │   dedicated_order_db_<tenantID>                 │
+    │   Provision Database                            │
+    │   <tenantID>_order_db                           │
     │                                                 │
     ▼ Run SQL Migrations                              │
 [ Target Order Database ]                             │
@@ -148,7 +148,7 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
 ## 3. Directory Structure
 
 ```text
-broker-api/
+microservice-api/
 ├── README.md                     # Workspace & Architecture Documentation
 │
 ├── tenant-service/               # Control-Plane Tenant Management & Outbox Service
@@ -175,7 +175,6 @@ broker-api/
 │
 ├── infrastructure/               # Shared Infrastructure, Gateway & Flow Web UI
 │   ├── init.sql                  # Base database initialization scripts
-│   ├── init-dedicated.sql        # Dedicated DB init schema
 │   ├── docker-compose.yml        # Configures Postgres, RabbitMQ, Mailpit, Traefik, Web-UI
 │   └── web-ui/                   # Flow Demonstration Web UI
 │       ├── main.go               # Serves functional HTML UI

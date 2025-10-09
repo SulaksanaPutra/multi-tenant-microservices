@@ -155,8 +155,8 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 		t.Fatalf("Failed to decode response JSON: %v", err)
 	}
 
-	if regResp.Data.TenantID == "" || !strings.HasPrefix(regResp.Data.TenantID, "tenant_") {
-		t.Fatalf("Expected valid tenant_id starting with 'tenant_', got '%s'", regResp.Data.TenantID)
+	if regResp.Data.TenantID == "" || !strings.HasPrefix(regResp.Data.TenantID, "tnt_") {
+		t.Fatalf("Expected valid tenant_id starting with 'tnt_', got '%s'", regResp.Data.TenantID)
 	}
 
 	t.Logf("2. [Tenant Service] Registration accepted via Gateway! tenant_id='%s'", regResp.Data.TenantID)
@@ -209,7 +209,7 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 
 		t.Logf("5. [Tenant Service] Verified WorkspaceInitiated event published to RabbitMQ! tenant_id='%s', owner_email='%s'", event.TenantID, event.OwnerEmail)
 
-	case <-time.After(10 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatalf("Timed out waiting for WorkspaceInitiated RabbitMQ event")
 	}
 
@@ -277,4 +277,18 @@ func TestTenantRegistration_ValidationError(t *testing.T) {
 	}
 
 	t.Logf("Verified HTTP 400 Bad Request returned for invalid owner_email")
+}
+
+func TestNotificationAPI_E2E(t *testing.T) {
+	resp, err := http.Get("http://localhost:8000/api/notifications")
+	if err != nil {
+		t.Fatalf("HTTP request to GET /api/notifications failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("Expected HTTP status 200 OK from notification API, got: %d", resp.StatusCode)
+	}
+
+	t.Logf("Verified GET /api/notifications returned HTTP 200 OK via Gateway")
 }

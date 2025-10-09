@@ -23,12 +23,12 @@ func main() {
 	log.Println("Starting User Service...")
 
 	// Environment variables
-	dbHost := utils.GetEnv("DB_HOST", "broker-postgres")
+	dbHost := utils.GetEnv("DB_HOST", "postgres")
 	dbPort := utils.GetEnv("DB_PORT", "5432")
 	dbUser := utils.GetEnv("DB_USER", "postgres")
 	dbPassword := utils.GetEnv("DB_PASSWORD", "postgres")
 	dbName := utils.GetEnv("DB_NAME", "user_db")
-	amqpURL := utils.GetEnv("RABBITMQ_URL", "amqp://guest:guest@broker-rabbitmq:5672/")
+	amqpURL := utils.GetEnv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
 	httpPort := utils.GetEnv("PORT", "8081")
 
 	dbClient, err := postgres.NewClient(dbHost, dbPort, dbUser, dbPassword, dbName)

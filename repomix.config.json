@@ -3,7 +3,7 @@
   "output": {
     "filePath": "repomix-output.xml",
     "style": "xml",
-    "headerText": "Compressed codebase structure and signatures for broker-api",
+    "headerText": "Compressed codebase structure and signatures for microservice-api",
     "removeComments": false,
     "removeEmptyLines": true,
     "showLineNumbers": true,

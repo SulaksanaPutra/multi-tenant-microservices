@@ -6,24 +6,25 @@ services:
     container_name: tenant-service
     restart: always
     environment:
-      DB_HOST: broker-postgres
-      DB_PORT: "5432"
+      DB_HOST: postgres
+      DB_PORT: 5432
       DB_USER: postgres
       DB_PASSWORD: postgres
       DB_NAME: tenant_manager_db
-      RABBITMQ_URL: amqp://guest:guest@broker-rabbitmq:5672/
-      PORT: "8082"
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      PORT: 8082
     ports:
       - "${PORT:-8082}:${PORT:-8082}"
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=broker-network"
+      - "traefik.docker.network=microservice-network"
       - "traefik.http.routers.tenant-service.rule=PathPrefix(`/api/register`)"
       - "traefik.http.routers.tenant-service.entrypoints=web"
       - "traefik.http.services.tenant-service.loadbalancer.server.port=${PORT:-8082}"
     networks:
-      - broker-network
+      - microservice-network
 
 networks:
-  broker-network:
+  microservice-network:
+    name: microservice-network
     external: true

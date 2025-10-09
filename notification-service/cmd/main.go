@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"notification-service/internal/handler"
 	"notification-service/internal/infrastructure/postgres"
 	"notification-service/internal/infrastructure/rabbitmq"
 	"notification-service/internal/mailer"
@@ -24,13 +25,13 @@ func main() {
 	log.Println("Starting Notification Service Worker...")
 
 	// Environment variables
-	dbHost := getEnv("DB_HOST", "broker-postgres")
+	dbHost := getEnv("DB_HOST", "postgres")
 	dbPort := getEnv("DB_PORT", "5432")
 	dbUser := getEnv("DB_USER", "postgres")
 	dbPassword := getEnv("DB_PASSWORD", "postgres")
 	dbName := getEnv("DB_NAME", "notification_db")
-	amqpURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@broker-rabbitmq:5672/")
-	smtpHost := getEnv("SMTP_HOST", "broker-mailpit")
+	amqpURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
+	smtpHost := getEnv("SMTP_HOST", "mailpit")
 	smtpPort := getEnv("SMTP_PORT", "1025")
 	httpPort := getEnv("PORT", "8083")
 
@@ -70,8 +71,9 @@ func main() {
 		log.Fatalf("Failed to start consumers: %v", err)
 	}
 
-	// 6. Register HTTP Router & Health Endpoint
-	httpRouter := newRouter()
+	// 6. Register HTTP Router & Handlers
+	notifHandler := handler.NewNotificationHandler(notifService)
+	httpRouter := newRouter(notifHandler)
 	httpServer := &http.Server{
 		Addr:    ":" + httpPort,
 		Handler: httpRouter,

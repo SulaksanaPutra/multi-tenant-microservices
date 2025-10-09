@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>4. Session Registry - Multi-Tenant Flow</title>
+</head>
+<body>
+    <div id="nav-container"></div>
+
+    <h2>Session Tenant Registry</h2>
+    <p>List of tenants registered in this server session (stored in browser <code>localStorage</code>).</p>
+    <table border="1" cellpadding="8" cellspacing="0" id="tenant-registry-table">
+        <thead>
+            <tr>
+                <th>Tenant ID</th>
+                <th>Tenant Name</th>
+                <th>Plan</th>
+                <th>Status</th>
+                <th>Owner Email</th>
+                <th>Registered At</th>
+            </tr>
+        </thead>
+        <tbody id="tenant-registry-body">
+            <!-- Dynamically populated -->
+        </tbody>
+    </table>
+    <br>
+    <button type="button" onclick="clearLocalState()">Clear Local State Manually</button>
+
+    <script src="/nav.js"></script>
+    <script>
+        renderNavHeader("registry");
+        renderRegistry();
+
+        function renderRegistry() {
+            const bodyEl = document.getElementById("tenant-registry-body");
+            const tenants = getSavedTenants();
+
+            if (tenants.length === 0) {
+                bodyEl.innerHTML = `<tr><td colspan="6"><em>No tenants registered in this session yet.</em></td></tr>`;
+                return;
+            }
+
+            let html = "";
+            tenants.forEach(t => {
+                const statusColor = (t.status === "READY") ? "green" : "#b58100";
+                html += `<tr>
+                    <td><code>${t.tenant_id}</code></td>
+                    <td><b>${t.tenant_name}</b></td>
+                    <td>${t.plan}</td>
+                    <td><span style="font-weight:bold; color:${statusColor}">${t.status || 'PROVISIONING'}</span></td>
+                    <td>${t.owner_email || 'N/A'}</td>
+                    <td>${t.registered_at || 'N/A'}</td>
+                </tr>`;
+            });
+            bodyEl.innerHTML = html;
+        }
+
+        function clearLocalState() {
+            if (confirm("Are you sure you want to clear all session tenants?")) {
+                localStorage.removeItem(STORAGE_KEY_TENANTS);
+                renderNavHeader("registry");
+                renderRegistry();
+            }
+        }
+    </script>
+</body>
+</html>

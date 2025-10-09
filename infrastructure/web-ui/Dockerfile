@@ -2,7 +2,9 @@ FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
 
-COPY main.go index.html ./
+COPY go.mod ./
+COPY main.go ./
+COPY public/ ./public/
 
 RUN CGO_ENABLED=0 GOOS=linux go build -o web-ui main.go
 

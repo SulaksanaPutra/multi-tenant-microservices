@@ -11,6 +11,7 @@ import (
 
 type NotificationLog struct {
 	ID             int       `json:"id"`
+	UserID         string    `json:"user_id"`
 	TenantID       string    `json:"tenant_id"`
 	RecipientEmail string    `json:"recipient_email"`
 	Subject        string    `json:"subject"`
@@ -36,12 +37,12 @@ func NewNotificationRepository(client *postgres.Client) NotificationRepository {
 func (r *notificationRepository) CreateNotificationLog(ctx context.Context, log NotificationLog) (int, error) {
 	exec := txctx.GetExecutor(ctx, r.client.DB)
 	query := `
-		INSERT INTO public.notifications (tenant_id, recipient_email, subject, body, status)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO public.notifications (user_id, tenant_id, recipient_email, subject, body, status)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id;
 	`
 	var id int
-	err := exec.QueryRowContext(ctx, query, log.TenantID, log.RecipientEmail, log.Subject, log.Body, log.Status).Scan(&id)
+	err := exec.QueryRowContext(ctx, query, log.UserID, log.TenantID, log.RecipientEmail, log.Subject, log.Body, log.Status).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("failed to insert notification log: %w", err)
 	}
@@ -69,7 +70,7 @@ func (r *notificationRepository) GetNotifications(ctx context.Context, tenantID 
 
 	if tenantID != "" {
 		query = `
-			SELECT id, tenant_id, recipient_email, subject, body, status, created_at
+			SELECT id, user_id, tenant_id, recipient_email, subject, body, status, created_at
 			FROM public.notifications
 			WHERE tenant_id = $1
 			ORDER BY created_at DESC;
@@ -77,7 +78,7 @@ func (r *notificationRepository) GetNotifications(ctx context.Context, tenantID 
 		args = append(args, tenantID)
 	} else {
 		query = `
-			SELECT id, tenant_id, recipient_email, subject, body, status, created_at
+			SELECT id, user_id, tenant_id, recipient_email, subject, body, status, created_at
 			FROM public.notifications
 			ORDER BY created_at DESC
 			LIMIT 50;
@@ -93,7 +94,7 @@ func (r *notificationRepository) GetNotifications(ctx context.Context, tenantID 
 	var logs []NotificationLog
 	for rows.Next() {
 		var l NotificationLog
-		if err := rows.Scan(&l.ID, &l.TenantID, &l.RecipientEmail, &l.Subject, &l.Body, &l.Status, &l.CreatedAt); err != nil {
+		if err := rows.Scan(&l.ID, &l.UserID, &l.TenantID, &l.RecipientEmail, &l.Subject, &l.Body, &l.Status, &l.CreatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan notification row: %w", err)
 		}
 		logs = append(logs, l)

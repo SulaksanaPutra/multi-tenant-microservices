@@ -30,9 +30,9 @@ func TestIDGenerators(t *testing.T) {
 	if !strings.HasPrefix(tenantID, domain.PrefixTenant) {
 		t.Errorf("GenerateTenantID() = %q, expected prefix %q", tenantID, domain.PrefixTenant)
 	}
-	// "tenant_" (7 chars) + 16 hex chars = 23 chars total
-	if len(tenantID) != 23 {
-		t.Errorf("GenerateTenantID() length = %d, want 23", len(tenantID))
+	// "tnt_" (4 chars) + 16 hex chars = 20 chars total
+	if len(tenantID) != 20 {
+		t.Errorf("GenerateTenantID() length = %d, want 20", len(tenantID))
 	}
 
 	outboxID := domain.GenerateOutboxID()

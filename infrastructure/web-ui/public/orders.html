@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3. Orders (Data Plane) - Multi-Tenant Flow</title>
+</head>
+<body>
+    <div id="nav-container"></div>
+
+    <h2>Step 3: Orders (Data Plane)</h2>
+    <p>Submits requests with header <code>X-Tenant-ID</code> to <code>order-service</code> via Traefik Gateway.</p>
+
+    <!-- CREATE ORDER SECTION -->
+    <div style="border:1px solid #ccc; padding:15px; margin-bottom:20px;">
+        <h3>Create Order (POST /api/orders)</h3>
+        <form id="create-order-form">
+            <div>
+                <label for="order-tenant-select">Select Tenant ID:</label><br>
+                <select id="order-tenant-select" style="min-width:350px;" required>
+                    <!-- Dynamically populated -->
+                </select>
+            </div>
+            <br>
+            <div>
+                <label for="order-customer-id">Customer ID:</label><br>
+                <input type="text" id="order-customer-id" name="customer_id" value="cust_101" required>
+            </div>
+            <br>
+            <div>
+                <label for="order-amount">Amount ($):</label><br>
+                <input type="number" step="0.01" id="order-amount" name="amount" value="150.75" required>
+            </div>
+            <br>
+            <div>
+                <label for="order-status">Order Status:</label><br>
+                <input type="text" id="order-status" name="status" value="pending" required>
+            </div>
+            <br>
+            <button type="submit" id="btn-submit-order">Create Order</button>
+        </form>
+        <h4>Create Response:</h4>
+        <pre id="create-order-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
+    </div>
+
+    <!-- GET ORDERS SECTION -->
+    <div style="border:1px solid #ccc; padding:15px;">
+        <h3>Fetch Tenant Orders (GET /api/orders)</h3>
+        <form id="get-orders-form">
+            <div>
+                <label for="get-tenant-select">Select Tenant ID:</label><br>
+                <select id="get-tenant-select" style="min-width:350px;" required>
+                    <!-- Dynamically populated -->
+                </select>
+            </div>
+            <br>
+            <button type="submit" id="btn-submit-get-orders">Fetch Orders</button>
+        </form>
+        <h4>Orders Output:</h4>
+        <pre id="get-orders-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
+    </div>
+
+    <script src="/nav.js"></script>
+    <script>
+        renderNavHeader("orders");
+        populateDropdowns();
+
+        function populateDropdowns() {
+            const tenants = getSavedTenants();
+            const createSelect = document.getElementById("order-tenant-select");
+            const getSelect = document.getElementById("get-tenant-select");
+
+            let html = '<option value="">-- Select Registered Tenant --</option>';
+            tenants.forEach(t => {
+                html += `<option value="${t.tenant_id}">${t.tenant_name} (${t.tenant_id.substring(0,8)}...) - [${t.status || 'PROVISIONING'}]</option>`;
+            });
+
+            createSelect.innerHTML = html;
+            getSelect.innerHTML = html;
+
+            if (tenants.length > 0) {
+                createSelect.value = tenants[0].tenant_id;
+                getSelect.value = tenants[0].tenant_id;
+            }
+        }
+
+        document.getElementById("create-order-form").addEventListener("submit", async function(e) {
+            e.preventDefault();
+            const tenantId = document.getElementById("order-tenant-select").value;
+            const outputEl = document.getElementById("create-order-output");
+
+            if (!tenantId) {
+                outputEl.textContent = "Error: Please select a tenant ID.";
+                return;
+            }
+
+            outputEl.textContent = "Submitting create order request...";
+
+            const payload = {
+                customer_id: document.getElementById("order-customer-id").value.trim(),
+                amount: parseFloat(document.getElementById("order-amount").value),
+                status: document.getElementById("order-status").value.trim()
+            };
+
+            try {
+                const response = await fetch("/api/orders", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Tenant-ID": tenantId
+                    },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                outputEl.textContent = JSON.stringify(data, null, 2);
+            } catch (err) {
+                outputEl.textContent = "Network Error: " + err.message;
+            }
+        });
+
+        document.getElementById("get-orders-form").addEventListener("submit", async function(e) {
+            e.preventDefault();
+            const tenantId = document.getElementById("get-tenant-select").value;
+            const outputEl = document.getElementById("get-orders-output");
+
+            if (!tenantId) {
+                outputEl.textContent = "Error: Please select a tenant ID.";
+                return;
+            }
+
+            outputEl.textContent = "Fetching tenant orders...";
+
+            try {
+                const response = await fetch("/api/orders", {
+                    method: "GET",
+                    headers: {
+                        "X-Tenant-ID": tenantId
+                    }
+                });
+                const data = await response.json();
+                outputEl.textContent = JSON.stringify(data, null, 2);
+            } catch (err) {
+                outputEl.textContent = "Network Error: " + err.message;
+            }
+        });
+    </script>
+</body>
+</html>

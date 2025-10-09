@@ -6,7 +6,7 @@
 CREATE TABLE IF NOT EXISTS public.tenants (
     id           VARCHAR(36)  PRIMARY KEY,
     name         VARCHAR(255) NOT NULL,
-    slug         VARCHAR(255) NOT NULL UNIQUE,
+    slug         VARCHAR(255) NOT NULL,
     owner_email  VARCHAR(255) NOT NULL,
     owner_name   VARCHAR(255) NOT NULL,
     plan         VARCHAR(50)  NOT NULL CHECK (plan IN ('shared', 'dedicated')),
@@ -14,10 +14,10 @@ CREATE TABLE IF NOT EXISTS public.tenants (
     created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
--- public.tenant_service_registry: Write-back table.
+-- public.tenant_services: Write-back table.
 -- Domain services (e.g. order-service) PATCH their DSN here after provisioning.
 -- A row per (tenant_id, service_name) pair.
-CREATE TABLE IF NOT EXISTS public.tenant_service_registry (
+CREATE TABLE IF NOT EXISTS public.tenant_services (
     tenant_id     VARCHAR(36)  NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
     service_name  VARCHAR(100) NOT NULL,
     dsn           TEXT         NOT NULL,

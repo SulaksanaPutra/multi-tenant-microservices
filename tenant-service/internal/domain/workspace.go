@@ -31,7 +31,7 @@ func (p Plan) String() string {
 
 // System entity ID prefixes.
 const (
-	PrefixTenant = "tenant_"
+	PrefixTenant = "tnt_"
 	PrefixOutbox = "outbox_"
 )
 

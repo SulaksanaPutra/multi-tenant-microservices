@@ -12,7 +12,7 @@ import (
 
 const (
 	defaultDebounceDelay = 10 * time.Millisecond
-	defaultPollInterval  = 5 * time.Second
+	defaultPollInterval  = 1 * time.Second
 	defaultBatchSize     = 50
 
 	EventTypeWorkspaceInitiated = "workspace.initiated"

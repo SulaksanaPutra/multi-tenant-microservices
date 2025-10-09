@@ -1,10 +1,10 @@
--- Master Initialization Script for Primary PostgreSQL Container (broker-postgres)
--- Provisions core microservice databases: user_db, tenant_manager_db, notification_db, and shared_db
+-- Master Initialization Script for PostgreSQL Container (postgres)
+-- Provisions core microservice databases: user_db, tenant_manager_db, and notification_db
+-- Note: shared_db is created automatically by Postgres container initialization (POSTGRES_DB=shared_db)
 
 CREATE DATABASE user_db;
 CREATE DATABASE tenant_manager_db;
 CREATE DATABASE notification_db;
-CREATE DATABASE shared_db;
 
 -- 1. Setup user_db schema (user-service)
 \c user_db;
@@ -55,7 +55,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS public.tenants (
     id           VARCHAR(36)  PRIMARY KEY,
     name         VARCHAR(255) NOT NULL,
-    slug         VARCHAR(255) NOT NULL UNIQUE,
+    slug         VARCHAR(255) NOT NULL,
     owner_email  VARCHAR(255) NOT NULL,
     owner_name   VARCHAR(255) NOT NULL,
     plan         VARCHAR(50)  NOT NULL CHECK (plan IN ('shared', 'dedicated')),
@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS public.tenants (
     created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS public.tenant_service_registry (
+CREATE TABLE IF NOT EXISTS public.tenant_services (
     tenant_id     VARCHAR(36)  NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
     service_name  VARCHAR(100) NOT NULL,
     dsn           TEXT         NOT NULL,
