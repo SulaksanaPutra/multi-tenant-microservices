@@ -12,24 +12,26 @@ import (
 
 // consumerRunner manages all inbound queue consumers for order-service.
 type consumerRunner struct {
-	workspaceInitiatedConsumer *consumer.WorkspaceInitiatedConsumer
-	infraChangedConsumer       *consumer.InfraChangedConsumer
+	infraProvisionedConsumer *consumer.InfrastructureProvisionedConsumer
+	infraChangedConsumer     *consumer.InfraChangedConsumer
 }
 
 func registerConsumers(
 	rmqClient *rabbitmq.Client,
-	provisioner service.ProvisionerService,
+	migrationSvc service.MigrationService,
 	reg *registry.PoolRegistry,
-	tenantServiceURL string,
+	sharedSecret string,
+	sharedDBPass string,
 ) (*consumerRunner, error) {
-	wiConsumer, err := consumer.NewWorkspaceInitiatedConsumer(consumer.WorkspaceInitiatedConsumerParams{
+	ipConsumer, err := consumer.NewInfrastructureProvisionedConsumer(consumer.InfrastructureProvisionedConsumerParams{
 		Client:           rmqClient,
-		Provisioner:      provisioner,
+		MigrationService: migrationSvc,
 		Registry:         reg,
-		TenantServiceURL: tenantServiceURL,
+		SharedSecret:     sharedSecret,
+		SharedDBPass:     sharedDBPass,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize WorkspaceInitiatedConsumer: %w", err)
+		return nil, fmt.Errorf("failed to initialize InfrastructureProvisionedConsumer: %w", err)
 	}
 
 	icConsumer, err := consumer.NewInfraChangedConsumer(rmqClient, reg)
@@ -38,14 +40,14 @@ func registerConsumers(
 	}
 
 	return &consumerRunner{
-		workspaceInitiatedConsumer: wiConsumer,
-		infraChangedConsumer:       icConsumer,
+		infraProvisionedConsumer: ipConsumer,
+		infraChangedConsumer:     icConsumer,
 	}, nil
 }
 
 func (cr *consumerRunner) start(ctx context.Context) error {
-	if err := cr.workspaceInitiatedConsumer.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start WorkspaceInitiatedConsumer: %w", err)
+	if err := cr.infraProvisionedConsumer.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start InfrastructureProvisionedConsumer: %w", err)
 	}
 	if err := cr.infraChangedConsumer.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start InfraChangedConsumer: %w", err)

@@ -11,6 +11,8 @@ services:
       SHARED_DB_USER: postgres
       SHARED_DB_PASSWORD: postgres
       SHARED_DB_NAME: shared_db
+      SHARED_DB_SECRET: ${SHARED_DB_SECRET:-default_shared_db_secret_key}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-default_internal_service_token}
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       TENANT_SERVICE_URL: http://tenant-service:8082
       PORT: 8084

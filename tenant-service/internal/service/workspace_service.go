@@ -31,19 +31,25 @@ type RegisterWorkspaceOutput struct {
 type InfraUpdateInput struct {
 	TenantID    string
 	ServiceName string
-	DSN         string
+	DBHost      string
+	DBPort      int
+	DBName      string
+	DBUser      string
 	SchemaName  string
 }
 
-type DSNOutput struct {
-	DSN        string `json:"dsn"`
+type RoutingOutput struct {
+	DBHost     string `json:"db_host"`
+	DBPort     int    `json:"db_port"`
+	DBName     string `json:"db_name"`
+	DBUser     string `json:"db_user"`
 	SchemaName string `json:"schema_name"`
 }
 
 type WorkspaceService interface {
 	RegisterWorkspace(ctx context.Context, input RegisterWorkspaceInput) (*RegisterWorkspaceOutput, error)
 	HandleInfrastructureUpdate(ctx context.Context, input InfraUpdateInput) error
-	GetServiceDSN(ctx context.Context, tenantID, serviceName string) (*DSNOutput, error)
+	GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*RoutingOutput, error)
 }
 
 type workspaceService struct {
@@ -119,13 +125,20 @@ func (s *workspaceService) RegisterWorkspace(ctx context.Context, input Register
 }
 
 func (s *workspaceService) HandleInfrastructureUpdate(ctx context.Context, input InfraUpdateInput) error {
-	if err := s.controlRepo.UpsertServiceInfrastructure(ctx,
-		input.TenantID, input.ServiceName, input.DSN, input.SchemaName,
-	); err != nil {
+	if err := s.controlRepo.UpsertServiceInfrastructure(ctx, repository.UpsertServiceInfraInput{
+		TenantID:    input.TenantID,
+		ServiceName: input.ServiceName,
+		DBHost:      input.DBHost,
+		DBPort:      input.DBPort,
+		DBName:      input.DBName,
+		DBUser:      input.DBUser,
+		SchemaName:  input.SchemaName,
+	}); err != nil {
 		return fmt.Errorf("failed to upsert service infrastructure: %w", err)
 	}
 
-	log.Printf("WorkspaceService: %s checked in for tenant_id='%s'", input.ServiceName, input.TenantID)
+	log.Printf("WorkspaceService: Infrastructure routing updated for tenant_id='%s' service='%s' host='%s'",
+		input.TenantID, input.ServiceName, input.DBHost)
 
 	pendingCount, err := s.controlRepo.GetPendingServiceCount(ctx, input.TenantID, requiredServices)
 	if err != nil {
@@ -174,10 +187,16 @@ func (s *workspaceService) HandleInfrastructureUpdate(ctx context.Context, input
 	return nil
 }
 
-func (s *workspaceService) GetServiceDSN(ctx context.Context, tenantID, serviceName string) (*DSNOutput, error) {
-	dsn, schemaName, err := s.controlRepo.GetServiceDSN(ctx, tenantID, serviceName)
+func (s *workspaceService) GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*RoutingOutput, error) {
+	infra, err := s.controlRepo.GetServiceInfrastructure(ctx, tenantID, serviceName)
 	if err != nil {
 		return nil, err
 	}
-	return &DSNOutput{DSN: dsn, SchemaName: schemaName}, nil
+	return &RoutingOutput{
+		DBHost:     infra.DBHost,
+		DBPort:     infra.DBPort,
+		DBName:     infra.DBName,
+		DBUser:     infra.DBUser,
+		SchemaName: infra.SchemaName,
+	}, nil
 }

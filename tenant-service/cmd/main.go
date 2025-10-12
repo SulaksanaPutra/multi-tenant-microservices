@@ -31,6 +31,7 @@ func main() {
 	dbName := getEnv("DB_NAME", "tenant_manager_db")
 	amqpURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
 	httpPort := getEnv("PORT", "8082")
+	internalToken := getEnv("INTERNAL_SERVICE_TOKEN", "default_internal_service_token")
 
 	// 1. Connect Infrastructure Drivers
 	dbClient, err := postgres.NewClient(dbHost, dbPort, dbUser, dbPassword, dbName)
@@ -69,16 +70,20 @@ func main() {
 		OutboxWorker: wRunner.OutboxWorker(),
 	})
 
-	// 6. Register & Start Inbound Queue Consumers (none — tenant-service is a pure producer)
-	cRunner := registerConsumers()
+	// 6. Register & Start Inbound Queue Consumers
+	cRunner, err := registerConsumers(txManager, rmqClient, workspaceService)
+	if err != nil {
+		log.Fatalf("Failed to register consumers: %v", err)
+	}
+
 	consumerCtx, consumerCancel := context.WithCancel(context.Background())
 	defer consumerCancel()
 	if err := cRunner.start(consumerCtx); err != nil {
 		log.Fatalf("Failed to start consumers: %v", err)
 	}
 
-	// 7. Register HTTP Router
-	httpRouter := newRouter(txManager, workspaceService)
+	// 7. Register HTTP Router with Zero-Trust internal token check
+	httpRouter := newRouter(txManager, workspaceService, internalToken)
 	httpServer := &http.Server{
 		Addr:    ":" + httpPort,
 		Handler: httpRouter,

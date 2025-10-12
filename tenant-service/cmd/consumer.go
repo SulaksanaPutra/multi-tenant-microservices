@@ -1,13 +1,35 @@
 package main
 
-import "context"
+import (
+	"context"
+	"fmt"
 
-type consumerRunner struct{}
+	"tenant-service/internal/consumer"
+	"tenant-service/internal/infrastructure/rabbitmq"
+	"tenant-service/internal/service"
+	"tenant-service/internal/txctx"
+)
 
-func registerConsumers() *consumerRunner {
-	return &consumerRunner{}
+type consumerRunner struct {
+	tenantOrderDBReadyConsumer *consumer.TenantOrderDBReadyConsumer
 }
 
-func (cr *consumerRunner) start(_ context.Context) error {
+func registerConsumers(txManager txctx.TxManager, rmqClient *rabbitmq.Client, workspaceSvc service.WorkspaceService) (*consumerRunner, error) {
+	c, err := consumer.NewTenantOrderDBReadyConsumer(txManager, rmqClient, workspaceSvc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register TenantOrderDBReadyConsumer: %w", err)
+	}
+
+	return &consumerRunner{
+		tenantOrderDBReadyConsumer: c,
+	}, nil
+}
+
+func (cr *consumerRunner) start(ctx context.Context) error {
+	if cr.tenantOrderDBReadyConsumer != nil {
+		if err := cr.tenantOrderDBReadyConsumer.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start TenantOrderDBReadyConsumer: %w", err)
+		}
+	}
 	return nil
 }

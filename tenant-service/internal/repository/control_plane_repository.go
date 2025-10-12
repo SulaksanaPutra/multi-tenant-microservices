@@ -23,10 +23,23 @@ type TenantRecord struct {
 	CreatedAt  time.Time
 }
 
-type ServiceInfra struct {
+type ServiceInfraRouting struct {
 	TenantID    string
 	ServiceName string
-	DSN         string
+	DBHost      string
+	DBPort      int
+	DBName      string
+	DBUser      string
+	SchemaName  string
+}
+
+type UpsertServiceInfraInput struct {
+	TenantID    string
+	ServiceName string
+	DBHost      string
+	DBPort      int
+	DBName      string
+	DBUser      string
 	SchemaName  string
 }
 
@@ -42,10 +55,10 @@ type CreateTenantInput struct {
 // ControlPlaneRepository manages persistence for the central Control Plane registry.
 type ControlPlaneRepository interface {
 	CreateTenant(ctx context.Context, input CreateTenantInput) error
-	UpsertServiceInfrastructure(ctx context.Context, tenantID, serviceName, dsn, schemaName string) error
+	UpsertServiceInfrastructure(ctx context.Context, input UpsertServiceInfraInput) error
 	GetPendingServiceCount(ctx context.Context, tenantID string, requiredServices []string) (int, error)
 	ActivateTenant(ctx context.Context, tenantID string) error
-	GetServiceDSN(ctx context.Context, tenantID, serviceName string) (dsn string, schemaName string, err error)
+	GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*ServiceInfraRouting, error)
 	GetTenantByID(ctx context.Context, tenantID string) (*TenantRecord, error)
 }
 
@@ -72,19 +85,31 @@ func (r *controlPlaneRepository) CreateTenant(ctx context.Context, input CreateT
 	return nil
 }
 
-func (r *controlPlaneRepository) UpsertServiceInfrastructure(ctx context.Context, tenantID, serviceName, dsn, schemaName string) error {
+func (r *controlPlaneRepository) UpsertServiceInfrastructure(ctx context.Context, input UpsertServiceInfraInput) error {
 	exec := txctx.GetExecutor(ctx, r.dbClient)
 	const query = `
-		INSERT INTO public.tenant_services (tenant_id, service_name, dsn, schema_name, checked_in_at)
-		VALUES ($1, $2, $3, $4, NOW())
+		INSERT INTO public.tenant_services (tenant_id, service_name, db_host, db_port, db_name, db_user, schema_name, checked_in_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
 		ON CONFLICT (tenant_id, service_name) DO UPDATE
-		  SET dsn           = EXCLUDED.dsn,
+		  SET db_host       = EXCLUDED.db_host,
+		      db_port       = EXCLUDED.db_port,
+		      db_name       = EXCLUDED.db_name,
+		      db_user       = EXCLUDED.db_user,
 		      schema_name   = EXCLUDED.schema_name,
 		      checked_in_at = NOW();
 	`
-	_, err := exec.ExecContext(ctx, query, tenantID, serviceName, dsn, schemaName)
+	if input.DBPort <= 0 {
+		input.DBPort = 5432
+	}
+	if input.DBUser == "" {
+		input.DBUser = "postgres"
+	}
+
+	_, err := exec.ExecContext(ctx, query,
+		input.TenantID, input.ServiceName, input.DBHost, input.DBPort, input.DBName, input.DBUser, input.SchemaName,
+	)
 	if err != nil {
-		return fmt.Errorf("failed to upsert service infrastructure for tenant '%s', service '%s': %w", tenantID, serviceName, err)
+		return fmt.Errorf("failed to upsert service infrastructure for tenant '%s', service '%s': %w", input.TenantID, input.ServiceName, err)
 	}
 	return nil
 }
@@ -134,22 +159,27 @@ func (r *controlPlaneRepository) ActivateTenant(ctx context.Context, tenantID st
 	return nil
 }
 
-func (r *controlPlaneRepository) GetServiceDSN(ctx context.Context, tenantID, serviceName string) (string, string, error) {
+func (r *controlPlaneRepository) GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*ServiceInfraRouting, error) {
 	exec := txctx.GetExecutor(ctx, r.dbClient)
 	const query = `
-		SELECT dsn, COALESCE(schema_name, '')
+		SELECT db_host, db_port, db_name, db_user, COALESCE(schema_name, '')
 		FROM public.tenant_services
 		WHERE tenant_id = $1 AND service_name = $2;
 	`
-	var dsn, schemaName string
-	err := exec.QueryRowContext(ctx, query, tenantID, serviceName).Scan(&dsn, &schemaName)
+	var res ServiceInfraRouting
+	res.TenantID = tenantID
+	res.ServiceName = serviceName
+
+	err := exec.QueryRowContext(ctx, query, tenantID, serviceName).Scan(
+		&res.DBHost, &res.DBPort, &res.DBName, &res.DBUser, &res.SchemaName,
+	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return "", "", fmt.Errorf("no infrastructure registered for tenant '%s', service '%s'", tenantID, serviceName)
+			return nil, fmt.Errorf("no infrastructure registered for tenant '%s', service '%s'", tenantID, serviceName)
 		}
-		return "", "", fmt.Errorf("failed to query service DSN: %w", err)
+		return nil, fmt.Errorf("failed to query service infrastructure: %w", err)
 	}
-	return dsn, schemaName, nil
+	return &res, nil
 }
 
 func (r *controlPlaneRepository) GetTenantByID(ctx context.Context, tenantID string) (*TenantRecord, error) {

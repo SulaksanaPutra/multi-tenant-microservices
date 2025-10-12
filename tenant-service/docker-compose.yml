@@ -11,6 +11,7 @@ services:
       DB_USER: postgres
       DB_PASSWORD: postgres
       DB_NAME: tenant_manager_db
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-default_internal_service_token}
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       PORT: 8082
     ports:
