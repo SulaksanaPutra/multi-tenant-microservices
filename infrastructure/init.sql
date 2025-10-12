@@ -47,7 +47,7 @@ CREATE INDEX IF NOT EXISTS idx_users_email ON public.users(email);
 CREATE INDEX IF NOT EXISTS idx_inbox_tenant_event ON public.inbox(tenant_id, event_type);
 CREATE INDEX IF NOT EXISTS idx_outbox_pending ON public.outbox(event_type, next_retry_at, created_at) WHERE status IN ('PENDING', 'PROCESSING');
 
--- 2. Setup tenant_manager_db schema (tenant-service)
+-- 2. Setup tenant_manager_db schema (tenant-service Control Plane)
 \c tenant_manager_db;
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -63,10 +63,14 @@ CREATE TABLE IF NOT EXISTS public.tenants (
     created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
+-- Refactored tenant_services: Sanitized routing metadata only (ZERO PASSWORDS)
 CREATE TABLE IF NOT EXISTS public.tenant_services (
     tenant_id     VARCHAR(36)  NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
     service_name  VARCHAR(100) NOT NULL,
-    dsn           TEXT         NOT NULL,
+    db_host       VARCHAR(255) NOT NULL,
+    db_port       INT          NOT NULL DEFAULT 5432,
+    db_name       VARCHAR(255) NOT NULL,
+    db_user       VARCHAR(255) NOT NULL,
     schema_name   VARCHAR(255),
     checked_in_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     PRIMARY KEY (tenant_id, service_name)

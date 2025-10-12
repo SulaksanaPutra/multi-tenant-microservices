@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -23,19 +22,12 @@ func main() {
 	loadEnv(".env")
 	log.Println("Starting Order Service...")
 
-	// Config for provisioner (used dynamically on demand)
-	sharedProvisionerHost := getEnv("SHARED_DB_HOST", getEnv("DB_HOST", "postgres"))
-	sharedProvisionerPort := getEnv("SHARED_DB_PORT", getEnv("DB_PORT", "5432"))
-	sharedProvisionerUser := getEnv("SHARED_DB_USER", getEnv("DB_USER", "postgres"))
-	sharedProvisionerPassword := getEnv("SHARED_DB_PASSWORD", getEnv("DB_PASSWORD", "postgres"))
-	sharedProvisionerDBName := getEnv("SHARED_DB_NAME", "shared_db")
+	sharedSecret := getEnv("SHARED_DB_SECRET", "default_shared_db_secret_key")
+	sharedDBPass := getEnv("SHARED_DB_PASSWORD", getEnv("DB_PASSWORD", "postgres"))
+	internalToken := getEnv("INTERNAL_SERVICE_TOKEN", "default_internal_service_token")
 	amqpURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
 	httpPort := getEnv("PORT", "8084")
 	tenantServiceURL := getEnv("TENANT_SERVICE_URL", "http://tenant-service:8082")
-
-	// DSN template used dynamically on demand to provision shared schemas and dedicated DBs
-	sharedProvisionerDSN := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		sharedProvisionerHost, sharedProvisionerPort, sharedProvisionerUser, sharedProvisionerPassword, sharedProvisionerDBName)
 
 	// 1. Connect RabbitMQ Driver
 	rmqClient, err := rabbitmq.NewClient(amqpURL)
@@ -44,24 +36,24 @@ func main() {
 	}
 	defer rmqClient.Close()
 
-	// 2. Initialize Dynamic Pool Registry (all runtime tenant connections are opened lazily on demand)
+	// 2. Initialize Dynamic Pool Registry
 	poolRegistry := registry.NewPoolRegistry()
 	reaperCtx, reaperCancel := context.WithCancel(context.Background())
 	defer reaperCancel()
 	poolRegistry.StartReaper(reaperCtx)
 
 	tenantDBResolver := tenantdb.NewResolver(tenantdb.ResolverParams{
-		Registry:         poolRegistry,
-		TenantServiceURL: tenantServiceURL,
+		Registry:             poolRegistry,
+		TenantServiceURL:     tenantServiceURL,
+		InternalServiceToken: internalToken,
+		SharedSecret:         sharedSecret,
+		SharedDBPass:         sharedDBPass,
 	})
 
-	// 3. Initialize Provisioner Service
-	provisioner, err := service.NewProvisionerService(service.ProvisionerServiceParams{
-		SharedProvisionerDSN: sharedProvisionerDSN,
-		MigrationFile:        "migrations/001_create_orders.sql",
-	})
+	// 3. Initialize Migration Service
+	migrationSvc, err := service.NewMigrationService("migrations/001_create_orders.sql")
 	if err != nil {
-		log.Fatalf("Failed to initialize ProvisionerService: %v", err)
+		log.Fatalf("Failed to initialize MigrationService: %v", err)
 	}
 
 	orderRepo := repository.NewOrderRepository()
@@ -71,7 +63,7 @@ func main() {
 	})
 
 	// 4. Register & Start Inbound Consumers
-	cRunner, err := registerConsumers(rmqClient, provisioner, poolRegistry, tenantServiceURL)
+	cRunner, err := registerConsumers(rmqClient, migrationSvc, poolRegistry, sharedSecret, sharedDBPass)
 	if err != nil {
 		log.Fatalf("Failed to register consumers: %v", err)
 	}

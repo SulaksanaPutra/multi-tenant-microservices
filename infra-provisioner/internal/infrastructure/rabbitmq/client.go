@@ -22,10 +22,10 @@ func NewClient(amqpURL string) (*Client, error) {
 	for i := 0; i < 10; i++ {
 		conn, err = amqp.Dial(amqpURL)
 		if err == nil {
-			log.Println("Order Service RabbitMQ Driver: Connected successfully")
+			log.Println("Infra Provisioner RabbitMQ Driver: Connected successfully")
 			break
 		}
-		log.Printf("Order Service RabbitMQ connection attempt %d/10 failed: %v. Retrying in 2s...", i+1, err)
+		log.Printf("Infra Provisioner RabbitMQ connection attempt %d/10 failed: %v. Retrying in 2s...", i+1, err)
 		time.Sleep(2 * time.Second)
 	}
 
@@ -64,7 +64,7 @@ func (c *Client) DeclareAndBindQueue(queueName, exchangeName, routingKey string)
 func (c *Client) PublishEvent(ctx context.Context, exchangeName, routingKey string, payload interface{}) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("failed to marshal payload: %w", err)
+		return fmt.Errorf("failed to marshal event payload: %w", err)
 	}
 
 	return c.Channel.PublishWithContext(

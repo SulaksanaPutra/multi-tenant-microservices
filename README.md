@@ -1,6 +1,6 @@
 # Microservice API Workspace (Multi-Tenant Microservices Architecture)
 
-This workspace demonstrates a **Multi-Tenant Microservices Architecture** supporting both **Shared (Schema-per-Tenant)** and **Dedicated (Database-per-Tenant via Docker)** isolation models.
+This workspace demonstrates a **Multi-Tenant Microservices Architecture** supporting both **Shared (Schema-per-Tenant)** and **Dedicated (Database-per-Tenant via Docker)** isolation models, powered by an isolated **`infra-provisioner`** pattern and a **Zero-Trust Control Plane** for secure container orchestration and credential protection.
 
 ---
 
@@ -21,20 +21,22 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
       │                                             ▼
       │                                     [ tenantManagerDB ]
       │                                             │
-      │                                             ▼ (Publish)
+      │                                             ▼ (Publish: workspace.initiated)
       │                                     [ RabbitMQ Broker ]
       │                                             │
       │         ┌───────────────────────────────────┼─────────────────────────┬─────────────────────────┐
       │         ▼                                   ▼                         ▼                         ▼
-      └─────► POST / GET /api/orders ──► [ order-service :8083 ]    [ user-service :8081 ]   [ notification-service :8084 ]
-                                                    │                         │                         │
-                            ┌───────────────────────┴───────────┐             ▼                         ▼
-                            ▼                                   ▼         [ userDB ]            [ notificationDB ]
-                   (Shared Plan: Schema)            (Dedicated Plan: Database)                   [ Mailpit SMTP ]
-                        [ shared_db ]                  [ postgres Container ]
-                             │                                  │
-                             ▼                                  ▼
-                   [ <tenantID>_order_db ]             [ <tenantID>_order_db ]
+      └─────► POST / GET /api/orders   [ infra-provisioner ]      [ user-service :8081 ]   [ notification-service :8084 ]
+                     │                 (Docker Worker, QoS=1)                 │                         │
+                     ▼                         │                              ▼                         ▼
+            [ order-service :8084 ]            ▼ Publish:               [ userDB ]            [ notificationDB ]
+                     │               infrastructure.provisioned                                [ Mailpit SMTP ]
+                     ▼ (Runs SQL Migrations)   │
+           [ Tenant Database ] ◄───────────────┘
+          (Shared or Dedicated)
+                     │
+                     ▼ Emits: tenant.order_db.ready
+            [ tenant-service ] ──► (Passively Activates Workspace & Upserts Routing Metadata)
 ```
 
 ---
@@ -49,37 +51,42 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
 +-----------------------------------------------------------------------------------+
 
 [ Client ] 
-    │  POST /api/register (email, name, tenant_plan)
+    │  POST /api/register (email, name, plan)
     ▼
 [ tenant-service ] 
     │  1. Save tenant metadata (status: pending)
-    │  2. Save event payload to Outbox table
+    │  2. Save workspace.initiated event to Outbox table
     │     ───► (Inside ONE Database Transaction)
     │  3. Return HTTP 202 Accepted to Client
     ▼
 [ Outbox Worker ] 
-    │  Reads outbox table & publishes event to queue
+    │  Reads outbox table & publishes workspace.initiated event
     ▼
-[ RabbitMQ Queue ] ──► (user.registered)
+[ RabbitMQ Queue ] ──► (workspace.initiated)
     │
     ├─────────────────────────────────────────────────┐
     ▼                                                 ▼
-[ order-service ]                                 [ user-service ]
-    │ Check Inbox table                               │ Check Inbox table
-    │                                                 │ Save user profile in userDB
-    ├─► Shared Plan:                                  │
-    │   CREATE SCHEMA <tenantID>_order_db             ▼ Emits event: user.created
-    │                                             [ RabbitMQ Queue ]
-    ├─► Dedicated Plan:                               │
-    │   Provision Database                            │
-    │   <tenantID>_order_db                           │
-    │                                                 │
-    ▼ Run SQL Migrations                              │
-[ Target Order Database ]                             │
-    │                                                 │
-    ▼ Directory Write-Back (PATCH /internal/...)      │
+[ infra-provisioner ]                             [ user-service ]
+    │  Prefetch QoS = 1                               │ Create user profile in userDB
+    ├─► Shared Plan:                                  │ Emits: user.created
+    │   Pass-through metadata                         │
+    ├─► Dedicated Plan:                               ▼
+    │   Create Docker container                       [ RabbitMQ Queue ]
+    │   (512MB RAM, 0.5 CPU limits)                   │
+    │   Poll pg_isready health check                  │
+    ▼                                                 │
+  Publish: infrastructure.provisioned (No Passwords) │
+    ▼                                                 │
+[ order-service ]                                     │
+    │  Derive DB password via HMAC-SHA256             │
+    │  Execute SQL migrations (001_create_orders.sql) │
+    ▼                                                 │
+  Publish: tenant.order_db.ready (Routing Metadata)   │
+    ▼                                                 │
 [ tenant-service ]                                    │
-    │ Emits event: workspace.ready                    │
+    │  Passively updates status -> ACTIVE             │
+    │  Stores routing metadata (NO PASSWORDS)         │
+    │  Emits: workspace.ready                         │
     ▼                                                 │
 [ RabbitMQ Queue ]                                    │
     │                                                 │
@@ -87,21 +94,8 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
                              │ Both events received (Barrier Sync)
                              ▼
                  [ notification-service ]
-                             │ 1. Verify user_created=true AND workspace_ready=true
-                             │ 2. Log notification in notificationDB
-                             │ 3. Dispatch Welcome Email via Mailpit
+                             │ Dispatch Welcome Email via Mailpit
 ```
-
-#### Step-by-Step Breakdown:
-1. **User Registration:** Client sends `POST /api/register` specifying `email`, `name`, and `tenant_plan` (`Shared` vs. `Dedicated`).
-2. **Atomic Write (Outbox Pattern):** `tenant-service` writes tenant details and an outbox event in **a single database transaction**, returning HTTP `202 Accepted`.
-3. **Event Dispatching:** Outbox worker reads the outbox table and publishes `user.registered` to RabbitMQ.
-4. **Provisioning & Account Creation (Concurrent Stage):**
-   - **`order-service`:** Consumes `user.registered`, provisions the database (Shared schema or Dedicated container), executes migrations, and updates `tenant-service` directory, triggering `workspace.ready`.
-   - **`user-service`:** Consumes `user.registered`, creates the user in `userDB`, and emits `user.created`.
-5. **Notification Barrier Synchronization:**
-   - **`notification-service`:** Consumes both `user.created` and `workspace.ready` events into its inbox.
-   - Once **both barrier conditions** are satisfied for `<tenantID>`, it logs the audit record in `notificationDB` and dispatches the welcome email via Mailpit.
 
 ---
 
@@ -116,73 +110,87 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
     │  POST /api/orders or GET /api/orders (Header: tenant-x-id)
     ▼
 [ order-service ]
-    │
-    └─────► Check sync.Map cache: map[tenantID]*sql.DB
-                 │
-                 ├─────────────────────────────────────────┐
-                 ▼ (Cache Hit - Fast Path)                 ▼ (Cache Miss - Slow Path)
-      Use existing *sql.DB pool                   Call tenant-service HTTP:
-                 │                                GET /internal/tenants/...
-                 │                                         │
-                 │                                         ▼ Returns DSN
-                 │                                Open *sql.DB connection pool
-                 │                                Save pool into sync.Map
-                 │                                         │
-                 ├─────────────────────────────────────────┘
-                 │
-                 ▼
-[ Tenant Database (Shared Schema or Dedicated Container) ]
-    │  Execute INSERT or SELECT query
-    ▼
-[ Return Response to Client (201 Created or 200 OK) ]
+    │  Check PoolRegistry (sync.RWMutex with 15-min TTL)
+    ├─────────────────────────────────────────┐
+    ▼ (Cache Hit)                             ▼ (Cache Miss)
+Use existing *sql.DB pool               GET /internal/tenants/:id/infrastructure/order-service
+    │                                   Header: X-Internal-Service-Token
+    │                                         │
+    │                                         ▼ Returns Routing Metadata (host, port, db_name)
+    │                                   Derive HMAC password in memory & open pool
+    │                                         │
+    └───────────────────┬─────────────────────┘
+                        ▼
+    [ Tenant DB (Shared Schema or Dedicated Container) ]
+                        │  Execute Query
+                        ▼
+    [ Response to Client (201 Created or 200 OK) ]
 ```
-
-#### Step-by-Step Breakdown:
-1. **Request Ingress:** Client sends `POST /api/orders` (create order) or `GET /api/orders` (fetch orders) with `tenant-x-id` in the HTTP header.
-2. **Cache Lookup:** `order-service` checks its internal Go `sync.Map` for an active database connection pool.
-3. **Fast Path (Cache Hit):** If present, `order-service` executes the query immediately against the tenant's isolated database.
-4. **Slow Path (Cache Miss):** If missing, `order-service` calls `tenant-service` (`GET /internal/tenants/{tenantID}/infrastructure/order-service`) to retrieve the DSN, opens a connection pool, caches it in `sync.Map`, and executes the query.
 
 ---
 
-## 3. Directory Structure
+## 3. Architecture Deep-Dive Documentation Index
+
+This repository contains comprehensive technical design deep-dives located in the [`docs/`](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs) directory:
+
+| # | Document Title | Focus Area |
+| :-: | :--- | :--- |
+| 1 | [What Happens If The Broadcaster Breaks?](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs/1-what-happens-if-the-broadcaster-breaks-and-how-do-we-retry.md) | Outbox Pattern, At-Least-Once Delivery & Retry Loops |
+| 2 | [How Does Phantom Batch Duplicate Delivery Happen?](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs/2-how-does-the-phantom-batch-duplicate-delivery-happen-and-how-do-we-fix-it.md) | Inbox Pattern, Deduplication Barriers & Consumer Idempotency |
+| 3 | [What If The Database Crashes After RabbitMQ Succeeds?](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs/3-what-if-the-database-crashes-after-rabbitmq-succeeds-the-idempotent-consumer.md) | Atomic Transactions & Transactional Inbox Handlers |
+| 4 | [What Happens If Tenant Schema Creation Fails Midway?](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs/4-what-happens-if-tenant-schema-creation-fails-midway-transactional-ddl.md) | Transactional DDL, Migration Rollbacks & Schema Safety |
+| 5 | [How Do We Scale Multi-Tenancy from Shared Schema to Dedicated Database?](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs/5-how-do-we-scale-multi-tenancy-from-shared-schema-to-dedicated-database-hybrid-duality.md) | Hybrid Multi-Tenant Duality & Plan Upgrades |
+| 6 | [How Do We Decouple Control Plane & Data Plane?](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs/6-how-do-we-decouple-control-plane-and-data-plane-workspace-first-b2b-architecture.md) | Passive Control Plane Registry & Zero-Boot Connection Pools |
+| 7 | [How Do We Manage Database Transactions and Domain Invariants?](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs/7-how-do-we-manage-database-transactions-and-domain-invariants-outer-layer-unit-of-work.md) | Outer-Layer Unit of Work, Transaction Context & Domain Isolation |
+| 8 | [How Do We Isolate Container Orchestration & Prevent Host Takeover?](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs/8-how-do-we-isolate-container-orchestration-and-prevent-host-takeover-infra-provisioner-pattern.md) | `infra-provisioner` Pattern, Docker Socket Isolation & HMAC Credentials |
+| 9 | [How Do We Prevent Lateral Movement & Secure the Control Plane?](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs/9-how-do-we-prevent-lateral-movement-and-secure-the-control-plane-zero-trust-metadata-sanitization.md) | Control Plane Metadata Sanitization, Zero-Trust Inter-Service Auth & Ghost Route Removal |
+
+---
+
+## 4. Directory Structure
 
 ```text
 microservice-api/
 ├── README.md                     # Workspace & Architecture Documentation
 │
-├── tenant-service/               # Control-Plane Tenant Management & Outbox Service
-│   ├── cmd/main.go               # Port 8082 - HTTP API & DSN Directory Service
+├── infra-provisioner/            # Isolated Infrastructure Provisioning Worker
+│   ├── cmd/main.go               # Entrypoint & RabbitMQ consumer
 │   ├── internal/
-│   │   ├── repository/           # Tenant metadata & outbox storage
-│   │   └── handler/              # Register & internal infrastructure endpoints
+│   │   ├── crypto/               # HMAC-SHA256 deterministic credential derivation
+│   │   ├── docker/               # Docker SDK client with 512MB RAM / 0.5 CPU limits & pg_isready
+│   │   └── consumer/             # workspace.initiated consumer (QoS prefetch = 1)
+│   └── Dockerfile
+│
+├── tenant-service/               # Control-Plane Tenant Management & Outbox Service
+│   ├── cmd/main.go               # Port 8082 - Control Plane & Outbox Worker
+│   ├── internal/
+│   │   ├── middleware/           # InternalAuthMiddleware (X-Internal-Service-Token)
+│   │   └── repository/           # Control plane metadata-only repository
 │   └── Dockerfile
 │
 ├── user-service/                 # User Identity Service
-│   ├── cmd/main.go               # Port 8081 - User Management & Event Consumer
+│   ├── cmd/main.go               # Port 8081 - User Profile & Event Consumer
 │   └── Dockerfile
 │
 ├── order-service/                # Dynamic Multi-Tenant Data-Plane Service
-│   ├── cmd/main.go               # Port 8083 - Orders API & Provisioner Worker
+│   ├── cmd/main.go               # Port 8084 - Orders API & Migration Consumer
 │   ├── internal/
-│   │   ├── infrastructure/       # DSN caching & database connection manager
-│   │   └── provisioner/          # Schema & Dedicated container provisioner
+│   │   ├── crypto/               # HMAC-SHA256 password derivation
+│   │   ├── infrastructure/       # Zero-Trust TenantDB Resolver
+│   │   └── registry/             # PoolRegistry with 15-minute TTL eviction
 │   └── Dockerfile
 │
 ├── notification-service/         # Async Notification Worker
-│   ├── cmd/main.go               # Port 8084 - Audit Logger & Mailpit Dispatcher
+│   ├── cmd/main.go               # Port 8084 - Mailpit Dispatcher & Audit Logger
 │   └── Dockerfile
 │
-├── infrastructure/               # Shared Infrastructure, Gateway & Flow Web UI
-│   ├── init.sql                  # Base database initialization scripts
-│   ├── docker-compose.yml        # Configures Postgres, RabbitMQ, Mailpit, Traefik, Web-UI
-│   └── web-ui/                   # Flow Demonstration Web UI
-│       ├── main.go               # Serves functional HTML UI
-│       ├── index.html            # Functional unstyled HTML UI
-│       └── Dockerfile
+├── infrastructure/               # Shared Infrastructure & Docker Topology
+│   ├── init.sql                  # Base database initialization scripts (Sanitized tenant_services schema)
+│   ├── docker-compose.yml        # Postgres, RabbitMQ, Mailpit, Traefik, Infra-Provisioner, Web-UI
+│   └── web-ui/                   # Functional Web UI
 │
 ├── docs/                         # Architectural Deep-Dives & Technical Design Challenges
-│   └── 1-what-happens-if-the-broadcaster-breaks...md
+│   └── 9-how-do-we-prevent-lateral-movement...md
 │
 └── e2e-tests/                    # Automated Integration Tests
     └── register_e2e_test.go      # Dynamic registration & order flow test suite
@@ -190,64 +198,41 @@ microservice-api/
 
 ---
 
-## 4. Port Map & Component Dashboard
+## 5. Port Map & Component Dashboard
 
 | Service / Tool | Port | Endpoint / Dashboard | Description |
 | :--- | :--- | :--- | :--- |
 | **Traefik Gateway** | `8000` | `http://localhost:8000` | Gateway entrypoint for APIs & Web UI |
-| **Flow Demo Web UI** | `8000` | `http://localhost:8000/` | Functional zero-CSS workflow demo UI |
-| **tenant-service** | `8082` | `tenant-service:8082` | Control-plane directory & registration API |
-| **order-service** | `8083` | `order-service:8083` | Orders data-plane & provisioner worker |
+| **Flow Demo Web UI** | `8000` | `http://localhost:8000/` | Web UI for tenant registration & orders |
+| **tenant-service** | `8082` | `tenant-service:8082` | Control plane registry & registration API |
+| **order-service** | `8084` | `order-service:8084` | Orders data plane & migration consumer |
 | **user-service** | `8081` | `user-service:8081` | User profile service |
 | **notification-service** | `8084` | `notification-service:8084` | Email notification worker |
+| **infra-provisioner** | *None* | *Internal Worker* | Docker container provisioner (QoS=1, isolated socket) |
 | **RabbitMQ Management**| `15672` | `http://localhost:15672` | Queue dashboard (`guest` / `guest`) |
 | **Mailpit Dashboard** | `8025` | `http://localhost:8025` | Mock email inbox UI |
 
 ---
 
-## 5. How to Run & Stop the Application
+## 6. How to Run & Stop the Application
 
-### Starting Infrastructure & Microservices
+### Starting Infrastructure & Services
 
-1. **Start Shared Infrastructure (`infrastructure/`)**:
-   ```bash
-   (cd infrastructure && docker compose up -d)
-   ```
-   *Spins up PostgreSQL, RabbitMQ, Mailpit, Traefik Gateway, Web UI, and creates `broker-network`.*
+```bash
+# 1. Start Shared Infrastructure & Infra Provisioner
+(cd infrastructure && docker compose up -d)
 
-2. **Start Microservices**:
-   Run each service sequentially or in separate terminals:
-   ```bash
-   # Start Tenant Service (Control Plane & Outbox Worker)
-   (cd tenant-service && docker compose up -d --build)
+# 2. Start Microservices
+(cd tenant-service && docker compose up -d --build) && \
+(cd user-service && docker compose up -d --build) && \
+(cd order-service && docker compose up -d --build) && \
+(cd notification-service && docker compose up -d --build)
 
-   # Start User Service
-   (cd user-service && docker compose up -d --build)
-
-   # Start Order Service (Data Plane & Dynamic Provisioner)
-   (cd order-service && docker compose up -d --build)
-
-   # Start Notification Service (Async Worker)
-   (cd notification-service && docker compose up -d --build)
-   ```
-   *Or start all microservices in a single command:*
-   ```bash
-   (cd tenant-service && docker compose up -d --build) && \
-   (cd user-service && docker compose up -d --build) && \
-   (cd order-service && docker compose up -d --build) && \
-   (cd notification-service && docker compose up -d --build)
-   ```
-
-3. **Run Automated E2E Integration Tests**:
-   ```bash
-   (cd e2e-tests && CGO_ENABLED=0 go test -v ./...)
-   ```
-
----
+# 3. Run E2E Integration Tests
+(cd e2e-tests && CGO_ENABLED=0 go test -v ./...)
+```
 
 ### Stopping All Services
-
-To shut down all microservices and shared infrastructure:
 
 ```bash
 (cd notification-service && docker compose down) && \
@@ -256,26 +241,3 @@ To shut down all microservices and shared infrastructure:
 (cd tenant-service && docker compose down) && \
 (cd infrastructure && docker compose down)
 ```
-
----
-
-### Fresh Start / Reset Database Completely
-
-PostgreSQL persists database state in a named Docker volume (`broker_postgres_data`). Standard `docker compose down` leaves the volume intact.
-
-To **wipe the database completely** and start fresh from scratch:
-
-```bash
-# 1. Stop all microservices
-(cd notification-service && docker compose down) && \
-(cd order-service && docker compose down) && \
-(cd user-service && docker compose down) && \
-(cd tenant-service && docker compose down)
-
-# 2. Wipe infrastructure and persistent volume (-v flag)
-(cd infrastructure && docker compose down -v)
-
-# 3. Start fresh infrastructure (auto-recreates DB & runs init.sql)
-(cd infrastructure && docker compose up -d)
-```
-

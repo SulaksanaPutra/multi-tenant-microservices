@@ -4,13 +4,14 @@ import (
 	"net/http"
 
 	"tenant-service/internal/handler"
+	"tenant-service/internal/middleware"
 	"tenant-service/internal/service"
 	"tenant-service/internal/txctx"
 
 	"github.com/gin-gonic/gin"
 )
 
-func newRouter(txManager txctx.TxManager, workspaceService service.WorkspaceService) http.Handler {
+func newRouter(txManager txctx.TxManager, workspaceService service.WorkspaceService, internalToken string) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery(), gin.Logger())
@@ -20,10 +21,10 @@ func newRouter(txManager txctx.TxManager, workspaceService service.WorkspaceServ
 	// Public registration endpoint
 	r.POST("/api/register", workspaceHandler.RegisterWorkspace)
 
-	// Internal Control Plane endpoints
+	// Protected Internal Control Plane routing endpoints (Zero-Trust)
 	internal := r.Group("/internal/tenants")
+	internal.Use(middleware.InternalAuthMiddleware(internalToken))
 	{
-		internal.PATCH("/:tenant_id/infrastructure", workspaceHandler.UpdateInfrastructure)
 		internal.GET("/:tenant_id/infrastructure/:service_name", workspaceHandler.GetServiceInfrastructure)
 	}
 

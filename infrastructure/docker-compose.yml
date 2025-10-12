@@ -68,6 +68,27 @@ services:
     networks:
       - microservice-network
 
+  infra-provisioner:
+    build:
+      context: ../infra-provisioner
+      dockerfile: Dockerfile
+    container_name: infra-provisioner
+    restart: always
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      SHARED_DB_HOST: postgres
+      SHARED_DB_SECRET: ${SHARED_DB_SECRET:-default_shared_db_secret_key}
+      DOCKER_NETWORK: microservice-network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - microservice-network
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
   web-ui:
     build:
       context: ./web-ui
