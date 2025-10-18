@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"log"
 	"os"
 	"os/signal"
@@ -20,8 +21,15 @@ func main() {
 
 	amqpURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
 	sharedDBHost := getEnv("SHARED_DB_HOST", "postgres")
-	sharedSecret := getEnv("SHARED_DB_SECRET", "default_shared_db_secret_key")
+	infraMasterSecret := getEnv("INFRA_MASTER_SECRET", getEnv("SHARED_DB_SECRET", "default_infra_master_secret_key"))
 	dockerNetwork := getEnv("DOCKER_NETWORK", "microservice-network")
+
+	domainSecretsRaw := getEnv("DOMAIN_SECRETS", `{"order_db":"default_shared_db_secret_key"}`)
+	domainSecrets := make(map[string]string)
+	if err := json.Unmarshal([]byte(domainSecretsRaw), &domainSecrets); err != nil {
+		log.Printf("InfraProvisioner Warning: Failed to parse DOMAIN_SECRETS JSON, using default order_db mapping: %v", err)
+		domainSecrets["order_db"] = getEnv("SHARED_DB_SECRET", "default_shared_db_secret_key")
+	}
 
 	// 1. Initialize RabbitMQ Client
 	rmqClient, err := rabbitmq.NewClient(amqpURL)
@@ -38,10 +46,11 @@ func main() {
 
 	// 3. Initialize & Start Consumer
 	wiConsumer, err := consumer.NewWorkspaceInitiatedConsumer(consumer.WorkspaceInitiatedConsumerParams{
-		Client:       rmqClient,
-		Provisioner:  dockerProv,
-		SharedSecret: sharedSecret,
-		SharedDBHost: sharedDBHost,
+		Client:            rmqClient,
+		Provisioner:       dockerProv,
+		InfraMasterSecret: infraMasterSecret,
+		DomainSecrets:     domainSecrets,
+		SharedDBHost:      sharedDBHost,
 	})
 	if err != nil {
 		log.Fatalf("Failed to initialize WorkspaceInitiated consumer: %v", err)

@@ -1,6 +1,6 @@
 # Microservice API Workspace (Multi-Tenant Microservices Architecture)
 
-This workspace demonstrates a **Multi-Tenant Microservices Architecture** supporting both **Shared (Schema-per-Tenant)** and **Dedicated (Database-per-Tenant via Docker)** isolation models, powered by an isolated **`infra-provisioner`** pattern and a **Zero-Trust Control Plane** for secure container orchestration and credential protection.
+This workspace demonstrates a **Multi-Tenant Microservices Architecture** supporting both **Shared (Schema-per-Tenant)** and **Dedicated (Database-per-Tenant via Docker)** isolation models, powered by an isolated **`infra-provisioner`** pattern, **Declarative Bootstrapping**, and a **Zero-Trust Control Plane** for secure container orchestration and credential protection.
 
 ---
 
@@ -73,12 +73,13 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
     ├─► Dedicated Plan:                               ▼
     │   Create Docker container                       [ RabbitMQ Queue ]
     │   (512MB RAM, 0.5 CPU limits)                   │
+    │   Declaratively bootstrap domain DBs & roles    │
     │   Poll pg_isready health check                  │
     ▼                                                 │
   Publish: infrastructure.provisioned (No Passwords) │
     ▼                                                 │
 [ order-service ]                                     │
-    │  Derive DB password via HMAC-SHA256             │
+    │  Derive DB password via ORDER_SERVICE_SECRET    │
     │  Execute SQL migrations (001_create_orders.sql) │
     ▼                                                 │
   Publish: tenant.order_db.ready (Routing Metadata)   │
@@ -117,7 +118,7 @@ Use existing *sql.DB pool               GET /internal/tenants/:id/infrastructure
     │                                   Header: X-Internal-Service-Token
     │                                         │
     │                                         ▼ Returns Routing Metadata (host, port, db_name)
-    │                                   Derive HMAC password in memory & open pool
+    │                                   Derive ORDER_SERVICE_SECRET password in memory & open pool
     │                                         │
     └───────────────────┬─────────────────────┘
                         ▼
@@ -144,6 +145,7 @@ This repository contains comprehensive technical design deep-dives located in th
 | 7 | [How Do We Manage Database Transactions and Domain Invariants?](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs/7-how-do-we-manage-database-transactions-and-domain-invariants-outer-layer-unit-of-work.md) | Outer-Layer Unit of Work, Transaction Context & Domain Isolation |
 | 8 | [How Do We Isolate Container Orchestration & Prevent Host Takeover?](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs/8-how-do-we-isolate-container-orchestration-and-prevent-host-takeover-infra-provisioner-pattern.md) | `infra-provisioner` Pattern, Docker Socket Isolation & HMAC Credentials |
 | 9 | [How Do We Prevent Lateral Movement & Secure the Control Plane?](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs/9-how-do-we-prevent-lateral-movement-and-secure-the-control-plane-zero-trust-metadata-sanitization.md) | Control Plane Metadata Sanitization, Zero-Trust Inter-Service Auth & Ghost Route Removal |
+| 10 | [How Do We Isolate Domain Database Secrets Without OCP Violations?](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs/10-how-do-we-isolate-domain-database-secrets-without-ocp-violations-declarative-bootstrapping.md) | Declarative Configuration Bootstrapping, PostgreSQL Role Least Privilege & Root Key Trap Prevention |
 
 ---
 
@@ -190,7 +192,7 @@ microservice-api/
 │   └── web-ui/                   # Functional Web UI
 │
 ├── docs/                         # Architectural Deep-Dives & Technical Design Challenges
-│   └── 9-how-do-we-prevent-lateral-movement...md
+│   └── 10-how-do-we-isolate-domain-database-secrets...md
 │
 └── e2e-tests/                    # Automated Integration Tests
     └── register_e2e_test.go      # Dynamic registration & order flow test suite

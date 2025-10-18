@@ -38,17 +38,19 @@ type InfrastructureProvisionedEvent struct {
 }
 
 type WorkspaceInitiatedConsumer struct {
-	client       *rabbitmq.Client
-	provisioner  docker.Provisioner
-	sharedSecret string
-	sharedDBHost string
+	client            *rabbitmq.Client
+	provisioner       docker.Provisioner
+	infraMasterSecret string
+	domainSecrets     map[string]string
+	sharedDBHost      string
 }
 
 type WorkspaceInitiatedConsumerParams struct {
-	Client       *rabbitmq.Client
-	Provisioner  docker.Provisioner
-	SharedSecret string
-	SharedDBHost string
+	Client            *rabbitmq.Client
+	Provisioner       docker.Provisioner
+	InfraMasterSecret string
+	DomainSecrets     map[string]string
+	SharedDBHost      string
 }
 
 func NewWorkspaceInitiatedConsumer(params WorkspaceInitiatedConsumerParams) (*WorkspaceInitiatedConsumer, error) {
@@ -72,11 +74,19 @@ func NewWorkspaceInitiatedConsumer(params WorkspaceInitiatedConsumerParams) (*Wo
 		sharedHost = "postgres"
 	}
 
+	domainSec := params.DomainSecrets
+	if len(domainSec) == 0 {
+		domainSec = map[string]string{
+			"order_db": "default_shared_db_secret_key",
+		}
+	}
+
 	return &WorkspaceInitiatedConsumer{
-		client:       params.Client,
-		provisioner:  params.Provisioner,
-		sharedSecret: params.SharedSecret,
-		sharedDBHost: sharedHost,
+		client:            params.Client,
+		provisioner:       params.Provisioner,
+		infraMasterSecret: params.InfraMasterSecret,
+		domainSecrets:     domainSec,
+		sharedDBHost:      sharedHost,
 	}, nil
 }
 
@@ -154,7 +164,7 @@ func (c *WorkspaceInitiatedConsumer) handleProvisioning(ctx context.Context, evt
 		}, nil
 
 	case "dedicated":
-		host, port, dbName, dbUser, err := c.provisioner.ProvisionDedicatedContainer(ctx, evt.TenantID, c.sharedSecret)
+		host, port, dbName, dbUser, err := c.provisioner.ProvisionDedicatedContainer(ctx, evt.TenantID, c.infraMasterSecret, c.domainSecrets)
 		if err != nil {
 			return nil, err
 		}
