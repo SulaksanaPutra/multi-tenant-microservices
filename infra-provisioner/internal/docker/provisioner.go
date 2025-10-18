@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"time"
 
@@ -12,10 +13,20 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 
 	"infra-provisioner/internal/crypto"
 )
+
+var validIdentifierRegex = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
+
+// ValidateIdentifier enforces strict alphanumeric & underscore validation to prevent SQL injection in DDL queries.
+func ValidateIdentifier(name string) error {
+	if !validIdentifierRegex.MatchString(name) {
+		return fmt.Errorf("invalid identifier '%s': must contain strictly alphanumeric characters and underscores", name)
+	}
+	return nil
+}
 
 type Provisioner interface {
 	ProvisionDedicatedContainer(ctx context.Context, tenantID, infraMasterSecret string, domainSecrets map[string]string) (host string, port int, dbName, dbUser string, err error)
@@ -49,6 +60,10 @@ func (p *DockerProvisioner) ProvisionDedicatedContainer(
 	domainSecrets map[string]string,
 ) (host string, port int, dbName, dbUser string, err error) {
 	sanitizedID := sanitizeTenantID(tenantID)
+	if err := ValidateIdentifier(sanitizedID); err != nil {
+		return "", 0, "", "", fmt.Errorf("tenantID validation failed: %w", err)
+	}
+
 	containerName := fmt.Sprintf("postgres-tenant-%s", sanitizedID)
 	rootUser := "postgres"
 	rootDBName := "postgres"
@@ -139,17 +154,28 @@ func (p *DockerProvisioner) bootstrapDomainDatabases(
 	defer db.Close()
 
 	for domainDB, domainSecret := range domainSecrets {
+		if err := ValidateIdentifier(domainDB); err != nil {
+			return fmt.Errorf("domainDB identifier validation failed for '%s': %w", domainDB, err)
+		}
+
 		user := fmt.Sprintf("%s_user", strings.TrimSuffix(domainDB, "_db"))
+		if err := ValidateIdentifier(user); err != nil {
+			return fmt.Errorf("user identifier validation failed for '%s': %w", user, err)
+		}
+
 		pass := crypto.DeriveTenantDBPassword(domainSecret, tenantID)
 
 		log.Printf("DockerProvisioner: Bootstrapping domain database '%s' and role '%s'...", domainDB, user)
+
+		quotedDB := pq.QuoteIdentifier(domainDB)
+		quotedUser := pq.QuoteIdentifier(user)
 
 		// Create database if missing
 		var dbExists bool
 		_ = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1);", domainDB).Scan(&dbExists)
 		if !dbExists {
-			if _, err := db.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s;", domainDB)); err != nil {
-				return fmt.Errorf("failed to create database '%s': %w", domainDB, err)
+			if _, err := db.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s;", quotedDB)); err != nil {
+				return fmt.Errorf("failed to create database %s: %w", quotedDB, err)
 			}
 		}
 
@@ -157,17 +183,17 @@ func (p *DockerProvisioner) bootstrapDomainDatabases(
 		var roleExists bool
 		_ = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1);", user).Scan(&roleExists)
 		if !roleExists {
-			if _, err := db.ExecContext(ctx, fmt.Sprintf("CREATE USER %s WITH PASSWORD '%s';", user, pass)); err != nil {
-				return fmt.Errorf("failed to create role '%s': %w", user, err)
+			if _, err := db.ExecContext(ctx, fmt.Sprintf("CREATE USER %s WITH PASSWORD %s;", quotedUser, pq.QuoteLiteral(pass))); err != nil {
+				return fmt.Errorf("failed to create role %s: %w", quotedUser, err)
 			}
 		} else {
-			if _, err := db.ExecContext(ctx, fmt.Sprintf("ALTER USER %s WITH PASSWORD '%s';", user, pass)); err != nil {
-				return fmt.Errorf("failed to update password for role '%s': %w", user, err)
+			if _, err := db.ExecContext(ctx, fmt.Sprintf("ALTER USER %s WITH PASSWORD %s;", quotedUser, pq.QuoteLiteral(pass))); err != nil {
+				return fmt.Errorf("failed to update password for role %s: %w", quotedUser, err)
 			}
 		}
 
 		// Grant privileges to domain user
-		_, _ = db.ExecContext(ctx, fmt.Sprintf("GRANT ALL PRIVILEGES ON DATABASE %s TO %s;", domainDB, user))
+		_, _ = db.ExecContext(ctx, fmt.Sprintf("GRANT ALL PRIVILEGES ON DATABASE %s TO %s;", quotedDB, quotedUser))
 	}
 
 	return nil
