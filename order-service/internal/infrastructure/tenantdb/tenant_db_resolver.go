@@ -32,7 +32,8 @@ type Resolver interface {
 }
 
 type tenantDBResolver struct {
-	registry             *registry.PoolRegistry
+	poolRegistry         *registry.PoolRegistry
+	routingRegistry      *registry.RoutingRegistry
 	tenantServiceURL     string
 	internalServiceToken string
 	sharedSecret         string
@@ -40,7 +41,8 @@ type tenantDBResolver struct {
 }
 
 type ResolverParams struct {
-	Registry             *registry.PoolRegistry
+	PoolRegistry         *registry.PoolRegistry
+	RoutingRegistry      *registry.RoutingRegistry
 	TenantServiceURL     string
 	InternalServiceToken string
 	SharedSecret         string
@@ -62,7 +64,8 @@ func NewResolver(params ResolverParams) Resolver {
 	}
 
 	return &tenantDBResolver{
-		registry:             params.Registry,
+		poolRegistry:         params.PoolRegistry,
+		routingRegistry:      params.RoutingRegistry,
 		tenantServiceURL:     url,
 		internalServiceToken: token,
 		sharedSecret:         params.SharedSecret,
@@ -71,8 +74,8 @@ func NewResolver(params ResolverParams) Resolver {
 }
 
 func (r *tenantDBResolver) GetTenantDB(ctx context.Context, tenantID string) (*sql.DB, string, error) {
-	db, schemaName, err := r.registry.GetOrFetch(tenantID, func() (*sql.DB, string, error) {
-		return r.fetchAndOpenPool(ctx, tenantID)
+	db, schemaName, err := r.poolRegistry.GetOrFetch(tenantID, func() (*sql.DB, string, error) {
+		return r.resolveAndOpenPool(ctx, tenantID)
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("tenant db resolver: failed to resolve DB for tenant '%s': %w", tenantID, err)
@@ -80,11 +83,29 @@ func (r *tenantDBResolver) GetTenantDB(ctx context.Context, tenantID string) (*s
 	return db, schemaName, nil
 }
 
-func (r *tenantDBResolver) fetchAndOpenPool(ctx context.Context, tenantID string) (*sql.DB, string, error) {
+func (r *tenantDBResolver) resolveAndOpenPool(ctx context.Context, tenantID string) (*sql.DB, string, error) {
+	// Fast Path: Check local RoutingRegistry materialized view (0ms RAM lookup, 0 network calls)
+	if meta, ok := r.routingRegistry.Get(tenantID); ok {
+		return r.openPoolFromMetadata(tenantID, meta)
+	}
+
+	// Slow Path / Fallback: Fetch metadata from tenant-service via HTTP
+	meta, err := r.fetchRoutingFromService(ctx, tenantID)
+	if err != nil {
+		return nil, "", err
+	}
+
+	// Store in local RoutingRegistry for future connection resets / pool re-creations
+	r.routingRegistry.Set(meta)
+
+	return r.openPoolFromMetadata(tenantID, meta)
+}
+
+func (r *tenantDBResolver) fetchRoutingFromService(ctx context.Context, tenantID string) (registry.RoutingMetadata, error) {
 	url := fmt.Sprintf("%s/internal/tenants/%s/infrastructure/order-service", r.tenantServiceURL, tenantID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to build routing request: %w", err)
+		return registry.RoutingMetadata{}, fmt.Errorf("failed to build routing request: %w", err)
 	}
 
 	// Zero-Trust inter-service authorization header
@@ -92,31 +113,42 @@ func (r *tenantDBResolver) fetchAndOpenPool(ctx context.Context, tenantID string
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to fetch routing metadata from tenant-service: %w", err)
+		return registry.RoutingMetadata{}, fmt.Errorf("failed to fetch routing metadata from tenant-service: %w", err)
 	}
 	defer func(Body io.ReadCloser) {
 		_ = Body.Close()
 	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, "", fmt.Errorf("tenant-service returned status %d for tenant '%s'", resp.StatusCode, tenantID)
+		return registry.RoutingMetadata{}, fmt.Errorf("tenant-service returned status %d for tenant '%s'", resp.StatusCode, tenantID)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to read routing response body: %w", err)
+		return registry.RoutingMetadata{}, fmt.Errorf("failed to read routing response body: %w", err)
 	}
 
 	var res routingResponse
 	if err := json.Unmarshal(body, &res); err != nil {
-		return nil, "", fmt.Errorf("failed to parse routing response JSON: %w", err)
+		return registry.RoutingMetadata{}, fmt.Errorf("failed to parse routing response JSON: %w", err)
 	}
 
 	meta := res.Data
 	if meta.DBHost == "" {
-		return nil, "", fmt.Errorf("empty db_host returned for tenant '%s'", tenantID)
+		return registry.RoutingMetadata{}, fmt.Errorf("empty db_host returned for tenant '%s'", tenantID)
 	}
 
+	return registry.RoutingMetadata{
+		TenantID:   tenantID,
+		DBHost:     meta.DBHost,
+		DBPort:     meta.DBPort,
+		DBName:     meta.DBName,
+		DBUser:     meta.DBUser,
+		SchemaName: meta.SchemaName,
+	}, nil
+}
+
+func (r *tenantDBResolver) openPoolFromMetadata(tenantID string, meta registry.RoutingMetadata) (*sql.DB, string, error) {
 	// Statelessly derive database password in memory
 	var pass string
 	if meta.DBHost == "postgres" || meta.DBHost == "localhost" {

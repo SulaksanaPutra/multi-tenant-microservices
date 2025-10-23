@@ -19,14 +19,16 @@ type consumerRunner struct {
 func registerConsumers(
 	rmqClient *rabbitmq.Client,
 	migrationSvc service.MigrationService,
-	reg *registry.PoolRegistry,
+	poolReg *registry.PoolRegistry,
+	routingReg *registry.RoutingRegistry,
 	sharedSecret string,
 	sharedDBPass string,
 ) (*consumerRunner, error) {
 	ipConsumer, err := consumer.NewInfrastructureProvisionedConsumer(consumer.InfrastructureProvisionedConsumerParams{
 		Client:           rmqClient,
 		MigrationService: migrationSvc,
-		Registry:         reg,
+		PoolRegistry:     poolReg,
+		RoutingRegistry:  routingReg,
 		SharedSecret:     sharedSecret,
 		SharedDBPass:     sharedDBPass,
 	})
@@ -34,7 +36,7 @@ func registerConsumers(
 		return nil, fmt.Errorf("failed to initialize InfrastructureProvisionedConsumer: %w", err)
 	}
 
-	icConsumer, err := consumer.NewInfraChangedConsumer(rmqClient, reg)
+	icConsumer, err := consumer.NewInfraChangedConsumer(rmqClient, poolReg, routingReg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize InfraChangedConsumer: %w", err)
 	}

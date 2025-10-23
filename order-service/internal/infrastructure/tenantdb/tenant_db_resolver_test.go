@@ -17,8 +17,10 @@ func TestTenantDBResolver_TenantServiceError(t *testing.T) {
 	defer ts.Close()
 
 	poolRegistry := registry.NewPoolRegistry()
+	routingRegistry := registry.NewRoutingRegistry()
 	resolver := tenantdb.NewResolver(tenantdb.ResolverParams{
-		Registry:         poolRegistry,
+		PoolRegistry:     poolRegistry,
+		RoutingRegistry:  routingRegistry,
 		TenantServiceURL: ts.URL,
 	})
 

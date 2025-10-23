@@ -36,7 +36,11 @@ func (m *mockOrderRepo) CreateOrder(ctx context.Context, db *sql.DB, schemaName 
 
 func TestCreateOrder_InputValidation(t *testing.T) {
 	poolRegistry := registry.NewPoolRegistry()
-	resolver := tenantdb.NewResolver(tenantdb.ResolverParams{Registry: poolRegistry})
+	routingRegistry := registry.NewRoutingRegistry()
+	resolver := tenantdb.NewResolver(tenantdb.ResolverParams{
+		PoolRegistry:    poolRegistry,
+		RoutingRegistry: routingRegistry,
+	})
 	repo := &mockOrderRepo{}
 	svc := service.NewOrderService(service.OrderServiceParams{
 		DBResolver: resolver,
@@ -100,8 +104,10 @@ func TestCreateOrder_TenantDSNError(t *testing.T) {
 	defer ts.Close()
 
 	poolRegistry := registry.NewPoolRegistry()
+	routingRegistry := registry.NewRoutingRegistry()
 	resolver := tenantdb.NewResolver(tenantdb.ResolverParams{
-		Registry:         poolRegistry,
+		PoolRegistry:     poolRegistry,
+		RoutingRegistry:  routingRegistry,
 		TenantServiceURL: ts.URL,
 	})
 	repo := &mockOrderRepo{}

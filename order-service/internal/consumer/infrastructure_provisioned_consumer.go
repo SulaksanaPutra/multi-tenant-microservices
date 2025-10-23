@@ -44,7 +44,8 @@ type TenantOrderDBReadyEvent struct {
 type InfrastructureProvisionedConsumer struct {
 	client           *rabbitmq.Client
 	migrationService service.MigrationService
-	registry         *registry.PoolRegistry
+	poolRegistry     *registry.PoolRegistry
+	routingRegistry  *registry.RoutingRegistry
 	sharedSecret     string
 	sharedDBPass     string
 }
@@ -52,7 +53,8 @@ type InfrastructureProvisionedConsumer struct {
 type InfrastructureProvisionedConsumerParams struct {
 	Client           *rabbitmq.Client
 	MigrationService service.MigrationService
-	Registry         *registry.PoolRegistry
+	PoolRegistry     *registry.PoolRegistry
+	RoutingRegistry  *registry.RoutingRegistry
 	SharedSecret     string
 	SharedDBPass     string
 }
@@ -76,7 +78,8 @@ func NewInfrastructureProvisionedConsumer(params InfrastructureProvisionedConsum
 	return &InfrastructureProvisionedConsumer{
 		client:           params.Client,
 		migrationService: params.MigrationService,
-		registry:         params.Registry,
+		poolRegistry:     params.PoolRegistry,
+		routingRegistry:  params.RoutingRegistry,
 		sharedSecret:     params.SharedSecret,
 		sharedDBPass:     pass,
 	}, nil
@@ -134,10 +137,20 @@ func (c *InfrastructureProvisionedConsumer) Start(ctx context.Context) error {
 					continue
 				}
 
-				// 2. Evict any cached pool in order-service registry so the new DSN is loaded dynamically on demand
-				c.registry.Evict(evt.TenantID)
+				// 2. Populate/update local RoutingRegistry materialized view
+				c.routingRegistry.Set(registry.RoutingMetadata{
+					TenantID:   evt.TenantID,
+					DBHost:     evt.DBHost,
+					DBPort:     evt.DBPort,
+					DBName:     evt.DBName,
+					DBUser:     evt.DBUser,
+					SchemaName: evt.SchemaName,
+				})
 
-				// 3. Emit tenant.order_db.ready event over RabbitMQ (Routing metadata ONLY, NO PASSWORDS)
+				// 3. Evict any cached pool in order-service pool registry so fresh connection parameters are used
+				c.poolRegistry.Evict(evt.TenantID)
+
+				// 4. Emit tenant.order_db.ready event over RabbitMQ (Routing metadata ONLY, NO PASSWORDS)
 				readyEvt := TenantOrderDBReadyEvent{
 					EventID:     evt.EventID,
 					TenantID:    evt.TenantID,

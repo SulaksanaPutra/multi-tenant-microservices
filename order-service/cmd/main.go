@@ -36,14 +36,16 @@ func main() {
 	}
 	defer rmqClient.Close()
 
-	// 2. Initialize Dynamic Pool Registry
+	// 2. Initialize Dynamic Pool & Routing Registries
 	poolRegistry := registry.NewPoolRegistry()
+	routingRegistry := registry.NewRoutingRegistry()
 	reaperCtx, reaperCancel := context.WithCancel(context.Background())
 	defer reaperCancel()
 	poolRegistry.StartReaper(reaperCtx)
 
 	tenantDBResolver := tenantdb.NewResolver(tenantdb.ResolverParams{
-		Registry:             poolRegistry,
+		PoolRegistry:         poolRegistry,
+		RoutingRegistry:      routingRegistry,
 		TenantServiceURL:     tenantServiceURL,
 		InternalServiceToken: internalToken,
 		SharedSecret:         sharedSecret,
@@ -63,7 +65,7 @@ func main() {
 	})
 
 	// 4. Register & Start Inbound Consumers
-	cRunner, err := registerConsumers(rmqClient, migrationSvc, poolRegistry, sharedSecret, sharedDBPass)
+	cRunner, err := registerConsumers(rmqClient, migrationSvc, poolRegistry, routingRegistry, sharedSecret, sharedDBPass)
 	if err != nil {
 		log.Fatalf("Failed to register consumers: %v", err)
 	}
