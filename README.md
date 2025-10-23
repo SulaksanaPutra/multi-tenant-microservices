@@ -146,6 +146,7 @@ This repository contains comprehensive technical design deep-dives located in th
 | 8 | [How Do We Isolate Container Orchestration & Prevent Host Takeover?](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs/8-how-do-we-isolate-container-orchestration-and-prevent-host-takeover-infra-provisioner-pattern.md) | `infra-provisioner` Pattern, Docker Socket Isolation & HMAC Credentials |
 | 9 | [How Do We Prevent Lateral Movement & Secure the Control Plane?](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs/9-how-do-we-prevent-lateral-movement-and-secure-the-control-plane-zero-trust-metadata-sanitization.md) | Control Plane Metadata Sanitization, Zero-Trust Inter-Service Auth & Ghost Route Removal |
 | 10 | [How Do We Isolate Domain Database Secrets Without OCP Violations?](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs/10-how-do-we-isolate-domain-database-secrets-without-ocp-violations-declarative-bootstrapping.md) | Declarative Configuration Bootstrapping, PostgreSQL Role Least Privilege & Root Key Trap Prevention |
+| 11 | [How Do We Eliminate Cache Stampedes and Decouple Data Plane Routing?](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs/11-how-do-we-eliminate-cache-stampedes-and-decouple-data-plane-routing-singleflight-and-in-memory-materialized-view.md) | Request Coalescing (`singleflight`), Context Shielding & Local In-Memory `RoutingRegistry` Materialized View |
 
 ---
 

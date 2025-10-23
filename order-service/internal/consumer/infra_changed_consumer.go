@@ -23,13 +23,14 @@ type InfraChangedEvent struct {
 	TenantID string `json:"tenant_id"`
 }
 
-// InfraChangedConsumer handles cache invalidation when a tenant's infrastructure changes.
+// InfraChangedConsumer handles cache invalidation and materialized view updates when a tenant's infrastructure changes.
 type InfraChangedConsumer struct {
-	client   *rabbitmq.Client
-	registry *registry.PoolRegistry
+	client          *rabbitmq.Client
+	poolRegistry    *registry.PoolRegistry
+	routingRegistry *registry.RoutingRegistry
 }
 
-func NewInfraChangedConsumer(client *rabbitmq.Client, reg *registry.PoolRegistry) (*InfraChangedConsumer, error) {
+func NewInfraChangedConsumer(client *rabbitmq.Client, poolReg *registry.PoolRegistry, routingReg *registry.RoutingRegistry) (*InfraChangedConsumer, error) {
 	if err := client.DeclareExchange(ExchangeCompanyEvents, "topic"); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange: %w", err)
 	}
@@ -38,7 +39,7 @@ func NewInfraChangedConsumer(client *rabbitmq.Client, reg *registry.PoolRegistry
 	); err != nil {
 		return nil, fmt.Errorf("failed to bind infra-changed queue: %w", err)
 	}
-	return &InfraChangedConsumer{client: client, registry: reg}, nil
+	return &InfraChangedConsumer{client: client, poolRegistry: poolReg, routingRegistry: routingReg}, nil
 }
 
 func (c *InfraChangedConsumer) Start(ctx context.Context) error {
@@ -66,13 +67,14 @@ func (c *InfraChangedConsumer) Start(ctx context.Context) error {
 				var evt InfraChangedEvent
 				if err := json.Unmarshal(d.Body, &evt); err != nil {
 					log.Printf("InfraChangedConsumer Error: Bad payload: %v", err)
-					d.Nack(false, false)
+					_ = d.Nack(false, false)
 					continue
 				}
 
-				log.Printf("InfraChangedConsumer: Evicting pool for tenant='%s'", evt.TenantID)
-				c.registry.Evict(evt.TenantID)
-				d.Ack(false)
+				log.Printf("InfraChangedConsumer: Evicting pool & resetting routing metadata for tenant='%s'", evt.TenantID)
+				c.poolRegistry.Evict(evt.TenantID)
+				c.routingRegistry.Delete(evt.TenantID)
+				_ = d.Ack(false)
 			}
 		}
 	}()

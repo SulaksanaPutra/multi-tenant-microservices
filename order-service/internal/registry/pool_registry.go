@@ -7,6 +7,8 @@ import (
 	"log"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -16,6 +18,9 @@ const (
 
 	// reaperInterval is how often the background reaper sweeps for stale entries.
 	reaperInterval = 5 * time.Minute
+
+	// fetchTimeout limits how long a singleflight DSN fetch & pool open can take.
+	fetchTimeout = 5 * time.Second
 )
 
 // poolEntry wraps a *sql.DB and schemaName with its last-used timestamp for TTL eviction.
@@ -25,19 +30,27 @@ type poolEntry struct {
 	lastUsed   time.Time
 }
 
+type fetchResult struct {
+	db         *sql.DB
+	schemaName string
+}
+
 // PoolRegistry is a thread-safe, TTL-aware cache of tenant *sql.DB pools.
 //
 // Design decisions:
 //   - sync.RWMutex: Read-heavy path (most requests are cache hits). No contention
 //     on the fast path; write lock only on first-access or eviction.
-//   - TTL eviction: Prevents unbounded connection growth across restarts and upgrades.
-//     A 15-min idle timeout means a 5-replica * 50-tenant setup at peak usage still
-//     sheds pools for tenants that go quiet.
-//   - Per-pool limits enforced at creation time (see postgres.NewClientFromDSN).
+//   - singleflight.Group: Request coalescing on cache misses to prevent thundering herd /
+//     cache stampede attacks against tenant-service or DB connections.
+//   - Lock-free fetch: DSN fetching is executed OUTSIDE r.mu.Lock() so one slow tenant
+//     fetch never blocks cache misses for other tenants.
+//   - Context Shielding: DSN fetch runs under an independent context.Background() + timeout
+//     so client disconnects/cancellations don't fail coalesced goroutines.
 type PoolRegistry struct {
 	mu      sync.RWMutex
 	entries map[string]*poolEntry
 	ttl     time.Duration
+	sfGroup singleflight.Group
 }
 
 func NewPoolRegistry() *PoolRegistry {
@@ -48,10 +61,10 @@ func NewPoolRegistry() *PoolRegistry {
 }
 
 // GetOrFetch returns the cached *sql.DB and schemaName for tenantID.
-// On a cache miss, it calls fetchDSN to get the DSN and schemaName, opens a new pool,
-// caches it, and returns it. Thread-safe.
+// On a cache miss, it uses singleflight to request-coalesce concurrent callers,
+// calls fetchDSN outside the global write lock, caches the result, and returns it. Thread-safe.
 func (r *PoolRegistry) GetOrFetch(tenantID string, fetchDSN func() (*sql.DB, string, error)) (*sql.DB, string, error) {
-	// Fast path: read lock
+	// 1. Fast path: read lock
 	r.mu.RLock()
 	entry, ok := r.entries[tenantID]
 	r.mu.RUnlock()
@@ -63,40 +76,62 @@ func (r *PoolRegistry) GetOrFetch(tenantID string, fetchDSN func() (*sql.DB, str
 		return entry.db, entry.schemaName, nil
 	}
 
-	// Slow path: write lock, double-check, then open
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	// 2. Slow path: Request coalescing with singleflight OUTSIDE the global write lock
+	v, err, _ := r.sfGroup.Do(tenantID, func() (interface{}, error) {
+		// Double-check cache inside singleflight worker
+		r.mu.RLock()
+		entry, ok := r.entries[tenantID]
+		r.mu.RUnlock()
 
-	// Double-check after acquiring write lock — another goroutine may have populated it
-	if entry, ok = r.entries[tenantID]; ok {
-		entry.lastUsed = time.Now()
-		return entry.db, entry.schemaName, nil
-	}
+		if ok {
+			r.mu.Lock()
+			entry.lastUsed = time.Now()
+			r.mu.Unlock()
+			return fetchResult{db: entry.db, schemaName: entry.schemaName}, nil
+		}
 
-	db, schemaName, err := fetchDSN()
+		// Execute fetchDSN lock-free.
+		// fetchDSN uses an independent context to avoid caller context cancellation cascading to coalesced waiters.
+		db, schemaName, err := fetchDSN()
+		if err != nil {
+			return nil, err
+		}
+
+		// Store in pool entries under write lock
+		r.mu.Lock()
+		r.entries[tenantID] = &poolEntry{db: db, schemaName: schemaName, lastUsed: time.Now()}
+		r.mu.Unlock()
+
+		log.Printf("PoolRegistry: Opened & cached new pool for tenant '%s' (schema: '%s')", tenantID, schemaName)
+		return fetchResult{db: db, schemaName: schemaName}, nil
+	})
+
 	if err != nil {
 		return nil, "", fmt.Errorf("pool registry: failed to open pool for tenant '%s': %w", tenantID, err)
 	}
 
-	r.entries[tenantID] = &poolEntry{db: db, schemaName: schemaName, lastUsed: time.Now()}
-	log.Printf("PoolRegistry: Opened new pool for tenant '%s' (schema: '%s')", tenantID, schemaName)
-	return db, schemaName, nil
+	res := v.(fetchResult)
+	return res.db, res.schemaName, nil
 }
 
 // Evict closes and removes the pool for a specific tenantID.
 // Used when tenant-service emits a TenantInfrastructureChanged event (plan upgrade).
 func (r *PoolRegistry) Evict(tenantID string) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	entry, ok := r.entries[tenantID]
+	if ok {
+		delete(r.entries, tenantID)
+	}
+	r.mu.Unlock()
+
+	r.sfGroup.Forget(tenantID)
+
 	if !ok {
 		return
 	}
 	if err := entry.db.Close(); err != nil {
 		log.Printf("PoolRegistry: Error closing pool for tenant '%s' during eviction: %v", tenantID, err)
 	}
-	delete(r.entries, tenantID)
 	log.Printf("PoolRegistry: Evicted pool for tenant '%s'", tenantID)
 }
 
