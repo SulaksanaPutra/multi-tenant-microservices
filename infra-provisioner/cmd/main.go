@@ -19,12 +19,13 @@ func main() {
 	loadEnv(".env")
 	log.Println("Starting Infra Provisioner Microservice...")
 
-	amqpURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
+	amqpURL := getSecret("RABBITMQ_URL", "/run/secrets/rabbitmq_url", "amqp://guest:guest@rabbitmq:5672/")
 	sharedDBHost := getEnv("SHARED_DB_HOST", "postgres")
-	infraMasterSecret := getEnv("INFRA_MASTER_SECRET", getEnv("SHARED_DB_SECRET", "default_infra_master_secret_key"))
 	dockerNetwork := getEnv("DOCKER_NETWORK", "microservice-network")
 
-	domainSecretsRaw := getEnv("DOMAIN_SECRETS", `{"order_db":"default_shared_db_secret_key"}`)
+	infraMasterSecret := getSecret("INFRA_MASTER_SECRET", "/run/secrets/infra_master_secret", getEnv("SHARED_DB_SECRET", "default_infra_master_secret_key"))
+	domainSecretsRaw := getSecret("DOMAIN_SECRETS", "/run/secrets/domain_secrets.json", `{"order_db":"default_shared_db_secret_key"}`)
+
 	domainSecrets := make(map[string]string)
 	if err := json.Unmarshal([]byte(domainSecretsRaw), &domainSecrets); err != nil {
 		log.Printf("InfraProvisioner Warning: Failed to parse DOMAIN_SECRETS JSON, using default order_db mapping: %v", err)
@@ -96,6 +97,31 @@ func loadEnv(filepath string) {
 			}
 		}
 	}
+}
+
+// getSecret checks for file-based secret mounts first (/run/secrets/...), then environment variables, then fallback.
+func getSecret(envKey, secretFilePath, fallback string) string {
+	// 1. Check if explicit secret file path env var exists (e.g. INFRA_MASTER_SECRET_FILE)
+	fileEnvVar := envKey + "_FILE"
+	if filePath, exists := os.LookupEnv(fileEnvVar); exists && strings.TrimSpace(filePath) != "" {
+		if content, err := os.ReadFile(strings.TrimSpace(filePath)); err == nil {
+			return strings.TrimSpace(string(content))
+		}
+	}
+
+	// 2. Check default Docker secret path (/run/secrets/...)
+	if secretFilePath != "" {
+		if content, err := os.ReadFile(secretFilePath); err == nil {
+			return strings.TrimSpace(string(content))
+		}
+	}
+
+	// 3. Fallback to standard environment variable
+	if value, exists := os.LookupEnv(envKey); exists && strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value)
+	}
+
+	return fallback
 }
 
 func getEnv(key, fallback string) string {

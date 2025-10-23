@@ -7,14 +7,15 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o infra-provisioner ./cmd/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o infra-provisioner ./cmd/main.go
 
-FROM alpine:latest
+# Scratch / Distroless Minimal Image (Zero Shell, Zero OS Utilities, Non-Root)
+FROM gcr.io/distroless/static-debian12:nonroot
 
-RUN apk --no-cache add ca-certificates postgresql-client
+WORKDIR /
 
-WORKDIR /root/
+COPY --from=builder /app/infra-provisioner /infra-provisioner
 
-COPY --from=builder /app/infra-provisioner .
+USER nonroot:nonroot
 
-CMD ["./infra-provisioner"]
+ENTRYPOINT ["/infra-provisioner"]
