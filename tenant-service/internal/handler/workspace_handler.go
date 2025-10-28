@@ -4,9 +4,9 @@ import (
 	"context"
 	"net/http"
 
+	"tenant-service/internal/httputil"
 	"tenant-service/internal/service"
-	"tenant-service/internal/txctx"
-	"tenant-service/internal/utils"
+	"tenant-service/internal/txcontext"
 
 	"github.com/gin-gonic/gin"
 )
@@ -22,12 +22,18 @@ type RegisterWorkspaceResponse struct {
 	TenantID string `json:"tenant_id"`
 }
 
-type WorkspaceHandler struct {
-	txManager        txctx.TxManager
-	workspaceService service.WorkspaceService
+// WorkspaceService is the consumer-side interface expected by WorkspaceHandler.
+type WorkspaceService interface {
+	RegisterWorkspace(ctx context.Context, input service.RegisterWorkspaceInput) (*service.RegisterWorkspaceOutput, error)
+	GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*service.RoutingOutput, error)
 }
 
-func NewWorkspaceHandler(txManager txctx.TxManager, workspaceSvc service.WorkspaceService) *WorkspaceHandler {
+type WorkspaceHandler struct {
+	txManager        txcontext.TxManager
+	workspaceService WorkspaceService
+}
+
+func NewWorkspaceHandler(txManager txcontext.TxManager, workspaceSvc WorkspaceService) *WorkspaceHandler {
 	return &WorkspaceHandler{
 		txManager:        txManager,
 		workspaceService: workspaceSvc,
@@ -37,7 +43,7 @@ func NewWorkspaceHandler(txManager txctx.TxManager, workspaceSvc service.Workspa
 func (h *WorkspaceHandler) RegisterWorkspace(c *gin.Context) {
 	var req RegisterWorkspaceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.WriteValidationError(c, err)
+		httputil.WriteValidationError(c, err)
 		return
 	}
 
@@ -55,11 +61,11 @@ func (h *WorkspaceHandler) RegisterWorkspace(c *gin.Context) {
 	})
 
 	if err != nil {
-		utils.WriteError(c, http.StatusInternalServerError, err.Error())
+		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	utils.WriteSuccess(c, http.StatusAccepted, "Workspace registration accepted. Provisioning in progress.", RegisterWorkspaceResponse{
+	httputil.WriteSuccess(c, http.StatusAccepted, "Workspace registration accepted. Provisioning in progress.", RegisterWorkspaceResponse{
 		TenantID: output.TenantID,
 	})
 }
@@ -69,15 +75,15 @@ func (h *WorkspaceHandler) GetServiceInfrastructure(c *gin.Context) {
 	serviceName := c.Param("service_name")
 
 	if tenantID == "" || serviceName == "" {
-		utils.WriteError(c, http.StatusBadRequest, "path must contain tenant_id and service_name")
+		httputil.WriteError(c, http.StatusBadRequest, "path must contain tenant_id and service_name")
 		return
 	}
 
 	output, err := h.workspaceService.GetServiceInfrastructure(c.Request.Context(), tenantID, serviceName)
 	if err != nil {
-		utils.WriteError(c, http.StatusNotFound, err.Error())
+		httputil.WriteError(c, http.StatusNotFound, err.Error())
 		return
 	}
 
-	utils.WriteSuccess(c, http.StatusOK, "", output)
+	httputil.WriteSuccess(c, http.StatusOK, "", output)
 }

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"notification-service/internal/infrastructure/postgres"
-	"notification-service/internal/txctx"
+	"notification-service/internal/txcontext"
 )
 
 type NotificationLog struct {
@@ -20,22 +20,16 @@ type NotificationLog struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
-type NotificationRepository interface {
-	CreateNotificationLog(ctx context.Context, log NotificationLog) (int, error)
-	HasSentNotification(ctx context.Context, tenantID string) (bool, error)
-	GetNotifications(ctx context.Context, tenantID string) ([]NotificationLog, error)
-}
-
-type notificationRepository struct {
+type NotificationRepository struct {
 	client *postgres.Client
 }
 
-func NewNotificationRepository(client *postgres.Client) NotificationRepository {
-	return &notificationRepository{client: client}
+func NewNotificationRepository(client *postgres.Client) *NotificationRepository {
+	return &NotificationRepository{client: client}
 }
 
-func (r *notificationRepository) CreateNotificationLog(ctx context.Context, log NotificationLog) (int, error) {
-	exec := txctx.GetExecutor(ctx, r.client.DB)
+func (r *NotificationRepository) CreateNotificationLog(ctx context.Context, log NotificationLog) (int, error) {
+	exec := txcontext.GetExecutor(ctx, r.client.DB)
 	query := `
 		INSERT INTO public.notifications (user_id, tenant_id, recipient_email, subject, body, status)
 		VALUES ($1, $2, $3, $4, $5, $6)
@@ -49,8 +43,8 @@ func (r *notificationRepository) CreateNotificationLog(ctx context.Context, log 
 	return id, nil
 }
 
-func (r *notificationRepository) HasSentNotification(ctx context.Context, tenantID string) (bool, error) {
-	exec := txctx.GetExecutor(ctx, r.client.DB)
+func (r *NotificationRepository) HasSentNotification(ctx context.Context, tenantID string) (bool, error) {
+	exec := txcontext.GetExecutor(ctx, r.client.DB)
 	const query = `
 		SELECT COUNT(1)
 		FROM public.notifications
@@ -63,8 +57,8 @@ func (r *notificationRepository) HasSentNotification(ctx context.Context, tenant
 	return count > 0, nil
 }
 
-func (r *notificationRepository) GetNotifications(ctx context.Context, tenantID string) ([]NotificationLog, error) {
-	exec := txctx.GetExecutor(ctx, r.client.DB)
+func (r *NotificationRepository) ListNotifications(ctx context.Context, tenantID string) ([]NotificationLog, error) {
+	exec := txcontext.GetExecutor(ctx, r.client.DB)
 	var query string
 	var args []interface{}
 

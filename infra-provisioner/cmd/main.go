@@ -46,7 +46,7 @@ func main() {
 	}
 
 	// 3. Initialize & Start Consumer
-	wiConsumer, err := consumer.NewWorkspaceInitiatedConsumer(consumer.WorkspaceInitiatedConsumerParams{
+	wiConsumer, err := consumer.NewWorkspaceInitiatedConsumer(consumer.Params{
 		Client:            rmqClient,
 		Provisioner:       dockerProv,
 		InfraMasterSecret: infraMasterSecret,

@@ -1,10 +1,13 @@
 package handler
 
 import (
+	"context"
+	"errors"
 	"net/http"
 
+	"order-service/internal/domain"
+	"order-service/internal/httputil"
 	"order-service/internal/service"
-	"order-service/internal/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -15,42 +18,40 @@ type CreateOrderRequest struct {
 	Status     string  `json:"status"`
 }
 
+// OrderService is the consumer-side interface expected by OrderHandler.
+type OrderService interface {
+	ListOrders(ctx context.Context) ([]domain.Order, error)
+	CreateOrder(ctx context.Context, input service.CreateOrderInput) (*domain.Order, error)
+}
+
 type OrderHandler struct {
-	orderService service.OrderService
+	orderService OrderService
 }
 
-func NewOrderHandler(orderService service.OrderService) *OrderHandler {
-	return &OrderHandler{orderService: orderService}
-}
-
-func (h *OrderHandler) GetOrders(c *gin.Context) {
-	tenantID := c.GetHeader("X-Tenant-ID")
-	if tenantID == "" {
-		utils.WriteError(c, http.StatusBadRequest, "X-Tenant-ID header is required")
-		return
+func NewOrderHandler(svc OrderService) *OrderHandler {
+	return &OrderHandler{
+		orderService: svc,
 	}
+}
 
-	orders, err := h.orderService.GetOrders(c.Request.Context(), tenantID)
+func (h *OrderHandler) ListOrders(c *gin.Context) {
+	orders, err := h.orderService.ListOrders(c.Request.Context())
 	if err != nil {
-		utils.WriteError(c, http.StatusInternalServerError, err.Error())
+		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	utils.WriteSuccess(c, http.StatusOK, "", orders)
+	httputil.WriteSuccess(c, http.StatusOK, "", orders)
 }
 
 func (h *OrderHandler) CreateOrder(c *gin.Context) {
-	tenantID := c.GetHeader("X-Tenant-ID")
-	if tenantID == "" {
-		utils.WriteError(c, http.StatusBadRequest, "X-Tenant-ID header is required")
+	var req CreateOrderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httputil.WriteError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	var req CreateOrderRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.WriteError(c, http.StatusBadRequest, err.Error())
-		return
-	}
+	tenantID := c.GetString("tenantID")
 
 	input := service.CreateOrderInput{
 		TenantID:   tenantID,
@@ -61,9 +62,15 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 
 	order, err := h.orderService.CreateOrder(c.Request.Context(), input)
 	if err != nil {
-		utils.WriteError(c, http.StatusInternalServerError, err.Error())
+		if errors.Is(err, service.ErrTenantIDRequired) ||
+			errors.Is(err, service.ErrCustomerIDRequired) ||
+			errors.Is(err, service.ErrInvalidAmount) {
+			httputil.WriteError(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	utils.WriteSuccess(c, http.StatusCreated, "Order created successfully", order)
+	httputil.WriteSuccess(c, http.StatusCreated, "Order created successfully", order)
 }

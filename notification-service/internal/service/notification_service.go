@@ -19,34 +19,42 @@ type ProcessEventInput struct {
 	Payload    []byte
 }
 
-type NotificationService interface {
-	ProcessEventAndTrySendWelcome(ctx context.Context, input ProcessEventInput) error
-	GetNotifications(ctx context.Context, tenantID string) ([]repository.NotificationLog, error)
+// NotificationRepo is the consumer-side interface expected by NotificationService.
+type NotificationRepo interface {
+	CreateNotificationLog(ctx context.Context, log repository.NotificationLog) (int, error)
+	HasSentNotification(ctx context.Context, tenantID string) (bool, error)
+	ListNotifications(ctx context.Context, tenantID string) ([]repository.NotificationLog, error)
 }
 
-type notificationService struct {
-	repo      repository.NotificationRepository
-	inboxRepo repository.InboxRepository
+// InboxRepo is the consumer-side interface expected by NotificationService.
+type InboxRepo interface {
+	TryInsert(ctx context.Context, msg repository.InboxMessage) (bool, error)
+	GetEventsByTenantID(ctx context.Context, tenantID string) ([]repository.InboxMessage, error)
+}
+
+type NotificationService struct {
+	repo      NotificationRepo
+	inboxRepo InboxRepo
 	mailer    *mailer.Mailer
 }
 
 func NewNotificationService(
-	repo repository.NotificationRepository,
-	inboxRepo repository.InboxRepository,
+	repo NotificationRepo,
+	inboxRepo InboxRepo,
 	mailer *mailer.Mailer,
-) NotificationService {
-	return &notificationService{
+) *NotificationService {
+	return &NotificationService{
 		repo:      repo,
 		inboxRepo: inboxRepo,
 		mailer:    mailer,
 	}
 }
 
-func (s *notificationService) GetNotifications(ctx context.Context, tenantID string) ([]repository.NotificationLog, error) {
-	return s.repo.GetNotifications(ctx, tenantID)
+func (s *NotificationService) ListNotifications(ctx context.Context, tenantID string) ([]repository.NotificationLog, error) {
+	return s.repo.ListNotifications(ctx, tenantID)
 }
 
-func (s *notificationService) ProcessEventAndTrySendWelcome(ctx context.Context, input ProcessEventInput) error {
+func (s *NotificationService) ProcessEventAndTrySendWelcome(ctx context.Context, input ProcessEventInput) error {
 	inboxMsg := repository.InboxMessage{
 		EventID:   input.EventID,
 		TenantID:  input.TenantID,

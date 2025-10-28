@@ -8,7 +8,7 @@ import (
 
 	"notification-service/internal/infrastructure/rabbitmq"
 	"notification-service/internal/service"
-	"notification-service/internal/txctx"
+	"notification-service/internal/txcontext"
 )
 
 const (
@@ -23,13 +23,18 @@ type WorkspaceReadyEvent struct {
 	OwnerEmail string `json:"owner_email"`
 }
 
-type WorkspaceReadyConsumer struct {
-	txManager           txctx.TxManager
-	client              *rabbitmq.Client
-	notificationService service.NotificationService
+// NotificationService is the consumer-side interface expected by WorkspaceReadyConsumer.
+type NotificationService interface {
+	ProcessEventAndTrySendWelcome(ctx context.Context, input service.ProcessEventInput) error
 }
 
-func NewWorkspaceReadyConsumer(txManager txctx.TxManager, client *rabbitmq.Client, notifSvc service.NotificationService) (*WorkspaceReadyConsumer, error) {
+type WorkspaceReadyConsumer struct {
+	txManager           txcontext.TxManager
+	client              *rabbitmq.Client
+	notificationService NotificationService
+}
+
+func NewWorkspaceReadyConsumer(txManager txcontext.TxManager, client *rabbitmq.Client, notifSvc NotificationService) (*WorkspaceReadyConsumer, error) {
 	if err := client.DeclareExchange(ExchangeCompanyEvents, "topic"); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange: %w", err)
 	}

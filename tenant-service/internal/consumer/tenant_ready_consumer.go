@@ -8,7 +8,7 @@ import (
 
 	"tenant-service/internal/infrastructure/rabbitmq"
 	"tenant-service/internal/service"
-	"tenant-service/internal/txctx"
+	"tenant-service/internal/txcontext"
 )
 
 const (
@@ -28,13 +28,18 @@ type TenantOrderDBReadyEvent struct {
 	SchemaName  string `json:"schema_name"`
 }
 
-type TenantOrderDBReadyConsumer struct {
-	txManager        txctx.TxManager
-	client           *rabbitmq.Client
-	workspaceService service.WorkspaceService
+// WorkspaceService is the consumer-side interface expected by TenantOrderDBReadyConsumer.
+type WorkspaceService interface {
+	HandleInfrastructureUpdate(ctx context.Context, input service.InfraUpdateInput) error
 }
 
-func NewTenantOrderDBReadyConsumer(txManager txctx.TxManager, client *rabbitmq.Client, workspaceSvc service.WorkspaceService) (*TenantOrderDBReadyConsumer, error) {
+type TenantOrderDBReadyConsumer struct {
+	txManager        txcontext.TxManager
+	client           *rabbitmq.Client
+	workspaceService WorkspaceService
+}
+
+func NewTenantOrderDBReadyConsumer(txManager txcontext.TxManager, client *rabbitmq.Client, workspaceSvc WorkspaceService) (*TenantOrderDBReadyConsumer, error) {
 	if err := client.DeclareExchange(ExchangeCompanyEvents, "topic"); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange '%s': %w", ExchangeCompanyEvents, err)
 	}

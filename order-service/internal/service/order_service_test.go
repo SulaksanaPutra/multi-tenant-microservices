@@ -2,57 +2,44 @@ package service_test
 
 import (
 	"context"
-	"database/sql"
-	"net/http"
-	"net/http/httptest"
+	"errors"
 	"testing"
 
-	"order-service/internal/infrastructure/tenantdb"
-	"order-service/internal/registry"
-	"order-service/internal/repository"
+	"order-service/internal/domain"
 	"order-service/internal/service"
 )
 
 type mockOrderRepo struct {
-	createdOrders []repository.Order
-	getOrdersFn   func(ctx context.Context, db *sql.DB, schemaName string) ([]repository.Order, error)
-	createOrderFn func(ctx context.Context, db *sql.DB, schemaName string, order repository.Order) error
+	createdOrders []domain.Order
+	listOrdersFn  func(ctx context.Context) ([]domain.Order, error)
+	createOrderFn func(ctx context.Context, order domain.Order) error
 }
 
-func (m *mockOrderRepo) GetOrders(ctx context.Context, db *sql.DB, schemaName string) ([]repository.Order, error) {
-	if m.getOrdersFn != nil {
-		return m.getOrdersFn(ctx, db, schemaName)
+func (m *mockOrderRepo) ListOrders(ctx context.Context) ([]domain.Order, error) {
+	if m.listOrdersFn != nil {
+		return m.listOrdersFn(ctx)
 	}
 	return nil, nil
 }
 
-func (m *mockOrderRepo) CreateOrder(ctx context.Context, db *sql.DB, schemaName string, order repository.Order) error {
+func (m *mockOrderRepo) CreateOrder(ctx context.Context, order domain.Order) error {
 	if m.createOrderFn != nil {
-		return m.createOrderFn(ctx, db, schemaName, order)
+		return m.createOrderFn(ctx, order)
 	}
 	m.createdOrders = append(m.createdOrders, order)
 	return nil
 }
 
 func TestCreateOrder_InputValidation(t *testing.T) {
-	poolRegistry := registry.NewPoolRegistry()
-	routingRegistry := registry.NewRoutingRegistry()
-	resolver := tenantdb.NewResolver(tenantdb.ResolverParams{
-		PoolRegistry:    poolRegistry,
-		RoutingRegistry: routingRegistry,
-	})
 	repo := &mockOrderRepo{}
-	svc := service.NewOrderService(service.OrderServiceParams{
-		DBResolver: resolver,
-		OrderRepo:  repo,
-	})
+	svc := service.NewOrderService(repo)
 
 	ctx := context.Background()
 
 	tests := []struct {
 		name    string
 		input   service.CreateOrderInput
-		wantErr bool
+		wantErr error
 	}{
 		{
 			name: "missing tenant_id",
@@ -61,68 +48,51 @@ func TestCreateOrder_InputValidation(t *testing.T) {
 				CustomerID: "cust-123",
 				Amount:     100.50,
 			},
-			wantErr: true,
+			wantErr: service.ErrTenantIDRequired,
 		},
 		{
 			name: "missing customer_id",
 			input: service.CreateOrderInput{
-				TenantID:   "tenant-1",
+				TenantID:   "tenant-test",
 				CustomerID: "",
 				Amount:     100.50,
 			},
-			wantErr: true,
+			wantErr: service.ErrCustomerIDRequired,
 		},
 		{
 			name: "invalid amount zero or negative",
 			input: service.CreateOrderInput{
-				TenantID:   "tenant-1",
+				TenantID:   "tenant-test",
 				CustomerID: "cust-123",
 				Amount:     0,
 			},
-			wantErr: true,
+			wantErr: service.ErrInvalidAmount,
+		},
+		{
+			name: "valid input",
+			input: service.CreateOrderInput{
+				TenantID:   "tenant-test",
+				CustomerID: "cust-123",
+				Amount:     100.50,
+			},
+			wantErr: nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			order, err := svc.CreateOrder(ctx, tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("CreateOrder() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Errorf("CreateOrder() error = %v, wantErr %v", err, tt.wantErr)
+				}
+			} else if err != nil {
+				t.Errorf("CreateOrder() unexpected error = %v", err)
 			}
-			if order != nil && tt.wantErr {
+			if order != nil && tt.wantErr != nil {
 				t.Errorf("CreateOrder() expected nil order on error, got %v", order)
 			}
 		})
 	}
 }
 
-func TestCreateOrder_TenantDSNError(t *testing.T) {
-	// Mock tenant-service returning 404
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer ts.Close()
-
-	poolRegistry := registry.NewPoolRegistry()
-	routingRegistry := registry.NewRoutingRegistry()
-	resolver := tenantdb.NewResolver(tenantdb.ResolverParams{
-		PoolRegistry:     poolRegistry,
-		RoutingRegistry:  routingRegistry,
-		TenantServiceURL: ts.URL,
-	})
-	repo := &mockOrderRepo{}
-	svc := service.NewOrderService(service.OrderServiceParams{
-		DBResolver: resolver,
-		OrderRepo:  repo,
-	})
-
-	ctx := context.Background()
-	_, err := svc.CreateOrder(ctx, service.CreateOrderInput{
-		TenantID:   "tenant-unknown",
-		CustomerID: "cust-123",
-		Amount:     50.00,
-	})
-	if err == nil {
-		t.Fatal("expected error when tenant-service returns 404, got nil")
-	}
-}

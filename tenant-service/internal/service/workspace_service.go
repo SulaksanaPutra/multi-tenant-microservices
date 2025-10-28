@@ -3,15 +3,21 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
 
 	"tenant-service/internal/domain"
+	"tenant-service/internal/httputil"
 	"tenant-service/internal/publisher"
 	"tenant-service/internal/repository"
-	"tenant-service/internal/utils"
 	"tenant-service/internal/worker"
+)
+
+var (
+	ErrInvalidPlan    = errors.New("workspace service: invalid plan, must be shared or dedicated")
+	ErrTenantNotFound = errors.New("workspace service: tenant not found")
 )
 
 var requiredServices = []string{"order-service"}
@@ -46,40 +52,49 @@ type RoutingOutput struct {
 	SchemaName string `json:"schema_name"`
 }
 
-type WorkspaceService interface {
-	RegisterWorkspace(ctx context.Context, input RegisterWorkspaceInput) (*RegisterWorkspaceOutput, error)
-	HandleInfrastructureUpdate(ctx context.Context, input InfraUpdateInput) error
-	GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*RoutingOutput, error)
+// ControlRepo is the consumer-side interface expected by WorkspaceService.
+type ControlRepo interface {
+	CreateTenant(ctx context.Context, input repository.CreateTenantInput) error
+	UpsertServiceInfrastructure(ctx context.Context, input repository.UpsertServiceInfraInput) error
+	GetPendingServiceCount(ctx context.Context, tenantID string, requiredServices []string) (int, error)
+	GetTenantByID(ctx context.Context, tenantID string) (*repository.TenantRecord, error)
+	ActivateTenant(ctx context.Context, tenantID string) error
+	GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*repository.ServiceInfraRecord, error)
 }
 
-type workspaceService struct {
-	controlRepo  repository.ControlPlaneRepository
-	outboxRepo   repository.OutboxRepository
+// OutboxRepo is the consumer-side interface expected by WorkspaceService.
+type OutboxRepo interface {
+	CreateOutboxMessage(ctx context.Context, msg repository.OutboxMessage) error
+}
+
+type WorkspaceService struct {
+	controlRepo  ControlRepo
+	outboxRepo   OutboxRepo
 	outboxWorker *worker.OutboxWorker
 }
 
 type WorkspaceServiceParams struct {
-	ControlRepo  repository.ControlPlaneRepository
-	OutboxRepo   repository.OutboxRepository
+	ControlRepo  ControlRepo
+	OutboxRepo   OutboxRepo
 	OutboxWorker *worker.OutboxWorker
 }
 
-func NewWorkspaceService(params WorkspaceServiceParams) WorkspaceService {
-	return &workspaceService{
+func NewWorkspaceService(params WorkspaceServiceParams) *WorkspaceService {
+	return &WorkspaceService{
 		controlRepo:  params.ControlRepo,
 		outboxRepo:   params.OutboxRepo,
 		outboxWorker: params.OutboxWorker,
 	}
 }
 
-func (s *workspaceService) RegisterWorkspace(ctx context.Context, input RegisterWorkspaceInput) (*RegisterWorkspaceOutput, error) {
+func (s *WorkspaceService) RegisterWorkspace(ctx context.Context, input RegisterWorkspaceInput) (*RegisterWorkspaceOutput, error) {
 	plan := domain.Plan(strings.ToLower(input.Plan))
 	if !plan.IsValid() {
 		return nil, fmt.Errorf("invalid plan '%s': must be '%s' or '%s'", input.Plan, domain.PlanShared, domain.PlanDedicated)
 	}
 
 	tenantID := domain.GenerateTenantID()
-	slug := utils.SanitizeSlug(input.TenantName)
+	slug := httputil.SanitizeSlug(input.TenantName)
 	outboxID := domain.GenerateOutboxID()
 
 	evt := publisher.WorkspaceInitiatedEvent{
@@ -124,7 +139,7 @@ func (s *workspaceService) RegisterWorkspace(ctx context.Context, input Register
 	return &RegisterWorkspaceOutput{TenantID: tenantID}, nil
 }
 
-func (s *workspaceService) HandleInfrastructureUpdate(ctx context.Context, input InfraUpdateInput) error {
+func (s *WorkspaceService) HandleInfrastructureUpdate(ctx context.Context, input InfraUpdateInput) error {
 	if err := s.controlRepo.UpsertServiceInfrastructure(ctx, repository.UpsertServiceInfraInput{
 		TenantID:    input.TenantID,
 		ServiceName: input.ServiceName,
@@ -187,7 +202,7 @@ func (s *workspaceService) HandleInfrastructureUpdate(ctx context.Context, input
 	return nil
 }
 
-func (s *workspaceService) GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*RoutingOutput, error) {
+func (s *WorkspaceService) GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*RoutingOutput, error) {
 	infra, err := s.controlRepo.GetServiceInfrastructure(ctx, tenantID, serviceName)
 	if err != nil {
 		return nil, err

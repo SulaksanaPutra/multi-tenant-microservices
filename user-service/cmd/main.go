@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"user-service/internal/infrastructure/postgres"
@@ -14,22 +16,21 @@ import (
 	"user-service/internal/publisher"
 	"user-service/internal/repository"
 	"user-service/internal/service"
-	"user-service/internal/txctx"
-	"user-service/internal/utils"
+	"user-service/internal/txcontext"
 )
 
 func main() {
-	utils.LoadEnv(".env")
+	loadEnv(".env")
 	log.Println("Starting User Service...")
 
 	// Environment variables
-	dbHost := utils.GetEnv("DB_HOST", "postgres")
-	dbPort := utils.GetEnv("DB_PORT", "5432")
-	dbUser := utils.GetEnv("DB_USER", "postgres")
-	dbPassword := utils.GetEnv("DB_PASSWORD", "postgres")
-	dbName := utils.GetEnv("DB_NAME", "user_db")
-	amqpURL := utils.GetEnv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
-	httpPort := utils.GetEnv("PORT", "8081")
+	dbHost := getEnv("DB_HOST", "postgres")
+	dbPort := getEnv("DB_PORT", "5432")
+	dbUser := getEnv("DB_USER", "postgres")
+	dbPassword := getEnv("DB_PASSWORD", "postgres")
+	dbName := getEnv("DB_NAME", "user_db")
+	amqpURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
+	httpPort := getEnv("PORT", "8081")
 
 	dbClient, err := postgres.NewClient(dbHost, dbPort, dbUser, dbPassword, dbName)
 	if err != nil {
@@ -44,7 +45,7 @@ func main() {
 	defer rmqClient.Close()
 
 	// Initialize Repositories & TxManager
-	txManager := txctx.NewTxManager(dbClient.DB)
+	txManager := txcontext.NewTxManager(dbClient.DB)
 	userRepo := repository.NewUserRepository(dbClient)
 	inboxRepo := repository.NewInboxRepository(dbClient)
 	outboxRepo := repository.NewOutboxRepository(dbClient.DB)
@@ -97,4 +98,36 @@ func main() {
 	<-stop
 	log.Println("Shutting down User Service gracefully...")
 	_ = httpServer.Shutdown(context.Background())
+}
+
+func loadEnv(filepath string) {
+	file, err := os.Open(filepath)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			val := strings.TrimSpace(parts[1])
+			val = strings.Trim(val, `"'`)
+			if _, exists := os.LookupEnv(key); !exists {
+				_ = os.Setenv(key, val)
+			}
+		}
+	}
+}
+
+func getEnv(key, fallback string) string {
+	if value, exists := os.LookupEnv(key); exists && strings.TrimSpace(value) != "" {
+		return value
+	}
+	return fallback
 }

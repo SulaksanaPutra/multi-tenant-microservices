@@ -14,7 +14,6 @@ import (
 	"order-service/internal/infrastructure/rabbitmq"
 	"order-service/internal/infrastructure/tenantdb"
 	"order-service/internal/registry"
-	"order-service/internal/repository"
 	"order-service/internal/service"
 )
 
@@ -43,7 +42,7 @@ func main() {
 	defer reaperCancel()
 	poolRegistry.StartReaper(reaperCtx)
 
-	tenantDBResolver := tenantdb.NewResolver(tenantdb.ResolverParams{
+	tenantDBResolver := tenantdb.NewResolver(tenantdb.Params{
 		PoolRegistry:         poolRegistry,
 		RoutingRegistry:      routingRegistry,
 		TenantServiceURL:     tenantServiceURL,
@@ -58,12 +57,6 @@ func main() {
 		log.Fatalf("Failed to initialize MigrationService: %v", err)
 	}
 
-	orderRepo := repository.NewOrderRepository()
-	orderService := service.NewOrderService(service.OrderServiceParams{
-		DBResolver: tenantDBResolver,
-		OrderRepo:  orderRepo,
-	})
-
 	// 4. Register & Start Inbound Consumers
 	cRunner, err := registerConsumers(rmqClient, migrationSvc, poolRegistry, routingRegistry, sharedSecret, sharedDBPass)
 	if err != nil {
@@ -77,7 +70,7 @@ func main() {
 	}
 
 	// 5. Register HTTP Router
-	httpRouter := newRouter(orderService)
+	httpRouter := newRouter(tenantDBResolver)
 	httpServer := &http.Server{
 		Addr:    ":" + httpPort,
 		Handler: httpRouter,

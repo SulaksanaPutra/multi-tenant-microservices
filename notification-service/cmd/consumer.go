@@ -7,7 +7,7 @@ import (
 	"notification-service/internal/consumer"
 	"notification-service/internal/infrastructure/rabbitmq"
 	"notification-service/internal/service"
-	"notification-service/internal/txctx"
+	"notification-service/internal/txcontext"
 )
 
 type consumerRunner struct {
@@ -15,7 +15,7 @@ type consumerRunner struct {
 	userCreatedConsumer    *consumer.UserCreatedConsumer
 }
 
-func registerConsumers(txManager txctx.TxManager, rmqClient *rabbitmq.Client, notifService service.NotificationService) (*consumerRunner, error) {
+func registerConsumers(txManager txcontext.TxManager, rmqClient *rabbitmq.Client, notifService *service.NotificationService) (*consumerRunner, error) {
 	workspaceReadyConsumer, err := consumer.NewWorkspaceReadyConsumer(txManager, rmqClient, notifService)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize WorkspaceReadyConsumer: %w", err)

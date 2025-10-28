@@ -9,12 +9,12 @@ import (
 
 	"notification-service/internal/infrastructure/rabbitmq"
 	"notification-service/internal/service"
-	"notification-service/internal/txctx"
+	"notification-service/internal/txcontext"
 )
 
 const (
-	RoutingKeyUserCreated           = "user.created"
-	QueueNotificationUserCreated    = "notification_service_user_created"
+	RoutingKeyUserCreated        = "user.created"
+	QueueNotificationUserCreated = "notification_service_user_created"
 )
 
 type UserCreatedEvent struct {
@@ -27,12 +27,12 @@ type UserCreatedEvent struct {
 }
 
 type UserCreatedConsumer struct {
-	txManager           txctx.TxManager
+	txManager           txcontext.TxManager
 	client              *rabbitmq.Client
-	notificationService service.NotificationService
+	notificationService NotificationService
 }
 
-func NewUserCreatedConsumer(txManager txctx.TxManager, client *rabbitmq.Client, notifSvc service.NotificationService) (*UserCreatedConsumer, error) {
+func NewUserCreatedConsumer(txManager txcontext.TxManager, client *rabbitmq.Client, notifSvc NotificationService) (*UserCreatedConsumer, error) {
 	if err := client.DeclareExchange(ExchangeCompanyEvents, "topic"); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange: %w", err)
 	}

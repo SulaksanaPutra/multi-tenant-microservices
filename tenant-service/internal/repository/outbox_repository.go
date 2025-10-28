@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"tenant-service/internal/txctx"
+	"tenant-service/internal/txcontext"
 )
 
 const (
@@ -52,24 +52,16 @@ type OutboxMessage struct {
 	ProcessedAt   *time.Time
 }
 
-type OutboxRepository interface {
-	CreateOutboxMessage(ctx context.Context, msg OutboxMessage) error
-	FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]OutboxMessage, error)
-	RecoverStuckClaims(ctx context.Context, eventType string) error
-	MarkPublished(ctx context.Context, id string) error
-	MarkFailed(ctx context.Context, id string, err error) error
-}
-
-type outboxRepository struct {
+type OutboxRepository struct {
 	db *sql.DB
 }
 
-func NewOutboxRepository(db *sql.DB) OutboxRepository {
-	return &outboxRepository{db: db}
+func NewOutboxRepository(db *sql.DB) *OutboxRepository {
+	return &OutboxRepository{db: db}
 }
 
-func (r *outboxRepository) CreateOutboxMessage(ctx context.Context, msg OutboxMessage) error {
-	exec := txctx.GetExecutor(ctx, r.db)
+func (r *OutboxRepository) CreateOutboxMessage(ctx context.Context, msg OutboxMessage) error {
+	exec := txcontext.GetExecutor(ctx, r.db)
 	const query = `
 		INSERT INTO public.outbox (
 			id, tenant_id, aggregate_type, aggregate_id, event_type, payload, status, retry_count
@@ -83,8 +75,8 @@ func (r *outboxRepository) CreateOutboxMessage(ctx context.Context, msg OutboxMe
 	return nil
 }
 
-func (r *outboxRepository) FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]OutboxMessage, error) {
-	exec := txctx.GetExecutor(ctx, r.db)
+func (r *OutboxRepository) FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]OutboxMessage, error) {
+	exec := txcontext.GetExecutor(ctx, r.db)
 	const query = `
 		WITH claimed AS (
 			UPDATE public.outbox
@@ -133,8 +125,8 @@ func (r *outboxRepository) FetchAndClaimBatch(ctx context.Context, eventType str
 	return list, rows.Err()
 }
 
-func (r *outboxRepository) RecoverStuckClaims(ctx context.Context, eventType string) error {
-	exec := txctx.GetExecutor(ctx, r.db)
+func (r *OutboxRepository) RecoverStuckClaims(ctx context.Context, eventType string) error {
+	exec := txcontext.GetExecutor(ctx, r.db)
 	const query = `
 		UPDATE public.outbox
 		SET status     = 'PENDING',
@@ -150,8 +142,8 @@ func (r *outboxRepository) RecoverStuckClaims(ctx context.Context, eventType str
 	return nil
 }
 
-func (r *outboxRepository) MarkPublished(ctx context.Context, id string) error {
-	exec := txctx.GetExecutor(ctx, r.db)
+func (r *OutboxRepository) MarkPublished(ctx context.Context, id string) error {
+	exec := txcontext.GetExecutor(ctx, r.db)
 	const query = `
 		UPDATE public.outbox
 		SET status       = 'PUBLISHED',
@@ -165,8 +157,8 @@ func (r *outboxRepository) MarkPublished(ctx context.Context, id string) error {
 	return nil
 }
 
-func (r *outboxRepository) MarkFailed(ctx context.Context, id string, err error) error {
-	exec := txctx.GetExecutor(ctx, r.db)
+func (r *OutboxRepository) MarkFailed(ctx context.Context, id string, err error) error {
+	exec := txcontext.GetExecutor(ctx, r.db)
 	safeErr := sanitizeError(err)
 	const query = `
 			UPDATE public.outbox

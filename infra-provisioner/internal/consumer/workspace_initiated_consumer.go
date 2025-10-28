@@ -7,7 +7,6 @@ import (
 	"log"
 	"strings"
 
-	"infra-provisioner/internal/docker"
 	"infra-provisioner/internal/infrastructure/rabbitmq"
 )
 
@@ -37,23 +36,28 @@ type InfrastructureProvisionedEvent struct {
 	SchemaName string `json:"schema_name"`
 }
 
+// Provisioner is the consumer-side interface expected by WorkspaceInitiatedConsumer.
+type Provisioner interface {
+	ProvisionDedicatedContainer(ctx context.Context, tenantID, infraMasterSecret string, domainSecrets map[string]string) (host string, port int, dbName, dbUser string, err error)
+}
+
 type WorkspaceInitiatedConsumer struct {
 	client            *rabbitmq.Client
-	provisioner       docker.Provisioner
+	provisioner       Provisioner
 	infraMasterSecret string
 	domainSecrets     map[string]string
 	sharedDBHost      string
 }
 
-type WorkspaceInitiatedConsumerParams struct {
+type Params struct {
 	Client            *rabbitmq.Client
-	Provisioner       docker.Provisioner
+	Provisioner       Provisioner
 	InfraMasterSecret string
 	DomainSecrets     map[string]string
 	SharedDBHost      string
 }
 
-func NewWorkspaceInitiatedConsumer(params WorkspaceInitiatedConsumerParams) (*WorkspaceInitiatedConsumer, error) {
+func NewWorkspaceInitiatedConsumer(params Params) (*WorkspaceInitiatedConsumer, error) {
 	if err := params.Client.DeclareExchange(ExchangeCompanyEvents, "topic"); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange '%s': %w", ExchangeCompanyEvents, err)
 	}

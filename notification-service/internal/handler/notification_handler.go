@@ -1,31 +1,37 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 
-	"notification-service/internal/service"
-	"notification-service/internal/utils"
+	"notification-service/internal/httputil"
+	"notification-service/internal/repository"
 
 	"github.com/gin-gonic/gin"
 )
 
-type NotificationHandler struct {
-	svc service.NotificationService
+// NotificationService is the consumer-side interface expected by NotificationHandler.
+type NotificationService interface {
+	ListNotifications(ctx context.Context, tenantID string) ([]repository.NotificationLog, error)
 }
 
-func NewNotificationHandler(svc service.NotificationService) *NotificationHandler {
+type NotificationHandler struct {
+	svc NotificationService
+}
+
+func NewNotificationHandler(svc NotificationService) *NotificationHandler {
 	return &NotificationHandler{svc: svc}
 }
 
-func (h *NotificationHandler) GetNotifications(c *gin.Context) {
+func (h *NotificationHandler) ListNotifications(c *gin.Context) {
 	tenantID := c.GetHeader("X-Tenant-ID")
 	if tenantID == "" {
 		tenantID = c.Query("tenant_id")
 	}
-	logs, err := h.svc.GetNotifications(c.Request.Context(), tenantID)
+	logs, err := h.svc.ListNotifications(c.Request.Context(), tenantID)
 	if err != nil {
-		utils.WriteError(c, http.StatusInternalServerError, "Failed to retrieve notifications: "+err.Error())
+		httputil.WriteError(c, http.StatusInternalServerError, "Failed to retrieve notifications: "+err.Error())
 		return
 	}
-	utils.WriteSuccess(c, http.StatusOK, "Notifications retrieved successfully", logs)
+	httputil.WriteSuccess(c, http.StatusOK, "Notifications retrieved successfully", logs)
 }

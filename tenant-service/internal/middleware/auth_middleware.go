@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"tenant-service/internal/utils"
+	"tenant-service/internal/httputil"
 )
 
 // InternalAuthMiddleware enforces that calls to internal Control Plane endpoints
@@ -17,7 +17,7 @@ func InternalAuthMiddleware(expectedToken string) gin.HandlerFunc {
 
 		token := c.GetHeader("X-Internal-Service-Token")
 		if token == "" || token != expectedToken {
-			utils.WriteError(c, http.StatusForbidden, "Unauthorized inter-service access: invalid or missing X-Internal-Service-Token")
+			httputil.WriteError(c, http.StatusForbidden, "Unauthorized inter-service access: invalid or missing X-Internal-Service-Token")
 			c.Abort()
 			return
 		}
