@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -14,6 +15,11 @@ import (
 	"user-service/internal/repository"
 )
 
+var (
+	ErrTenantIDRequired = errors.New("user service: tenant_id is required")
+	ErrEmailRequired    = errors.New("user service: owner_email is required")
+)
+
 type CreateUserFromWorkspaceInput struct {
 	EventID    string
 	TenantID   string
@@ -21,29 +27,40 @@ type CreateUserFromWorkspaceInput struct {
 	OwnerName  string
 }
 
-type UserService interface {
-	CreateUserFromWorkspace(ctx context.Context, input CreateUserFromWorkspaceInput) error
+// UserRepo is the consumer-side interface expected by UserService.
+type UserRepo interface {
+	CreateUser(ctx context.Context, user domain.User) error
 }
 
-type userService struct {
-	userRepo   repository.UserRepository
-	inboxRepo  repository.InboxRepository
-	outboxRepo repository.OutboxRepository
+// InboxRepo is the consumer-side interface expected by UserService.
+type InboxRepo interface {
+	TryInsert(ctx context.Context, eventID string) (bool, error)
+}
+
+// OutboxRepo is the consumer-side interface expected by UserService.
+type OutboxRepo interface {
+	CreateOutboxMessage(ctx context.Context, msg repository.OutboxMessage) error
+}
+
+type UserService struct {
+	userRepo   UserRepo
+	inboxRepo  InboxRepo
+	outboxRepo OutboxRepo
 }
 
 func NewUserService(
-	userRepo repository.UserRepository,
-	inboxRepo repository.InboxRepository,
-	outboxRepo repository.OutboxRepository,
-) UserService {
-	return &userService{
+	userRepo UserRepo,
+	inboxRepo InboxRepo,
+	outboxRepo OutboxRepo,
+) *UserService {
+	return &UserService{
 		userRepo:   userRepo,
 		inboxRepo:  inboxRepo,
 		outboxRepo: outboxRepo,
 	}
 }
 
-func (s *userService) CreateUserFromWorkspace(ctx context.Context, input CreateUserFromWorkspaceInput) error {
+func (s *UserService) CreateUserFromWorkspace(ctx context.Context, input CreateUserFromWorkspaceInput) error {
 	if input.EventID != "" && s.inboxRepo != nil {
 		isDup, err := s.inboxRepo.TryInsert(ctx, input.EventID)
 		if err != nil {
@@ -56,7 +73,7 @@ func (s *userService) CreateUserFromWorkspace(ctx context.Context, input CreateU
 	}
 
 	userID := domain.GenerateUserID()
-	userObj := repository.User{
+	userObj := domain.User{
 		ID:    userID,
 		Email: input.OwnerEmail,
 		Name:  input.OwnerName,

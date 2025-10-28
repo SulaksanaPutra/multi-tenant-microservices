@@ -18,8 +18,16 @@ const (
 	EventTypeUserCreated = "user.created"
 )
 
+// OutboxRepo is the consumer-side interface expected by OutboxWorker.
+type OutboxRepo interface {
+	RecoverStuckClaims(ctx context.Context, eventType string) error
+	FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]repository.OutboxMessage, error)
+	MarkFailed(ctx context.Context, id string, err error) error
+	MarkPublished(ctx context.Context, id string) error
+}
+
 type OutboxWorker struct {
-	outboxRepo    repository.OutboxRepository
+	outboxRepo    OutboxRepo
 	publisher     publisher.UserEventPublisher
 	wakeUpChan    chan struct{}
 	debounceDelay time.Duration
@@ -28,7 +36,7 @@ type OutboxWorker struct {
 }
 
 func NewOutboxWorker(
-	outboxRepo repository.OutboxRepository,
+	outboxRepo OutboxRepo,
 	pub publisher.UserEventPublisher,
 ) *OutboxWorker {
 	return &OutboxWorker{

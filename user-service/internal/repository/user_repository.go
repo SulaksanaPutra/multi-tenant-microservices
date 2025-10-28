@@ -4,30 +4,21 @@ import (
 	"context"
 	"fmt"
 
+	"user-service/internal/domain"
 	"user-service/internal/infrastructure/postgres"
-	"user-service/internal/txctx"
+	"user-service/internal/txcontext"
 )
 
-type User struct {
-	ID    string
-	Email string
-	Name  string
-}
-
-type UserRepository interface {
-	CreateUser(ctx context.Context, user User) error
-}
-
-type userRepository struct {
+type UserRepository struct {
 	client *postgres.Client
 }
 
-func NewUserRepository(client *postgres.Client) UserRepository {
-	return &userRepository{client: client}
+func NewUserRepository(client *postgres.Client) *UserRepository {
+	return &UserRepository{client: client}
 }
 
-func (r *userRepository) CreateUser(ctx context.Context, user User) error {
-	exec := txctx.GetExecutor(ctx, r.client.DB)
+func (r *UserRepository) CreateUser(ctx context.Context, user domain.User) error {
+	exec := txcontext.GetExecutor(ctx, r.client.DB)
 	query := `
 		INSERT INTO public.users (id, email, name)
 		VALUES ($1, $2, $3);

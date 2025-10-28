@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"notification-service/internal/infrastructure/postgres"
-	"notification-service/internal/txctx"
+	"notification-service/internal/txcontext"
 
 	"github.com/lib/pq"
 )
@@ -18,21 +18,16 @@ type InboxMessage struct {
 	Payload   []byte
 }
 
-type InboxRepository interface {
-	TryInsert(ctx context.Context, msg InboxMessage) (isDuplicate bool, err error)
-	GetEventsByTenantID(ctx context.Context, tenantID string) ([]InboxMessage, error)
-}
-
-type inboxRepository struct {
+type InboxRepository struct {
 	client *postgres.Client
 }
 
-func NewInboxRepository(client *postgres.Client) InboxRepository {
-	return &inboxRepository{client: client}
+func NewInboxRepository(client *postgres.Client) *InboxRepository {
+	return &InboxRepository{client: client}
 }
 
-func (r *inboxRepository) TryInsert(ctx context.Context, msg InboxMessage) (bool, error) {
-	exec := txctx.GetExecutor(ctx, r.client.DB)
+func (r *InboxRepository) TryInsert(ctx context.Context, msg InboxMessage) (bool, error) {
+	exec := txcontext.GetExecutor(ctx, r.client.DB)
 	const query = `
 		INSERT INTO public.inbox (event_id, tenant_id, event_type, payload)
 		VALUES ($1, $2, $3, $4);
@@ -52,8 +47,8 @@ func (r *inboxRepository) TryInsert(ctx context.Context, msg InboxMessage) (bool
 	return false, nil // isDuplicate = false, safe to process
 }
 
-func (r *inboxRepository) GetEventsByTenantID(ctx context.Context, tenantID string) ([]InboxMessage, error) {
-	exec := txctx.GetExecutor(ctx, r.client.DB)
+func (r *InboxRepository) GetEventsByTenantID(ctx context.Context, tenantID string) ([]InboxMessage, error) {
+	exec := txcontext.GetExecutor(ctx, r.client.DB)
 	const query = `
 		SELECT event_id, tenant_id, event_type, payload
 		FROM public.inbox

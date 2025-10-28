@@ -17,7 +17,7 @@ import (
 	"notification-service/internal/mailer"
 	"notification-service/internal/repository"
 	"notification-service/internal/service"
-	"notification-service/internal/txctx"
+	"notification-service/internal/txcontext"
 )
 
 func main() {
@@ -52,7 +52,7 @@ func main() {
 	m := mailer.NewMailer(smtpHost, smtpPort, "no-reply@company.com")
 
 	// 3. Initialize Repositories (Data Access Layer & Inbox Pattern) & TxManager
-	txManager := txctx.NewTxManager(dbClient.DB)
+	txManager := txcontext.NewTxManager(dbClient.DB)
 	notifRepo := repository.NewNotificationRepository(dbClient)
 	inboxRepo := repository.NewInboxRepository(dbClient)
 

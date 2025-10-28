@@ -1,4 +1,4 @@
-package txctx
+package txcontext
 
 import (
 	"context"
@@ -40,7 +40,7 @@ func (m *sqlTxManager) WithTransaction(ctx context.Context, fn func(txCtx contex
 	defer func() {
 		if r := recover(); r != nil {
 			_ = tx.Rollback()
-			panic(r) // preserve stack trace on panic
+			panic(r)
 		} else if err != nil {
 			_ = tx.Rollback()
 		} else {

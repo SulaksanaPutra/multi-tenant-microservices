@@ -16,7 +16,7 @@ import (
 	"tenant-service/internal/publisher"
 	"tenant-service/internal/repository"
 	"tenant-service/internal/service"
-	"tenant-service/internal/txctx"
+	"tenant-service/internal/txcontext"
 )
 
 func main() {
@@ -47,7 +47,7 @@ func main() {
 	defer rmqClient.Close()
 
 	// 2. Initialize Repositories & Transaction Manager
-	txManager := txctx.NewTxManager(dbClient.DB)
+	txManager := txcontext.NewTxManager(dbClient.DB)
 	controlRepo := repository.NewControlPlaneRepository(dbClient)
 	outboxRepo := repository.NewOutboxRepository(dbClient.DB)
 

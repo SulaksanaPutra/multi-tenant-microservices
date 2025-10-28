@@ -6,25 +6,21 @@ import (
 	"fmt"
 
 	"user-service/internal/infrastructure/postgres"
-	"user-service/internal/txctx"
+	"user-service/internal/txcontext"
 
 	"github.com/lib/pq"
 )
 
-type InboxRepository interface {
-	TryInsert(ctx context.Context, eventID string) (isDuplicate bool, err error)
-}
-
-type inboxRepository struct {
+type InboxRepository struct {
 	client *postgres.Client
 }
 
-func NewInboxRepository(client *postgres.Client) InboxRepository {
-	return &inboxRepository{client: client}
+func NewInboxRepository(client *postgres.Client) *InboxRepository {
+	return &InboxRepository{client: client}
 }
 
-func (r *inboxRepository) TryInsert(ctx context.Context, eventID string) (bool, error) {
-	exec := txctx.GetExecutor(ctx, r.client.DB)
+func (r *InboxRepository) TryInsert(ctx context.Context, eventID string) (bool, error) {
+	exec := txcontext.GetExecutor(ctx, r.client.DB)
 	const query = `INSERT INTO public.inbox (event_id) VALUES ($1);`
 	_, err := exec.ExecContext(ctx, query, eventID)
 	if err != nil {

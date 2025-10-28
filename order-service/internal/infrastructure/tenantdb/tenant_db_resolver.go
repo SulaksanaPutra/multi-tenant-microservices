@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
+	"time"
 
 	"order-service/internal/crypto"
 	"order-service/internal/infrastructure/postgres"
@@ -27,20 +29,19 @@ type routingResponse struct {
 	} `json:"data"`
 }
 
-type Resolver interface {
-	GetTenantDB(ctx context.Context, tenantID string) (*sql.DB, string, error)
-}
-
-type tenantDBResolver struct {
+type Resolver struct {
 	poolRegistry         *registry.PoolRegistry
 	routingRegistry      *registry.RoutingRegistry
 	tenantServiceURL     string
 	internalServiceToken string
 	sharedSecret         string
 	sharedDBPass         string
+
+	sharedPoolMu sync.Mutex
+	sharedPool   *sql.DB
 }
 
-type ResolverParams struct {
+type Params struct {
 	PoolRegistry         *registry.PoolRegistry
 	RoutingRegistry      *registry.RoutingRegistry
 	TenantServiceURL     string
@@ -49,7 +50,7 @@ type ResolverParams struct {
 	SharedDBPass         string
 }
 
-func NewResolver(params ResolverParams) Resolver {
+func NewResolver(params Params) *Resolver {
 	url := params.TenantServiceURL
 	if url == "" {
 		url = defaultTenantServiceURL
@@ -63,7 +64,7 @@ func NewResolver(params ResolverParams) Resolver {
 		pass = "postgres"
 	}
 
-	return &tenantDBResolver{
+	return &Resolver{
 		poolRegistry:         params.PoolRegistry,
 		routingRegistry:      params.RoutingRegistry,
 		tenantServiceURL:     url,
@@ -73,42 +74,129 @@ func NewResolver(params ResolverParams) Resolver {
 	}
 }
 
-func (r *tenantDBResolver) GetTenantDB(ctx context.Context, tenantID string) (*sql.DB, string, error) {
+func (r *Resolver) GetTenantDB(ctx context.Context, tenantID string) (Config, error) {
+	// 1. Fast Path: Check local RoutingRegistry materialized view
+	meta, ok := r.routingRegistry.Get(tenantID)
+	if !ok {
+		// 2. Slow Path: Fetch routing metadata from tenant-service via HTTP
+		var err error
+		meta, err = r.fetchRoutingFromService(ctx, tenantID)
+		if err != nil {
+			return Config{}, fmt.Errorf("tenant db resolver: failed to resolve DB for tenant '%s': %w", tenantID, err)
+		}
+		r.routingRegistry.Set(meta)
+	}
+
+	// 3. Shared Plan Duality Check:
+	// If DBHost is the shared Postgres cluster ("postgres" or "localhost"), return the single shared pool.
+	if isSharedHost(meta.DBHost) {
+		pool, err := r.getSharedPool(meta)
+		if err != nil {
+			return Config{}, fmt.Errorf("tenant db resolver: failed to get shared pool for tenant '%s': %w", tenantID, err)
+		}
+		return Config{
+			TenantID:   tenantID,
+			DB:         pool,
+			SchemaName: meta.SchemaName,
+		}, nil
+	}
+
+	// 4. Dedicated Plan: Route through Bounded LRU PoolRegistry
 	db, schemaName, err := r.poolRegistry.GetOrFetch(tenantID, func() (*sql.DB, string, error) {
-		return r.resolveAndOpenPool(ctx, tenantID)
+		return r.openDedicatedPool(tenantID, meta)
 	})
 	if err != nil {
-		return nil, "", fmt.Errorf("tenant db resolver: failed to resolve DB for tenant '%s': %w", tenantID, err)
+		return Config{}, fmt.Errorf("tenant db resolver: failed to open dedicated pool for tenant '%s': %w", tenantID, err)
 	}
-	return db, schemaName, nil
+
+	return Config{
+		TenantID:   tenantID,
+		DB:         db,
+		SchemaName: schemaName,
+	}, nil
 }
 
-func (r *tenantDBResolver) resolveAndOpenPool(ctx context.Context, tenantID string) (*sql.DB, string, error) {
-	// Fast Path: Check local RoutingRegistry materialized view (0ms RAM lookup, 0 network calls)
-	if meta, ok := r.routingRegistry.Get(tenantID); ok {
-		return r.openPoolFromMetadata(tenantID, meta)
+func isSharedHost(host string) bool {
+	return host == "postgres" || host == "localhost" || host == "127.0.0.1" || host == ""
+}
+
+func (r *Resolver) getSharedPool(meta registry.RoutingMetadata) (*sql.DB, error) {
+	r.sharedPoolMu.Lock()
+	defer r.sharedPoolMu.Unlock()
+
+	if r.sharedPool != nil {
+		return r.sharedPool, nil
 	}
 
-	// Slow Path / Fallback: Fetch metadata from tenant-service via HTTP
-	meta, err := r.fetchRoutingFromService(ctx, tenantID)
+	port := meta.DBPort
+	if port <= 0 {
+		port = 5432
+	}
+	user := meta.DBUser
+	if user == "" {
+		user = "postgres"
+	}
+	dbname := meta.DBName
+	if dbname == "" {
+		dbname = "postgres"
+	}
+	host := meta.DBHost
+	if host == "" {
+		host = "postgres"
+	}
+
+	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+		host, port, user, r.sharedDBPass, dbname)
+
+	client, err := postgres.NewClientFromDSN(dsn)
 	if err != nil {
-		return nil, "", err
+		return nil, fmt.Errorf("failed to open shared database pool: %w", err)
 	}
 
-	// Store in local RoutingRegistry for future connection resets / pool re-creations
-	r.routingRegistry.Set(meta)
+	// Optimize multiplexing shared pool limits
+	client.SetMaxOpenConns(25)
+	client.SetMaxIdleConns(10)
+	client.SetConnMaxLifetime(30 * time.Minute)
+	client.SetConnMaxIdleTime(5 * time.Minute)
 
-	return r.openPoolFromMetadata(tenantID, meta)
+	r.sharedPool = client
+	return r.sharedPool, nil
 }
 
-func (r *tenantDBResolver) fetchRoutingFromService(ctx context.Context, tenantID string) (registry.RoutingMetadata, error) {
+func (r *Resolver) openDedicatedPool(tenantID string, meta registry.RoutingMetadata) (*sql.DB, string, error) {
+	pass := crypto.DeriveTenantDBPassword(r.sharedSecret, tenantID)
+
+	port := meta.DBPort
+	if port <= 0 {
+		port = 5432
+	}
+	user := meta.DBUser
+	if user == "" {
+		user = "postgres"
+	}
+	schema := meta.SchemaName
+	if schema == "" {
+		schema = "public"
+	}
+
+	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+		meta.DBHost, port, user, pass, meta.DBName)
+
+	client, err := postgres.NewClientFromDSN(dsn)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to open dedicated database pool for tenant '%s' (host '%s'): %w", tenantID, meta.DBHost, err)
+	}
+
+	return client, schema, nil
+}
+
+func (r *Resolver) fetchRoutingFromService(ctx context.Context, tenantID string) (registry.RoutingMetadata, error) {
 	url := fmt.Sprintf("%s/internal/tenants/%s/infrastructure/order-service", r.tenantServiceURL, tenantID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return registry.RoutingMetadata{}, fmt.Errorf("failed to build routing request: %w", err)
 	}
 
-	// Zero-Trust inter-service authorization header
 	req.Header.Set("X-Internal-Service-Token", r.internalServiceToken)
 
 	resp, err := http.DefaultClient.Do(req)
@@ -148,35 +236,3 @@ func (r *tenantDBResolver) fetchRoutingFromService(ctx context.Context, tenantID
 	}, nil
 }
 
-func (r *tenantDBResolver) openPoolFromMetadata(tenantID string, meta registry.RoutingMetadata) (*sql.DB, string, error) {
-	// Statelessly derive database password in memory
-	var pass string
-	if meta.DBHost == "postgres" || meta.DBHost == "localhost" {
-		pass = r.sharedDBPass
-	} else {
-		pass = crypto.DeriveTenantDBPassword(r.sharedSecret, tenantID)
-	}
-
-	port := meta.DBPort
-	if port <= 0 {
-		port = 5432
-	}
-	user := meta.DBUser
-	if user == "" {
-		user = "postgres"
-	}
-	schema := meta.SchemaName
-	if schema == "" {
-		schema = "public"
-	}
-
-	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		meta.DBHost, port, user, pass, meta.DBName)
-
-	client, err := postgres.NewClientFromDSN(dsn)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to open database pool for host '%s': %w", meta.DBHost, err)
-	}
-
-	return client, schema, nil
-}

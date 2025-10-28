@@ -12,8 +12,10 @@ import (
 )
 
 const (
+	// defaultMaxDedicatedCapacity is the maximum number of active pools stored for Dedicated Plan tenants.
+	defaultMaxDedicatedCapacity = 50
+
 	// defaultTTL is how long an unused pool entry stays cached.
-	// If a tenant has no activity for this duration, the connection is closed.
 	defaultTTL = 15 * time.Minute
 
 	// reaperInterval is how often the background reaper sweeps for stale entries.
@@ -23,7 +25,6 @@ const (
 	fetchTimeout = 5 * time.Second
 )
 
-// poolEntry wraps a *sql.DB and schemaName with its last-used timestamp for TTL eviction.
 type poolEntry struct {
 	db         *sql.DB
 	schemaName string
@@ -35,29 +36,43 @@ type fetchResult struct {
 	schemaName string
 }
 
-// PoolRegistry is a thread-safe, TTL-aware cache of tenant *sql.DB pools.
-//
-// Design decisions:
-//   - sync.RWMutex: Read-heavy path (most requests are cache hits). No contention
-//     on the fast path; write lock only on first-access or eviction.
-//   - singleflight.Group: Request coalescing on cache misses to prevent thundering herd /
-//     cache stampede attacks against tenant-service or DB connections.
-//   - Lock-free fetch: DSN fetching is executed OUTSIDE r.mu.Lock() so one slow tenant
-//     fetch never blocks cache misses for other tenants.
-//   - Context Shielding: DSN fetch runs under an independent context.Background() + timeout
-//     so client disconnects/cancellations don't fail coalesced goroutines.
-type PoolRegistry struct {
-	mu      sync.RWMutex
-	entries map[string]*poolEntry
-	ttl     time.Duration
-	sfGroup singleflight.Group
+type PoolRegistryOption func(*PoolRegistry)
+
+func WithMaxCapacity(cap int) PoolRegistryOption {
+	return func(pr *PoolRegistry) {
+		if cap > 0 {
+			pr.maxCapacity = cap
+		}
+	}
 }
 
-func NewPoolRegistry() *PoolRegistry {
-	return &PoolRegistry{
-		entries: make(map[string]*poolEntry),
-		ttl:     defaultTTL,
+func WithTTL(ttl time.Duration) PoolRegistryOption {
+	return func(pr *PoolRegistry) {
+		if ttl > 0 {
+			pr.ttl = ttl
+		}
 	}
+}
+
+// PoolRegistry is a thread-safe, Bounded LRU cache of tenant *sql.DB pools.
+type PoolRegistry struct {
+	mu          sync.RWMutex
+	entries     map[string]*poolEntry
+	maxCapacity int
+	ttl         time.Duration
+	sfGroup     singleflight.Group
+}
+
+func NewPoolRegistry(opts ...PoolRegistryOption) *PoolRegistry {
+	pr := &PoolRegistry{
+		entries:     make(map[string]*poolEntry),
+		maxCapacity: defaultMaxDedicatedCapacity,
+		ttl:         defaultTTL,
+	}
+	for _, opt := range opts {
+		opt(pr)
+	}
+	return pr
 }
 
 // GetOrFetch returns the cached *sql.DB and schemaName for tenantID.
@@ -78,7 +93,6 @@ func (r *PoolRegistry) GetOrFetch(tenantID string, fetchDSN func() (*sql.DB, str
 
 	// 2. Slow path: Request coalescing with singleflight OUTSIDE the global write lock
 	v, err, _ := r.sfGroup.Do(tenantID, func() (interface{}, error) {
-		// Double-check cache inside singleflight worker
 		r.mu.RLock()
 		entry, ok := r.entries[tenantID]
 		r.mu.RUnlock()
@@ -90,19 +104,27 @@ func (r *PoolRegistry) GetOrFetch(tenantID string, fetchDSN func() (*sql.DB, str
 			return fetchResult{db: entry.db, schemaName: entry.schemaName}, nil
 		}
 
-		// Execute fetchDSN lock-free.
-		// fetchDSN uses an independent context to avoid caller context cancellation cascading to coalesced waiters.
 		db, schemaName, err := fetchDSN()
 		if err != nil {
 			return nil, err
 		}
 
-		// Store in pool entries under write lock
+		// Ensure connection idle settings to prevent connection leaks
+		db.SetMaxIdleConns(2)
+		db.SetMaxOpenConns(10)
+		db.SetConnMaxIdleTime(1 * time.Minute)
+		db.SetConnMaxLifetime(15 * time.Minute)
+
 		r.mu.Lock()
+		// Evict LRU entry if maxCapacity is reached
+		if len(r.entries) >= r.maxCapacity {
+			r.evictLRULocked()
+		}
+
 		r.entries[tenantID] = &poolEntry{db: db, schemaName: schemaName, lastUsed: time.Now()}
 		r.mu.Unlock()
 
-		log.Printf("PoolRegistry: Opened & cached new pool for tenant '%s' (schema: '%s')", tenantID, schemaName)
+		log.Printf("PoolRegistry: Opened & cached dedicated pool for tenant '%s' (schema: '%s')", tenantID, schemaName)
 		return fetchResult{db: db, schemaName: schemaName}, nil
 	})
 
@@ -114,8 +136,29 @@ func (r *PoolRegistry) GetOrFetch(tenantID string, fetchDSN func() (*sql.DB, str
 	return res.db, res.schemaName, nil
 }
 
+// evictLRULocked evicts the least recently used pool entry. Must be called with r.mu write-lock held.
+func (r *PoolRegistry) evictLRULocked() {
+	var oldestTenant string
+	var oldestTime time.Time
+	first := true
+
+	for tID, entry := range r.entries {
+		if first || entry.lastUsed.Before(oldestTime) {
+			oldestTime = entry.lastUsed
+			oldestTenant = tID
+			first = false
+		}
+	}
+
+	if oldestTenant != "" {
+		entry := r.entries[oldestTenant]
+		delete(r.entries, oldestTenant)
+		log.Printf("PoolRegistry: LRU capacity reached (%d). Evicting tenant '%s'", r.maxCapacity, oldestTenant)
+		r.closePoolGracefully(entry.db, oldestTenant)
+	}
+}
+
 // Evict closes and removes the pool for a specific tenantID.
-// Used when tenant-service emits a TenantInfrastructureChanged event (plan upgrade).
 func (r *PoolRegistry) Evict(tenantID string) {
 	r.mu.Lock()
 	entry, ok := r.entries[tenantID]
@@ -129,14 +172,11 @@ func (r *PoolRegistry) Evict(tenantID string) {
 	if !ok {
 		return
 	}
-	if err := entry.db.Close(); err != nil {
-		log.Printf("PoolRegistry: Error closing pool for tenant '%s' during eviction: %v", tenantID, err)
-	}
-	log.Printf("PoolRegistry: Evicted pool for tenant '%s'", tenantID)
+	r.closePoolGracefully(entry.db, tenantID)
+	log.Printf("PoolRegistry: Evicted dedicated pool for tenant '%s'", tenantID)
 }
 
 // StartReaper launches a background goroutine that periodically closes idle pools.
-// It should be started once at service startup and respects context cancellation.
 func (r *PoolRegistry) StartReaper(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(reaperInterval)
@@ -155,18 +195,15 @@ func (r *PoolRegistry) StartReaper(ctx context.Context) {
 
 func (r *PoolRegistry) reap() {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	cutoff := time.Now().Add(-r.ttl)
 	for tenantID, entry := range r.entries {
 		if entry.lastUsed.Before(cutoff) {
-			if err := entry.db.Close(); err != nil {
-				log.Printf("PoolRegistry Reaper: Error closing pool for tenant '%s': %v", tenantID, err)
-			}
 			delete(r.entries, tenantID)
-			log.Printf("PoolRegistry Reaper: Evicted idle pool for tenant '%s' (last used: %v)", tenantID, entry.lastUsed)
+			r.closePoolGracefully(entry.db, tenantID)
+			log.Printf("PoolRegistry Reaper: Evicted idle pool for tenant '%s'", tenantID)
 		}
 	}
+	r.mu.Unlock()
 }
 
 func (r *PoolRegistry) closeAll() {
@@ -174,10 +211,35 @@ func (r *PoolRegistry) closeAll() {
 	defer r.mu.Unlock()
 
 	for tenantID, entry := range r.entries {
-		if err := entry.db.Close(); err != nil {
-			log.Printf("PoolRegistry: Error closing pool for tenant '%s' on shutdown: %v", tenantID, err)
-		}
+		r.closePoolGracefully(entry.db, tenantID)
 		delete(r.entries, tenantID)
 	}
-	log.Printf("PoolRegistry: All pools closed.")
+	log.Printf("PoolRegistry: All pools scheduled for graceful close.")
 }
+
+// closePoolGracefully drains active connections before calling db.Close() to prevent breaking in-flight queries.
+func (r *PoolRegistry) closePoolGracefully(db *sql.DB, tenantID string) {
+	go func() {
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		timeout := time.After(30 * time.Second)
+
+		for {
+			select {
+			case <-timeout:
+				if err := db.Close(); err != nil {
+					log.Printf("PoolRegistry: Timeout error closing pool for tenant '%s': %v", tenantID, err)
+				}
+				return
+			case <-ticker.C:
+				if db.Stats().InUse == 0 {
+					if err := db.Close(); err != nil {
+						log.Printf("PoolRegistry: Error closing drained pool for tenant '%s': %v", tenantID, err)
+					}
+					return
+				}
+			}
+		}
+	}()
+}
+

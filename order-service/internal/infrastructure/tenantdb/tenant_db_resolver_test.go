@@ -18,14 +18,14 @@ func TestTenantDBResolver_TenantServiceError(t *testing.T) {
 
 	poolRegistry := registry.NewPoolRegistry()
 	routingRegistry := registry.NewRoutingRegistry()
-	resolver := tenantdb.NewResolver(tenantdb.ResolverParams{
+	resolver := tenantdb.NewResolver(tenantdb.Params{
 		PoolRegistry:     poolRegistry,
 		RoutingRegistry:  routingRegistry,
 		TenantServiceURL: ts.URL,
 	})
 
 	ctx := context.Background()
-	_, _, err := resolver.GetTenantDB(ctx, "tenant-err")
+	_, err := resolver.GetTenantDB(ctx, "tenant-err")
 	if err == nil {
 		t.Fatal("expected error when tenant-service fails, got nil")
 	}

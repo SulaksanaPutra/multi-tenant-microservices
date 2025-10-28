@@ -8,7 +8,7 @@ import (
 
 	"user-service/internal/infrastructure/rabbitmq"
 	"user-service/internal/service"
-	"user-service/internal/txctx"
+	"user-service/internal/txcontext"
 )
 
 const (
@@ -25,13 +25,18 @@ type WorkspaceInitiatedEvent struct {
 	OwnerName  string `json:"owner_name"`
 }
 
-type WorkspaceInitiatedConsumer struct {
-	txManager   txctx.TxManager
-	client      *rabbitmq.Client
-	userService service.UserService
+// UserService is the consumer-side interface expected by WorkspaceInitiatedConsumer.
+type UserService interface {
+	CreateUserFromWorkspace(ctx context.Context, input service.CreateUserFromWorkspaceInput) error
 }
 
-func NewWorkspaceInitiatedConsumer(txManager txctx.TxManager, client *rabbitmq.Client, userService service.UserService) (*WorkspaceInitiatedConsumer, error) {
+type WorkspaceInitiatedConsumer struct {
+	txManager   txcontext.TxManager
+	client      *rabbitmq.Client
+	userService UserService
+}
+
+func NewWorkspaceInitiatedConsumer(txManager txcontext.TxManager, client *rabbitmq.Client, userService UserService) (*WorkspaceInitiatedConsumer, error) {
 	if err := client.DeclareExchange(ExchangeCompanyEvents, "topic"); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange: %w", err)
 	}

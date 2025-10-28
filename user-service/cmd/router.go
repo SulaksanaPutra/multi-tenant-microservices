@@ -3,7 +3,7 @@ package main
 import (
 	"net/http"
 
-	"user-service/internal/utils"
+	"user-service/internal/httputil"
 
 	"github.com/gin-gonic/gin"
 )
@@ -15,7 +15,7 @@ func newRouter() http.Handler {
 	r.Use(gin.Recovery(), gin.Logger())
 
 	r.GET("/health", func(c *gin.Context) {
-		utils.WriteSuccess[any](c, http.StatusOK, "OK", nil)
+		httputil.WriteSuccess[any](c, http.StatusOK, "OK", nil)
 	})
 
 	return r

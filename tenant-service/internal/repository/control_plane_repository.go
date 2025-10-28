@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"tenant-service/internal/infrastructure/postgres"
-	"tenant-service/internal/txctx"
+	"tenant-service/internal/txcontext"
 )
 
 type TenantRecord struct {
@@ -23,7 +23,7 @@ type TenantRecord struct {
 	CreatedAt  time.Time
 }
 
-type ServiceInfraRouting struct {
+type ServiceInfraRecord struct {
 	TenantID    string
 	ServiceName string
 	DBHost      string
@@ -32,6 +32,8 @@ type ServiceInfraRouting struct {
 	DBUser      string
 	SchemaName  string
 }
+
+type ServiceInfraRouting = ServiceInfraRecord
 
 type UpsertServiceInfraInput struct {
 	TenantID    string
@@ -52,26 +54,16 @@ type CreateTenantInput struct {
 	Plan       string
 }
 
-// ControlPlaneRepository manages persistence for the central Control Plane registry.
-type ControlPlaneRepository interface {
-	CreateTenant(ctx context.Context, input CreateTenantInput) error
-	UpsertServiceInfrastructure(ctx context.Context, input UpsertServiceInfraInput) error
-	GetPendingServiceCount(ctx context.Context, tenantID string, requiredServices []string) (int, error)
-	ActivateTenant(ctx context.Context, tenantID string) error
-	GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*ServiceInfraRouting, error)
-	GetTenantByID(ctx context.Context, tenantID string) (*TenantRecord, error)
-}
-
-type controlPlaneRepository struct {
+type ControlPlaneRepository struct {
 	dbClient *postgres.Client
 }
 
-func NewControlPlaneRepository(dbClient *postgres.Client) ControlPlaneRepository {
-	return &controlPlaneRepository{dbClient: dbClient}
+func NewControlPlaneRepository(dbClient *postgres.Client) *ControlPlaneRepository {
+	return &ControlPlaneRepository{dbClient: dbClient}
 }
 
-func (r *controlPlaneRepository) CreateTenant(ctx context.Context, input CreateTenantInput) error {
-	exec := txctx.GetExecutor(ctx, r.dbClient)
+func (r *ControlPlaneRepository) CreateTenant(ctx context.Context, input CreateTenantInput) error {
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	const query = `
 		INSERT INTO public.tenants (id, name, slug, owner_email, owner_name, plan, status)
 		VALUES ($1, $2, $3, $4, $5, $6, 'pending');
@@ -85,8 +77,8 @@ func (r *controlPlaneRepository) CreateTenant(ctx context.Context, input CreateT
 	return nil
 }
 
-func (r *controlPlaneRepository) UpsertServiceInfrastructure(ctx context.Context, input UpsertServiceInfraInput) error {
-	exec := txctx.GetExecutor(ctx, r.dbClient)
+func (r *ControlPlaneRepository) UpsertServiceInfrastructure(ctx context.Context, input UpsertServiceInfraInput) error {
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	const query = `
 		INSERT INTO public.tenant_services (tenant_id, service_name, db_host, db_port, db_name, db_user, schema_name, checked_in_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
@@ -114,12 +106,12 @@ func (r *controlPlaneRepository) UpsertServiceInfrastructure(ctx context.Context
 	return nil
 }
 
-func (r *controlPlaneRepository) GetPendingServiceCount(ctx context.Context, tenantID string, requiredServices []string) (int, error) {
+func (r *ControlPlaneRepository) GetPendingServiceCount(ctx context.Context, tenantID string, requiredServices []string) (int, error) {
 	if len(requiredServices) == 0 {
 		return 0, nil
 	}
 
-	exec := txctx.GetExecutor(ctx, r.dbClient)
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 
 	placeholders := make([]string, len(requiredServices))
 	args := make([]interface{}, len(requiredServices)+1)
@@ -147,8 +139,8 @@ func (r *controlPlaneRepository) GetPendingServiceCount(ctx context.Context, ten
 	return count, nil
 }
 
-func (r *controlPlaneRepository) ActivateTenant(ctx context.Context, tenantID string) error {
-	exec := txctx.GetExecutor(ctx, r.dbClient)
+func (r *ControlPlaneRepository) ActivateTenant(ctx context.Context, tenantID string) error {
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	const query = `
 		UPDATE public.tenants SET status = 'active' WHERE id = $1;
 	`
@@ -159,8 +151,8 @@ func (r *controlPlaneRepository) ActivateTenant(ctx context.Context, tenantID st
 	return nil
 }
 
-func (r *controlPlaneRepository) GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*ServiceInfraRouting, error) {
-	exec := txctx.GetExecutor(ctx, r.dbClient)
+func (r *ControlPlaneRepository) GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*ServiceInfraRouting, error) {
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	const query = `
 		SELECT db_host, db_port, db_name, db_user, COALESCE(schema_name, '')
 		FROM public.tenant_services
@@ -182,8 +174,8 @@ func (r *controlPlaneRepository) GetServiceInfrastructure(ctx context.Context, t
 	return &res, nil
 }
 
-func (r *controlPlaneRepository) GetTenantByID(ctx context.Context, tenantID string) (*TenantRecord, error) {
-	exec := txctx.GetExecutor(ctx, r.dbClient)
+func (r *ControlPlaneRepository) GetTenantByID(ctx context.Context, tenantID string) (*TenantRecord, error) {
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	const query = `
 		SELECT id, name, slug, owner_email, owner_name, plan, status, created_at
 		FROM public.tenants

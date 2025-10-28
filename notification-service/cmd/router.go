@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"notification-service/internal/handler"
-	"notification-service/internal/utils"
+	"notification-service/internal/httputil"
 
 	"github.com/gin-gonic/gin"
 )
@@ -16,10 +16,10 @@ func newRouter(notifHandler *handler.NotificationHandler) http.Handler {
 	r.Use(gin.Recovery(), gin.Logger())
 
 	r.GET("/health", func(c *gin.Context) {
-		utils.WriteSuccess[any](c, http.StatusOK, "OK", nil)
+		httputil.WriteSuccess[any](c, http.StatusOK, "OK", nil)
 	})
 
-	r.GET("/api/notifications", notifHandler.GetNotifications)
+	r.GET("/api/notifications", notifHandler.ListNotifications)
 
 	return r
 }
