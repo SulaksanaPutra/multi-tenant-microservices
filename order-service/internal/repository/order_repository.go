@@ -12,27 +12,24 @@ import (
 )
 
 type OrderRepository struct {
+	cfg tenantdb.Config
 }
 
-func NewOrderRepository() *OrderRepository {
-	return &OrderRepository{}
+func NewOrderRepository(cfg tenantdb.Config) *OrderRepository {
+	return &OrderRepository{cfg: cfg}
 }
 
 func (r *OrderRepository) ListOrders(ctx context.Context) ([]domain.Order, error) {
-	tenantCfg, ok := tenantdb.FromContext(ctx)
-	if !ok {
-		return nil, errors.New("order repository: tenant config not found in context")
-	}
-	if tenantCfg.DB == nil {
-		return nil, fmt.Errorf("order repository: database handle is nil")
+	if r.cfg.DB == nil {
+		return nil, errors.New("order repository: database handle is nil")
 	}
 
-	schemaName := tenantCfg.SchemaName
+	schemaName := r.cfg.SchemaName
 	if schemaName == "" {
 		schemaName = "public"
 	}
 
-	exec := txcontext.GetExecutor(ctx, tenantCfg.DB)
+	exec := txcontext.GetExecutor(ctx, r.cfg.DB)
 
 	query := fmt.Sprintf(`
 		SELECT id, tenant_id, customer_id, status, amount
@@ -59,20 +56,16 @@ func (r *OrderRepository) ListOrders(ctx context.Context) ([]domain.Order, error
 }
 
 func (r *OrderRepository) CreateOrder(ctx context.Context, order domain.Order) error {
-	tenantCfg, ok := tenantdb.FromContext(ctx)
-	if !ok {
-		return errors.New("order repository: tenant config not found in context")
-	}
-	if tenantCfg.DB == nil {
-		return fmt.Errorf("order repository: database handle is nil")
+	if r.cfg.DB == nil {
+		return errors.New("order repository: database handle is nil")
 	}
 
-	schemaName := tenantCfg.SchemaName
+	schemaName := r.cfg.SchemaName
 	if schemaName == "" {
 		schemaName = "public"
 	}
 
-	exec := txcontext.GetExecutor(ctx, tenantCfg.DB)
+	exec := txcontext.GetExecutor(ctx, r.cfg.DB)
 
 	query := fmt.Sprintf(`
 		INSERT INTO %s.orders (id, tenant_id, customer_id, status, amount, created_at, updated_at)
