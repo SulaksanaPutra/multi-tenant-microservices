@@ -7,6 +7,8 @@ import (
 
 	"order-service/internal/domain"
 	"order-service/internal/httputil"
+	"order-service/internal/infrastructure/tenantdb"
+	"order-service/internal/repository"
 	"order-service/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -24,18 +26,46 @@ type OrderService interface {
 	CreateOrder(ctx context.Context, input service.CreateOrderInput) (*domain.Order, error)
 }
 
+// OrderServiceFactory constructs an OrderService for a given tenant configuration.
+type OrderServiceFactory func(cfg tenantdb.Config) OrderService
+
 type OrderHandler struct {
-	orderService OrderService
+	factory OrderServiceFactory
 }
 
-func NewOrderHandler(svc OrderService) *OrderHandler {
+func NewOrderHandler(factory OrderServiceFactory) *OrderHandler {
+	if factory == nil {
+		factory = func(cfg tenantdb.Config) OrderService {
+			repo := repository.NewOrderRepository(cfg)
+			return service.NewOrderService(repo)
+		}
+	}
 	return &OrderHandler{
-		orderService: svc,
+		factory: factory,
 	}
 }
 
+func (h *OrderHandler) getService(c *gin.Context) (OrderService, bool) {
+	cfgVal, ok := c.Get("tenantConfig")
+	if !ok {
+		httputil.WriteError(c, http.StatusInternalServerError, "tenant database configuration missing from context")
+		return nil, false
+	}
+	tenantCfg, ok := cfgVal.(tenantdb.Config)
+	if !ok {
+		httputil.WriteError(c, http.StatusInternalServerError, "invalid tenant database configuration type")
+		return nil, false
+	}
+	return h.factory(tenantCfg), true
+}
+
 func (h *OrderHandler) ListOrders(c *gin.Context) {
-	orders, err := h.orderService.ListOrders(c.Request.Context())
+	svc, ok := h.getService(c)
+	if !ok {
+		return
+	}
+
+	orders, err := svc.ListOrders(c.Request.Context())
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return
@@ -45,6 +75,11 @@ func (h *OrderHandler) ListOrders(c *gin.Context) {
 }
 
 func (h *OrderHandler) CreateOrder(c *gin.Context) {
+	svc, ok := h.getService(c)
+	if !ok {
+		return
+	}
+
 	var req CreateOrderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httputil.WriteError(c, http.StatusBadRequest, err.Error())
@@ -60,7 +95,7 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 		Status:     req.Status,
 	}
 
-	order, err := h.orderService.CreateOrder(c.Request.Context(), input)
+	order, err := svc.CreateOrder(c.Request.Context(), input)
 	if err != nil {
 		if errors.Is(err, service.ErrTenantIDRequired) ||
 			errors.Is(err, service.ErrCustomerIDRequired) ||

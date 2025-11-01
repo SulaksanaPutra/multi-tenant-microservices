@@ -7,8 +7,6 @@ import (
 	"order-service/internal/httputil"
 	"order-service/internal/infrastructure/tenantdb"
 	"order-service/internal/middleware"
-	"order-service/internal/repository"
-	"order-service/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -22,9 +20,7 @@ func newRouter(tenantDBResolver *tenantdb.Resolver) http.Handler {
 		httputil.WriteSuccess[any](c, http.StatusOK, "OK", nil)
 	})
 
-	orderRepo := repository.NewOrderRepository()
-	orderService := service.NewOrderService(orderRepo)
-	orderHandler := handler.NewOrderHandler(orderService)
+	orderHandler := handler.NewOrderHandler(nil)
 
 	api := r.Group("/api")
 	api.Use(middleware.RequireTenantHeader(tenantDBResolver))

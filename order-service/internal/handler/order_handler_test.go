@@ -13,8 +13,6 @@ import (
 	"order-service/internal/handler"
 	"order-service/internal/infrastructure/tenantdb"
 	"order-service/internal/middleware"
-	"order-service/internal/repository"
-	"order-service/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -42,9 +40,7 @@ func setupTestRouter(resolver middleware.Resolver) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 
-	orderRepo := repository.NewOrderRepository()
-	orderService := service.NewOrderService(orderRepo)
-	orderHandler := handler.NewOrderHandler(orderService)
+	orderHandler := handler.NewOrderHandler(nil)
 
 	api := r.Group("/api")
 	api.Use(middleware.RequireTenantHeader(resolver))
