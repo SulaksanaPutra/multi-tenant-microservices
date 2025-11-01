@@ -30,13 +30,24 @@ type UserService interface {
 	CreateUserFromWorkspace(ctx context.Context, input service.CreateUserFromWorkspaceInput) error
 }
 
+// InboxRepo is the consumer-side interface expected by WorkspaceInitiatedConsumer.
+type InboxRepo interface {
+	TryInsert(ctx context.Context, eventID string) (bool, error)
+}
+
 type WorkspaceInitiatedConsumer struct {
 	txManager   txcontext.TxManager
 	client      *rabbitmq.Client
+	inboxRepo   InboxRepo
 	userService UserService
 }
 
-func NewWorkspaceInitiatedConsumer(txManager txcontext.TxManager, client *rabbitmq.Client, userService UserService) (*WorkspaceInitiatedConsumer, error) {
+func NewWorkspaceInitiatedConsumer(
+	txManager txcontext.TxManager,
+	client *rabbitmq.Client,
+	inboxRepo InboxRepo,
+	userService UserService,
+) (*WorkspaceInitiatedConsumer, error) {
 	if err := client.DeclareExchange(ExchangeCompanyEvents, "topic"); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange: %w", err)
 	}
@@ -48,6 +59,7 @@ func NewWorkspaceInitiatedConsumer(txManager txcontext.TxManager, client *rabbit
 	return &WorkspaceInitiatedConsumer{
 		txManager:   txManager,
 		client:      client,
+		inboxRepo:   inboxRepo,
 		userService: userService,
 	}, nil
 }
@@ -97,17 +109,35 @@ func (c *WorkspaceInitiatedConsumer) Start(ctx context.Context) error {
 					OwnerName:  evt.OwnerName,
 				}
 
+				var isDuplicate bool
 				err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+					if evt.EventID != "" && c.inboxRepo != nil {
+						isDup, err := c.inboxRepo.TryInsert(txCtx, evt.EventID)
+						if err != nil {
+							return fmt.Errorf("inbox guard failed: %w", err)
+						}
+						if isDup {
+							isDuplicate = true
+							log.Printf("WorkspaceInitiatedConsumer: Duplicate event_id='%s' detected by Inbox guard. Skipping processing.", evt.EventID)
+							return nil
+						}
+					}
+
 					return c.userService.CreateUserFromWorkspace(txCtx, input)
 				})
 
 				if err != nil {
-					log.Printf("Error creating user from workspace event: %v", err)
+					log.Printf("Error processing WorkspaceInitiated event: %v", err)
 					err := d.Nack(false, true)
 					if err != nil {
 						return
 					}
 					continue
+				}
+
+				// Successfully processed or skipped as duplicate -> ACK message
+				if isDuplicate {
+					log.Printf("WorkspaceInitiatedConsumer: Gracefully ACKing duplicate event_id='%s'.", evt.EventID)
 				}
 
 				err = d.Ack(false)

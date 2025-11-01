@@ -32,11 +32,6 @@ type UserRepo interface {
 	CreateUser(ctx context.Context, user domain.User) error
 }
 
-// InboxRepo is the consumer-side interface expected by UserService.
-type InboxRepo interface {
-	TryInsert(ctx context.Context, eventID string) (bool, error)
-}
-
 // OutboxRepo is the consumer-side interface expected by UserService.
 type OutboxRepo interface {
 	CreateOutboxMessage(ctx context.Context, msg repository.OutboxMessage) error
@@ -44,34 +39,20 @@ type OutboxRepo interface {
 
 type UserService struct {
 	userRepo   UserRepo
-	inboxRepo  InboxRepo
 	outboxRepo OutboxRepo
 }
 
 func NewUserService(
 	userRepo UserRepo,
-	inboxRepo InboxRepo,
 	outboxRepo OutboxRepo,
 ) *UserService {
 	return &UserService{
 		userRepo:   userRepo,
-		inboxRepo:  inboxRepo,
 		outboxRepo: outboxRepo,
 	}
 }
 
 func (s *UserService) CreateUserFromWorkspace(ctx context.Context, input CreateUserFromWorkspaceInput) error {
-	if input.EventID != "" && s.inboxRepo != nil {
-		isDup, err := s.inboxRepo.TryInsert(ctx, input.EventID)
-		if err != nil {
-			return fmt.Errorf("inbox guard failed: %w", err)
-		}
-		if isDup {
-			log.Printf("UserService: Duplicate event_id='%s' detected by Inbox guard. Skipping.", input.EventID)
-			return nil
-		}
-	}
-
 	userID := domain.GenerateUserID()
 	userObj := domain.User{
 		ID:    userID,
