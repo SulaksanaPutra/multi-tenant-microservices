@@ -6,8 +6,7 @@ import (
 	"fmt"
 	"log"
 
-	"notification-service/internal/mailer"
-	"notification-service/internal/repository"
+	"notification-service/internal/domain"
 )
 
 type ProcessEventInput struct {
@@ -19,50 +18,55 @@ type ProcessEventInput struct {
 	Payload    []byte
 }
 
-// NotificationRepo is the consumer-side interface expected by NotificationService.
-type NotificationRepo interface {
-	CreateNotificationLog(ctx context.Context, log repository.NotificationLog) (int, error)
+// NotificationRepository is the consumer-side interface expected by NotificationService.
+type NotificationRepository interface {
+	CreateNotificationLog(ctx context.Context, log domain.NotificationLog) (int, error)
 	HasSentNotification(ctx context.Context, tenantID string) (bool, error)
-	ListNotifications(ctx context.Context, tenantID string) ([]repository.NotificationLog, error)
+	ListNotifications(ctx context.Context, tenantID string) ([]domain.NotificationLog, error)
 }
 
-// InboxRepo is the consumer-side interface expected by NotificationService.
-type InboxRepo interface {
-	TryInsert(ctx context.Context, msg repository.InboxMessage) (bool, error)
-	GetEventsByTenantID(ctx context.Context, tenantID string) ([]repository.InboxMessage, error)
+// InboxRepository is the consumer-side interface expected by NotificationService.
+type InboxRepository interface {
+	TryInsert(ctx context.Context, msg domain.InboxMessage) (bool, error)
+	GetEventsByTenantID(ctx context.Context, tenantID string) ([]domain.InboxMessage, error)
+}
+
+// Mailer is the consumer-side interface expected by NotificationService.
+type Mailer interface {
+	SendWelcomeEmail(recipientEmail, tenantID string) (string, string, error)
 }
 
 type NotificationService struct {
-	repo      NotificationRepo
-	inboxRepo InboxRepo
-	mailer    *mailer.Mailer
+	notificationRepository NotificationRepository
+	inboxRepository        InboxRepository
+	mailer                 Mailer
 }
 
 func NewNotificationService(
-	repo NotificationRepo,
-	inboxRepo InboxRepo,
-	mailer *mailer.Mailer,
+	notificationRepository NotificationRepository,
+	inboxRepository InboxRepository,
+	mailer Mailer,
 ) *NotificationService {
 	return &NotificationService{
-		repo:      repo,
-		inboxRepo: inboxRepo,
-		mailer:    mailer,
+		notificationRepository: notificationRepository,
+		inboxRepository:        inboxRepository,
+		mailer:                 mailer,
 	}
 }
 
-func (s *NotificationService) ListNotifications(ctx context.Context, tenantID string) ([]repository.NotificationLog, error) {
-	return s.repo.ListNotifications(ctx, tenantID)
+func (s *NotificationService) ListNotifications(ctx context.Context, tenantID string) ([]domain.NotificationLog, error) {
+	return s.notificationRepository.ListNotifications(ctx, tenantID)
 }
 
 func (s *NotificationService) ProcessEventAndTrySendWelcome(ctx context.Context, input ProcessEventInput) error {
-	inboxMsg := repository.InboxMessage{
+	inboxMsg := domain.InboxMessage{
 		EventID:   input.EventID,
 		TenantID:  input.TenantID,
 		EventType: input.EventType,
 		Payload:   input.Payload,
 	}
 
-	isDup, err := s.inboxRepo.TryInsert(ctx, inboxMsg)
+	isDup, err := s.inboxRepository.TryInsert(ctx, inboxMsg)
 	if err != nil {
 		return fmt.Errorf("inbox guard failed: %w", err)
 	}
@@ -71,7 +75,7 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(ctx context.Context,
 		return nil
 	}
 
-	events, err := s.inboxRepo.GetEventsByTenantID(ctx, input.TenantID)
+	events, err := s.inboxRepository.GetEventsByTenantID(ctx, input.TenantID)
 	if err != nil {
 		return fmt.Errorf("failed to fetch inbox events for tenant_id='%s': %w", input.TenantID, err)
 	}
@@ -123,7 +127,7 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(ctx context.Context,
 		return nil
 	}
 
-	alreadySent, err := s.repo.HasSentNotification(ctx, input.TenantID)
+	alreadySent, err := s.notificationRepository.HasSentNotification(ctx, input.TenantID)
 	if err != nil {
 		return fmt.Errorf("failed checking welcome email sent status for tenant_id='%s': %w", input.TenantID, err)
 	}
@@ -138,7 +142,7 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(ctx context.Context,
 		input.TenantID,
 	)
 
-	auditLog := repository.NotificationLog{
+	auditLog := domain.NotificationLog{
 		UserID:         userID,
 		TenantID:       input.TenantID,
 		RecipientEmail: recipientEmail,
@@ -146,7 +150,7 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(ctx context.Context,
 		Body:           bodyText,
 		Status:         "sent",
 	}
-	logID, dbErr := s.repo.CreateNotificationLog(ctx, auditLog)
+	logID, dbErr := s.notificationRepository.CreateNotificationLog(ctx, auditLog)
 	if dbErr != nil {
 		return fmt.Errorf("failed to persist notification audit log: %w", dbErr)
 	}

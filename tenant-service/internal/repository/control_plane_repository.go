@@ -6,34 +6,20 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
+	"tenant-service/internal/domain"
 	"tenant-service/internal/infrastructure/postgres"
 	"tenant-service/internal/txcontext"
 )
 
-type TenantRecord struct {
+type CreateTenantInput struct {
 	ID         string
 	Name       string
 	Slug       string
 	OwnerEmail string
 	OwnerName  string
 	Plan       string
-	Status     string
-	CreatedAt  time.Time
 }
-
-type ServiceInfraRecord struct {
-	TenantID    string
-	ServiceName string
-	DBHost      string
-	DBPort      int
-	DBName      string
-	DBUser      string
-	SchemaName  string
-}
-
-type ServiceInfraRouting = ServiceInfraRecord
 
 type UpsertServiceInfraInput struct {
 	TenantID    string
@@ -43,15 +29,6 @@ type UpsertServiceInfraInput struct {
 	DBName      string
 	DBUser      string
 	SchemaName  string
-}
-
-type CreateTenantInput struct {
-	ID         string
-	Name       string
-	Slug       string
-	OwnerEmail string
-	OwnerName  string
-	Plan       string
 }
 
 type ControlPlaneRepository struct {
@@ -80,7 +57,7 @@ func (r *ControlPlaneRepository) CreateTenant(ctx context.Context, input CreateT
 func (r *ControlPlaneRepository) UpsertServiceInfrastructure(ctx context.Context, input UpsertServiceInfraInput) error {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	const query = `
-		INSERT INTO public.tenant_services (tenant_id, service_name, db_host, db_port, db_name, db_user, schema_name, checked_in_at)
+		INSERT INTO public.tenant_infrastructures (tenant_id, service_name, db_host, db_port, db_name, db_user, schema_name, checked_in_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
 		ON CONFLICT (tenant_id, service_name) DO UPDATE
 		  SET db_host       = EXCLUDED.db_host,
@@ -127,7 +104,7 @@ func (r *ControlPlaneRepository) GetPendingServiceCount(ctx context.Context, ten
 		) AS required(service_name)
 		WHERE required.service_name NOT IN (
 			SELECT service_name
-			FROM public.tenant_services
+			FROM public.tenant_infrastructures
 			WHERE tenant_id = $1
 		);
 	`, strings.Join(placeholders, ", "))
@@ -151,14 +128,14 @@ func (r *ControlPlaneRepository) ActivateTenant(ctx context.Context, tenantID st
 	return nil
 }
 
-func (r *ControlPlaneRepository) GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*ServiceInfraRouting, error) {
+func (r *ControlPlaneRepository) GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*domain.TenantInfra, error) {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	const query = `
 		SELECT db_host, db_port, db_name, db_user, COALESCE(schema_name, '')
-		FROM public.tenant_services
+		FROM public.tenant_infrastructures
 		WHERE tenant_id = $1 AND service_name = $2;
 	`
-	var res ServiceInfraRouting
+	var res domain.TenantInfra
 	res.TenantID = tenantID
 	res.ServiceName = serviceName
 
@@ -174,14 +151,14 @@ func (r *ControlPlaneRepository) GetServiceInfrastructure(ctx context.Context, t
 	return &res, nil
 }
 
-func (r *ControlPlaneRepository) GetTenantByID(ctx context.Context, tenantID string) (*TenantRecord, error) {
+func (r *ControlPlaneRepository) GetTenantByID(ctx context.Context, tenantID string) (*domain.Tenant, error) {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	const query = `
 		SELECT id, name, slug, owner_email, owner_name, plan, status, created_at
 		FROM public.tenants
 		WHERE id = $1;
 	`
-	var t TenantRecord
+	var t domain.Tenant
 	err := exec.QueryRowContext(ctx, query, tenantID).Scan(
 		&t.ID, &t.Name, &t.Slug, &t.OwnerEmail, &t.OwnerName, &t.Plan, &t.Status, &t.CreatedAt,
 	)

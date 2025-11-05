@@ -17,22 +17,22 @@ type UserService interface {
 	CreateUserFromWorkspace(ctx context.Context, input service.CreateUserFromWorkspaceInput) error
 }
 
-// InboxRepo is the consumer-side interface expected by WorkspaceInitiatedConsumer.
-type InboxRepo interface {
+// InboxRepository is the consumer-side interface expected by WorkspaceInitiatedConsumer.
+type InboxRepository interface {
 	TryInsert(ctx context.Context, eventID string) (bool, error)
 }
 
 type WorkspaceInitiatedConsumer struct {
-	txManager   txcontext.TxManager
-	client      *rabbitmq.Client
-	inboxRepo   InboxRepo
-	userService UserService
+	txManager       txcontext.TxManager
+	client          *rabbitmq.Client
+	inboxRepository InboxRepository
+	userService     UserService
 }
 
 func NewWorkspaceInitiatedConsumer(
 	txManager txcontext.TxManager,
 	client *rabbitmq.Client,
-	inboxRepo InboxRepo,
+	inboxRepository InboxRepository,
 	userService UserService,
 ) (*WorkspaceInitiatedConsumer, error) {
 	if err := client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
@@ -44,10 +44,10 @@ func NewWorkspaceInitiatedConsumer(
 	}
 
 	return &WorkspaceInitiatedConsumer{
-		txManager:   txManager,
-		client:      client,
-		inboxRepo:   inboxRepo,
-		userService: userService,
+		txManager:       txManager,
+		client:          client,
+		inboxRepository: inboxRepository,
+		userService:     userService,
 	}, nil
 }
 
@@ -94,7 +94,7 @@ func (c *WorkspaceInitiatedConsumer) Start(ctx context.Context) error {
 				// Wrap Consumer execution inside Unit of Work (Transaction boundary)
 				err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 					// 1. Transactional Inbox Guard
-					isDup, err := c.inboxRepo.TryInsert(txCtx, evt.EventID)
+					isDup, err := c.inboxRepository.TryInsert(txCtx, evt.EventID)
 					if err != nil {
 						return fmt.Errorf("inbox guard failure: %w", err)
 					}

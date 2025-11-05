@@ -46,9 +46,9 @@ func main() {
 
 	// Initialize Repositories & TxManager
 	txManager := txcontext.NewTxManager(dbClient.DB)
-	userRepo := repository.NewUserRepository(dbClient)
-	inboxRepo := repository.NewInboxRepository(dbClient)
-	outboxRepo := repository.NewOutboxRepository(dbClient.DB)
+	userRepository := repository.NewUserRepository(dbClient)
+	inboxRepository := repository.NewInboxRepository(dbClient)
+	outboxRepository := repository.NewOutboxRepository(dbClient.DB)
 
 	// Initialize Publisher
 	userPublisher, err := publisher.NewUserPublisher(rmqClient)
@@ -57,16 +57,16 @@ func main() {
 	}
 
 	// Register & Start Background Workers
-	wRunner := registerWorkers(outboxRepo, userPublisher)
+	wRunner := registerWorkers(outboxRepository, userPublisher)
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	defer workerCancel()
 	wRunner.start(workerCtx)
 
 	// Initialize Domain Services
-	userService := service.NewUserService(userRepo, outboxRepo)
+	userService := service.NewUserService(userRepository, outboxRepository)
 
 	// Register & Start Inbound Queue Consumers Collection
-	cRunner, err := registerConsumers(txManager, rmqClient, inboxRepo, userService)
+	cRunner, err := registerConsumers(txManager, rmqClient, inboxRepository, userService)
 	if err != nil {
 		log.Fatalf("Failed to register consumers: %v", err)
 	}

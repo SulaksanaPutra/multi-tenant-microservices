@@ -2,12 +2,20 @@ package domain
 
 import "time"
 
-type Notification struct {
-	ID        string    `json:"id"`
-	TenantID  string    `json:"tenant_id"`
-	Recipient string    `json:"recipient"`
-	Subject   string    `json:"subject"`
-	Body      string    `json:"body"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
+type NotificationLog struct {
+	ID             int
+	UserID         string
+	TenantID       string
+	RecipientEmail string
+	Subject        string
+	Body           string
+	Status         string
+	CreatedAt      time.Time
+}
+
+type InboxMessage struct {
+	EventID   string
+	TenantID  string
+	EventType string
+	Payload   []byte
 }

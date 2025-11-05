@@ -23,7 +23,7 @@ type TenantOrderDBReadyConsumer struct {
 	workspaceService WorkspaceService
 }
 
-func NewTenantOrderDBReadyConsumer(txManager txcontext.TxManager, client *rabbitmq.Client, workspaceSvc WorkspaceService) (*TenantOrderDBReadyConsumer, error) {
+func NewTenantOrderDBReadyConsumer(txManager txcontext.TxManager, client *rabbitmq.Client, workspaceService WorkspaceService) (*TenantOrderDBReadyConsumer, error) {
 	if err := client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange '%s': %w", domain.ExchangeCompanyEvents, err)
 	}
@@ -35,7 +35,7 @@ func NewTenantOrderDBReadyConsumer(txManager txcontext.TxManager, client *rabbit
 	return &TenantOrderDBReadyConsumer{
 		txManager:        txManager,
 		client:           client,
-		workspaceService: workspaceSvc,
+		workspaceService: workspaceService,
 	}, nil
 }
 

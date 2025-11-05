@@ -20,6 +20,24 @@ type CreateOrderRequest struct {
 	Status     string  `json:"status"`
 }
 
+type OrderResponse struct {
+	ID         string  `json:"id"`
+	TenantID   string  `json:"tenant_id"`
+	CustomerID string  `json:"customer_id"`
+	Status     string  `json:"status"`
+	Amount     float64 `json:"amount"`
+}
+
+func toOrderResponse(o domain.Order) OrderResponse {
+	return OrderResponse{
+		ID:         o.ID,
+		TenantID:   o.TenantID,
+		CustomerID: o.CustomerID,
+		Status:     o.Status,
+		Amount:     o.Amount,
+	}
+}
+
 // OrderService is the consumer-side interface expected by OrderHandler.
 type OrderService interface {
 	ListOrders(ctx context.Context) ([]domain.Order, error)
@@ -60,22 +78,27 @@ func (h *OrderHandler) getService(c *gin.Context) (OrderService, bool) {
 }
 
 func (h *OrderHandler) ListOrders(c *gin.Context) {
-	svc, ok := h.getService(c)
+	orderService, ok := h.getService(c)
 	if !ok {
 		return
 	}
 
-	orders, err := svc.ListOrders(c.Request.Context())
+	orders, err := orderService.ListOrders(c.Request.Context())
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	httputil.WriteSuccess(c, http.StatusOK, "", orders)
+	resp := make([]OrderResponse, len(orders))
+	for i, o := range orders {
+		resp[i] = toOrderResponse(o)
+	}
+
+	httputil.WriteSuccess(c, http.StatusOK, "", resp)
 }
 
 func (h *OrderHandler) CreateOrder(c *gin.Context) {
-	svc, ok := h.getService(c)
+	orderService, ok := h.getService(c)
 	if !ok {
 		return
 	}
@@ -95,7 +118,7 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 		Status:     req.Status,
 	}
 
-	order, err := svc.CreateOrder(c.Request.Context(), input)
+	order, err := orderService.CreateOrder(c.Request.Context(), input)
 	if err != nil {
 		if errors.Is(err, service.ErrTenantIDRequired) ||
 			errors.Is(err, service.ErrCustomerIDRequired) ||
@@ -107,5 +130,10 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 		return
 	}
 
-	httputil.WriteSuccess(c, http.StatusCreated, "Order created successfully", order)
+	var orderResp OrderResponse
+	if order != nil {
+		orderResp = toOrderResponse(*order)
+	}
+
+	httputil.WriteSuccess(c, http.StatusCreated, "Order created successfully", orderResp)
 }

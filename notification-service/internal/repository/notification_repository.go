@@ -3,22 +3,11 @@ package repository
 import (
 	"context"
 	"fmt"
-	"time"
 
+	"notification-service/internal/domain"
 	"notification-service/internal/infrastructure/postgres"
 	"notification-service/internal/txcontext"
 )
-
-type NotificationLog struct {
-	ID             int       `json:"id"`
-	UserID         string    `json:"user_id"`
-	TenantID       string    `json:"tenant_id"`
-	RecipientEmail string    `json:"recipient_email"`
-	Subject        string    `json:"subject"`
-	Body           string    `json:"body"`
-	Status         string    `json:"status"`
-	CreatedAt      time.Time `json:"created_at"`
-}
 
 type NotificationRepository struct {
 	client *postgres.Client
@@ -28,7 +17,7 @@ func NewNotificationRepository(client *postgres.Client) *NotificationRepository 
 	return &NotificationRepository{client: client}
 }
 
-func (r *NotificationRepository) CreateNotificationLog(ctx context.Context, log NotificationLog) (int, error) {
+func (r *NotificationRepository) CreateNotificationLog(ctx context.Context, log domain.NotificationLog) (int, error) {
 	exec := txcontext.GetExecutor(ctx, r.client.DB)
 	query := `
 		INSERT INTO public.notifications (user_id, tenant_id, recipient_email, subject, body, status)
@@ -57,7 +46,7 @@ func (r *NotificationRepository) HasSentNotification(ctx context.Context, tenant
 	return count > 0, nil
 }
 
-func (r *NotificationRepository) ListNotifications(ctx context.Context, tenantID string) ([]NotificationLog, error) {
+func (r *NotificationRepository) ListNotifications(ctx context.Context, tenantID string) ([]domain.NotificationLog, error) {
 	exec := txcontext.GetExecutor(ctx, r.client.DB)
 	var query string
 	var args []interface{}
@@ -85,16 +74,16 @@ func (r *NotificationRepository) ListNotifications(ctx context.Context, tenantID
 	}
 	defer rows.Close()
 
-	var logs []NotificationLog
+	var logs []domain.NotificationLog
 	for rows.Next() {
-		var l NotificationLog
+		var l domain.NotificationLog
 		if err := rows.Scan(&l.ID, &l.UserID, &l.TenantID, &l.RecipientEmail, &l.Subject, &l.Body, &l.Status, &l.CreatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan notification row: %w", err)
 		}
 		logs = append(logs, l)
 	}
 	if logs == nil {
-		logs = []NotificationLog{}
+		logs = []domain.NotificationLog{}
 	}
 	return logs, nil
 }

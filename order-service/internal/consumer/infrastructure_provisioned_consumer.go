@@ -9,14 +9,18 @@ import (
 	"order-service/internal/crypto"
 	"order-service/internal/domain"
 	"order-service/internal/infrastructure/rabbitmq"
-	"order-service/internal/publisher"
 	"order-service/internal/registry"
 	"order-service/internal/service"
 )
 
+// OrderDBReadyPublisher is the consumer-side interface expected by InfrastructureProvisionedConsumer.
+type OrderDBReadyPublisher interface {
+	Publish(ctx context.Context, evt domain.TenantOrderDBReadyEvent) error
+}
+
 type InfrastructureProvisionedConsumer struct {
 	client           *rabbitmq.Client
-	publisher        *publisher.OrderDBReadyPublisher
+	publisher        OrderDBReadyPublisher
 	migrationService service.MigrationService
 	poolRegistry     *registry.PoolRegistry
 	routingRegistry  *registry.RoutingRegistry
@@ -26,7 +30,7 @@ type InfrastructureProvisionedConsumer struct {
 
 type InfrastructureProvisionedConsumerParams struct {
 	Client           *rabbitmq.Client
-	Publisher        *publisher.OrderDBReadyPublisher
+	Publisher        OrderDBReadyPublisher
 	MigrationService service.MigrationService
 	PoolRegistry     *registry.PoolRegistry
 	RoutingRegistry  *registry.RoutingRegistry

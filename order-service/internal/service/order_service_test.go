@@ -9,20 +9,20 @@ import (
 	"order-service/internal/service"
 )
 
-type mockOrderRepo struct {
+type mockOrderRepository struct {
 	createdOrders []domain.Order
 	listOrdersFn  func(ctx context.Context) ([]domain.Order, error)
 	createOrderFn func(ctx context.Context, order domain.Order) error
 }
 
-func (m *mockOrderRepo) ListOrders(ctx context.Context) ([]domain.Order, error) {
+func (m *mockOrderRepository) ListOrders(ctx context.Context) ([]domain.Order, error) {
 	if m.listOrdersFn != nil {
 		return m.listOrdersFn(ctx)
 	}
 	return nil, nil
 }
 
-func (m *mockOrderRepo) CreateOrder(ctx context.Context, order domain.Order) error {
+func (m *mockOrderRepository) CreateOrder(ctx context.Context, order domain.Order) error {
 	if m.createOrderFn != nil {
 		return m.createOrderFn(ctx, order)
 	}
@@ -31,8 +31,8 @@ func (m *mockOrderRepo) CreateOrder(ctx context.Context, order domain.Order) err
 }
 
 func TestCreateOrder_InputValidation(t *testing.T) {
-	repo := &mockOrderRepo{}
-	svc := service.NewOrderService(repo)
+	orderRepository := &mockOrderRepository{}
+	orderService := service.NewOrderService(orderRepository)
 
 	ctx := context.Background()
 
@@ -81,7 +81,7 @@ func TestCreateOrder_InputValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			order, err := svc.CreateOrder(ctx, tt.input)
+			order, err := orderService.CreateOrder(ctx, tt.input)
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
 					t.Errorf("CreateOrder() error = %v, wantErr %v", err, tt.wantErr)

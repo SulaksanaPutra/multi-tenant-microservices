@@ -8,7 +8,6 @@ import (
 
 	"user-service/internal/domain"
 	"user-service/internal/publisher"
-	"user-service/internal/repository"
 )
 
 const (
@@ -19,34 +18,34 @@ const (
 	EventTypeUserCreated = "user.created"
 )
 
-// OutboxRepo is the consumer-side interface expected by OutboxWorker.
-type OutboxRepo interface {
+// OutboxRepository is the consumer-side interface expected by OutboxWorker.
+type OutboxRepository interface {
 	RecoverStuckClaims(ctx context.Context, eventType string) error
-	FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]repository.OutboxMessage, error)
+	FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error)
 	MarkFailed(ctx context.Context, id string, err error) error
 	MarkPublished(ctx context.Context, id string) error
 }
 
 type OutboxWorker struct {
-	outboxRepo    OutboxRepo
-	publisher     publisher.UserEventPublisher
-	wakeUpChan    chan struct{}
-	debounceDelay time.Duration
-	pollInterval  time.Duration
-	batchSize     int
+	outboxRepository OutboxRepository
+	publisher        publisher.UserEventPublisher
+	wakeUpChan       chan struct{}
+	debounceDelay    time.Duration
+	pollInterval     time.Duration
+	batchSize        int
 }
 
 func NewOutboxWorker(
-	outboxRepo OutboxRepo,
-	pub publisher.UserEventPublisher,
+	outboxRepository OutboxRepository,
+	publisher publisher.UserEventPublisher,
 ) *OutboxWorker {
 	return &OutboxWorker{
-		outboxRepo:    outboxRepo,
-		publisher:     pub,
-		wakeUpChan:    make(chan struct{}, 1),
-		debounceDelay: defaultDebounceDelay,
-		pollInterval:  defaultPollInterval,
-		batchSize:     defaultBatchSize,
+		outboxRepository: outboxRepository,
+		publisher:        publisher,
+		wakeUpChan:       make(chan struct{}, 1),
+		debounceDelay:    defaultDebounceDelay,
+		pollInterval:     defaultPollInterval,
+		batchSize:        defaultBatchSize,
 	}
 }
 
@@ -97,7 +96,7 @@ drainLoop:
 
 func (w *OutboxWorker) recoverAndProcess(ctx context.Context) {
 	for _, eventType := range []string{EventTypeUserCreated} {
-		if err := w.outboxRepo.RecoverStuckClaims(ctx, eventType); err != nil {
+		if err := w.outboxRepository.RecoverStuckClaims(ctx, eventType); err != nil {
 			log.Printf("OutboxWorker Warning: Stuck-claim recovery failed for '%s': %v", eventType, err)
 		}
 		w.processBatch(ctx, eventType)
@@ -105,7 +104,7 @@ func (w *OutboxWorker) recoverAndProcess(ctx context.Context) {
 }
 
 func (w *OutboxWorker) processBatch(ctx context.Context, eventType string) {
-	messages, err := w.outboxRepo.FetchAndClaimBatch(ctx, eventType, w.batchSize)
+	messages, err := w.outboxRepository.FetchAndClaimBatch(ctx, eventType, w.batchSize)
 	if err != nil {
 		log.Printf("OutboxWorker Error: Failed to claim outbox batch for '%s': %v", eventType, err)
 		return
@@ -124,7 +123,7 @@ func (w *OutboxWorker) processBatch(ctx context.Context, eventType string) {
 			var evt domain.UserCreatedEvent
 			if err := json.Unmarshal(msg.Payload, &evt); err != nil {
 				log.Printf("OutboxWorker Error: Bad payload for id='%s': %v", msg.ID, err)
-				_ = w.outboxRepo.MarkFailed(ctx, msg.ID, err)
+				_ = w.outboxRepository.MarkFailed(ctx, msg.ID, err)
 				continue
 			}
 			pubErr = w.publisher.PublishUserCreated(ctx, evt)
@@ -136,9 +135,9 @@ func (w *OutboxWorker) processBatch(ctx context.Context, eventType string) {
 
 		if pubErr != nil {
 			log.Printf("OutboxWorker Warning: Publish failed for id='%s': %v", msg.ID, pubErr)
-			_ = w.outboxRepo.MarkFailed(ctx, msg.ID, pubErr)
+			_ = w.outboxRepository.MarkFailed(ctx, msg.ID, pubErr)
 		} else {
-			if markErr := w.outboxRepo.MarkPublished(ctx, msg.ID); markErr != nil {
+			if markErr := w.outboxRepository.MarkPublished(ctx, msg.ID); markErr != nil {
 				log.Printf("OutboxWorker Error: MarkPublished failed for id='%s': %v", msg.ID, markErr)
 			}
 		}

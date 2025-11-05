@@ -5,18 +5,12 @@ import (
 	"errors"
 	"fmt"
 
+	"notification-service/internal/domain"
 	"notification-service/internal/infrastructure/postgres"
 	"notification-service/internal/txcontext"
 
 	"github.com/lib/pq"
 )
-
-type InboxMessage struct {
-	EventID   string
-	TenantID  string
-	EventType string
-	Payload   []byte
-}
 
 type InboxRepository struct {
 	client *postgres.Client
@@ -26,7 +20,7 @@ func NewInboxRepository(client *postgres.Client) *InboxRepository {
 	return &InboxRepository{client: client}
 }
 
-func (r *InboxRepository) TryInsert(ctx context.Context, msg InboxMessage) (bool, error) {
+func (r *InboxRepository) TryInsert(ctx context.Context, msg domain.InboxMessage) (bool, error) {
 	exec := txcontext.GetExecutor(ctx, r.client.DB)
 	const query = `
 		INSERT INTO public.inbox (event_id, tenant_id, event_type, payload)
@@ -47,7 +41,7 @@ func (r *InboxRepository) TryInsert(ctx context.Context, msg InboxMessage) (bool
 	return false, nil // isDuplicate = false, safe to process
 }
 
-func (r *InboxRepository) GetEventsByTenantID(ctx context.Context, tenantID string) ([]InboxMessage, error) {
+func (r *InboxRepository) GetEventsByTenantID(ctx context.Context, tenantID string) ([]domain.InboxMessage, error) {
 	exec := txcontext.GetExecutor(ctx, r.client.DB)
 	const query = `
 		SELECT event_id, tenant_id, event_type, payload
@@ -60,9 +54,9 @@ func (r *InboxRepository) GetEventsByTenantID(ctx context.Context, tenantID stri
 	}
 	defer rows.Close()
 
-	var list []InboxMessage
+	var list []domain.InboxMessage
 	for rows.Next() {
-		var msg InboxMessage
+		var msg domain.InboxMessage
 		var rawPayload string
 		if err := rows.Scan(&msg.EventID, &msg.TenantID, &msg.EventType, &rawPayload); err != nil {
 			return nil, fmt.Errorf("failed to scan inbox row: %w", err)
