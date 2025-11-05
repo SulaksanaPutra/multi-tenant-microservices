@@ -6,24 +6,11 @@ import (
 	"fmt"
 	"log"
 
+	"user-service/internal/domain"
 	"user-service/internal/infrastructure/rabbitmq"
 	"user-service/internal/service"
 	"user-service/internal/txcontext"
 )
-
-const (
-	ExchangeCompanyEvents              = "company.events"
-	RoutingKeyWorkspaceInitiated       = "workspace.initiated"
-	QueueUserServiceWorkspaceInitiated = "user_service_workspace_initiated"
-)
-
-type WorkspaceInitiatedEvent struct {
-	EventID    string `json:"event_id"`
-	TenantID   string `json:"tenant_id"`
-	Plan       string `json:"plan"`
-	OwnerEmail string `json:"owner_email"`
-	OwnerName  string `json:"owner_name"`
-}
 
 // UserService is the consumer-side interface expected by WorkspaceInitiatedConsumer.
 type UserService interface {
@@ -48,11 +35,11 @@ func NewWorkspaceInitiatedConsumer(
 	inboxRepo InboxRepo,
 	userService UserService,
 ) (*WorkspaceInitiatedConsumer, error) {
-	if err := client.DeclareExchange(ExchangeCompanyEvents, "topic"); err != nil {
+	if err := client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange: %w", err)
 	}
 
-	if err := client.DeclareAndBindQueue(QueueUserServiceWorkspaceInitiated, ExchangeCompanyEvents, RoutingKeyWorkspaceInitiated); err != nil {
+	if err := client.DeclareAndBindQueue(domain.QueueUserServiceWorkspaceInitiated, domain.ExchangeCompanyEvents, domain.RoutingKeyWorkspaceInitiated); err != nil {
 		return nil, fmt.Errorf("failed to bind queue: %w", err)
 	}
 
@@ -66,19 +53,19 @@ func NewWorkspaceInitiatedConsumer(
 
 func (c *WorkspaceInitiatedConsumer) Start(ctx context.Context) error {
 	msgs, err := c.client.Channel.Consume(
-		QueueUserServiceWorkspaceInitiated, // queue
-		"user-service-worker",              // consumer tag
-		false,                              // auto-ack
-		false,                              // exclusive
-		false,                              // no-local
-		false,                              // no-wait
-		nil,                                // args
+		domain.QueueUserServiceWorkspaceInitiated, // queue
+		"user-service-worker",                     // consumer tag
+		false,                                     // auto-ack
+		false,                                     // exclusive
+		false,                                     // no-local
+		false,                                     // no-wait
+		nil,                                       // args
 	)
 	if err != nil {
-		return fmt.Errorf("failed to consume from queue %s: %w", QueueUserServiceWorkspaceInitiated, err)
+		return fmt.Errorf("failed to consume from queue %s: %w", domain.QueueUserServiceWorkspaceInitiated, err)
 	}
 
-	log.Printf("User Service worker listening for events on queue '%s'...", QueueUserServiceWorkspaceInitiated)
+	log.Printf("User Service worker listening for events on queue '%s'...", domain.QueueUserServiceWorkspaceInitiated)
 
 	go func() {
 		for {
@@ -92,7 +79,7 @@ func (c *WorkspaceInitiatedConsumer) Start(ctx context.Context) error {
 					return
 				}
 
-				var evt WorkspaceInitiatedEvent
+				var evt domain.WorkspaceInitiatedEvent
 				if err := json.Unmarshal(d.Body, &evt); err != nil {
 					log.Printf("Error unmarshaling WorkspaceInitiated payload: %v", err)
 					err := d.Nack(false, false)
@@ -102,48 +89,43 @@ func (c *WorkspaceInitiatedConsumer) Start(ctx context.Context) error {
 					continue
 				}
 
-				input := service.CreateUserFromWorkspaceInput{
-					EventID:    evt.EventID,
-					TenantID:   evt.TenantID,
-					OwnerEmail: evt.OwnerEmail,
-					OwnerName:  evt.OwnerName,
-				}
+				log.Printf("WorkspaceInitiatedConsumer processing event_id='%s' for tenant_id='%s'", evt.EventID, evt.TenantID)
 
-				var isDuplicate bool
+				// Wrap Consumer execution inside Unit of Work (Transaction boundary)
 				err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-					if evt.EventID != "" && c.inboxRepo != nil {
-						isDup, err := c.inboxRepo.TryInsert(txCtx, evt.EventID)
-						if err != nil {
-							return fmt.Errorf("inbox guard failed: %w", err)
-						}
-						if isDup {
-							isDuplicate = true
-							log.Printf("WorkspaceInitiatedConsumer: Duplicate event_id='%s' detected by Inbox guard. Skipping processing.", evt.EventID)
-							return nil
-						}
+					// 1. Transactional Inbox Guard
+					isDup, err := c.inboxRepo.TryInsert(txCtx, evt.EventID)
+					if err != nil {
+						return fmt.Errorf("inbox guard failure: %w", err)
+					}
+					if isDup {
+						log.Printf("WorkspaceInitiatedConsumer: Event '%s' already processed in Inbox guard. Skipping cleanly.", evt.EventID)
+						return nil
 					}
 
-					return c.userService.CreateUserFromWorkspace(txCtx, input)
+					// 2. Execute Domain logic (Create user profile + Outbox event inside same transaction)
+					input := service.CreateUserFromWorkspaceInput{
+						EventID:    evt.EventID,
+						TenantID:   evt.TenantID,
+						OwnerEmail: evt.OwnerEmail,
+						OwnerName:  evt.OwnerName,
+					}
+					if err := c.userService.CreateUserFromWorkspace(txCtx, input); err != nil {
+						return fmt.Errorf("failed to create user profile: %w", err)
+					}
+
+					return nil
 				})
 
 				if err != nil {
-					log.Printf("Error processing WorkspaceInitiated event: %v", err)
-					err := d.Nack(false, true)
-					if err != nil {
-						return
-					}
+					log.Printf("WorkspaceInitiatedConsumer Error: Transaction failed for event '%s': %v", evt.EventID, err)
+					_ = d.Nack(false, true) // Requeue on transient error
 					continue
 				}
 
-				// Successfully processed or skipped as duplicate -> ACK message
-				if isDuplicate {
-					log.Printf("WorkspaceInitiatedConsumer: Gracefully ACKing duplicate event_id='%s'.", evt.EventID)
-				}
-
-				err = d.Ack(false)
-				if err != nil {
-					return
-				}
+				// Ack message on RabbitMQ only after successful DB commit
+				_ = d.Ack(false)
+				log.Printf("WorkspaceInitiatedConsumer: Successfully committed transaction & ACKed message event_id='%s'", evt.EventID)
 			}
 		}
 	}()

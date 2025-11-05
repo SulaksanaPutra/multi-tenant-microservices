@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"tenant-service/internal/domain"
 	"tenant-service/internal/publisher"
 	"tenant-service/internal/repository"
 )
@@ -121,8 +122,8 @@ func (w *OutboxWorker) processBatch(ctx context.Context, eventType string) {
 		var pubErr error
 
 		switch eventType {
-		case EventTypeWorkspaceInitiated:
-			var evt publisher.WorkspaceInitiatedEvent
+		case domain.RoutingKeyWorkspaceInitiated:
+			var evt domain.WorkspaceInitiatedEvent
 			if err := json.Unmarshal(msg.Payload, &evt); err != nil {
 				log.Printf("OutboxWorker Error: Bad payload for id='%s': %v", msg.ID, err)
 				_ = w.outboxRepo.MarkFailed(ctx, msg.ID, err)
@@ -130,8 +131,8 @@ func (w *OutboxWorker) processBatch(ctx context.Context, eventType string) {
 			}
 			pubErr = w.publisher.PublishWorkspaceInitiated(ctx, evt)
 
-		case EventTypeWorkspaceReady:
-			var evt publisher.WorkspaceReadyEvent
+		case domain.RoutingKeyWorkspaceReady:
+			var evt domain.WorkspaceReadyEvent
 			if err := json.Unmarshal(msg.Payload, &evt); err != nil {
 				log.Printf("OutboxWorker Error: Bad payload for id='%s': %v", msg.ID, err)
 				_ = w.outboxRepo.MarkFailed(ctx, msg.ID, err)

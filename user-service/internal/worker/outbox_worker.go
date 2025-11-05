@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"user-service/internal/domain"
 	"user-service/internal/publisher"
 	"user-service/internal/repository"
 )
@@ -119,8 +120,8 @@ func (w *OutboxWorker) processBatch(ctx context.Context, eventType string) {
 		var pubErr error
 
 		switch eventType {
-		case EventTypeUserCreated:
-			var evt publisher.UserCreatedEvent
+		case domain.RoutingKeyUserCreated:
+			var evt domain.UserCreatedEvent
 			if err := json.Unmarshal(msg.Payload, &evt); err != nil {
 				log.Printf("OutboxWorker Error: Bad payload for id='%s': %v", msg.ID, err)
 				_ = w.outboxRepo.MarkFailed(ctx, msg.ID, err)

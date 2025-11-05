@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 
 	"user-service/internal/domain"
-	"user-service/internal/publisher"
 	"user-service/internal/repository"
 )
 
@@ -66,7 +65,7 @@ func (s *UserService) CreateUserFromWorkspace(ctx context.Context, input CreateU
 
 	if s.outboxRepo != nil {
 		outboxEventID := uuid.New().String()
-		userCreatedEvt := publisher.UserCreatedEvent{
+		userCreatedEvt := domain.UserCreatedEvent{
 			EventID:   outboxEventID,
 			UserID:    userID,
 			TenantID:  input.TenantID,
@@ -84,7 +83,7 @@ func (s *UserService) CreateUserFromWorkspace(ctx context.Context, input CreateU
 			TenantID:      &input.TenantID,
 			AggregateType: "User",
 			AggregateID:   userID,
-			EventType:     publisher.RoutingKeyUserCreated,
+			EventType:     domain.RoutingKeyUserCreated,
 			Payload:       payloadBytes,
 		}
 
