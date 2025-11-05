@@ -111,7 +111,7 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
     │  POST /api/orders or GET /api/orders (Header: tenant-x-id)
     ▼
 [ order-service ]
-    │  Check PoolRegistry (sync.RWMutex with 15-min TTL)
+    │  Check PoolRegistry (sync.RWMutex with 3-min TTL & Bounded LRU)
     ├─────────────────────────────────────────┐
     ▼ (Cache Hit)                             ▼ (Cache Miss)
 Use existing *sql.DB pool               GET /internal/tenants/:id/infrastructure/order-service
@@ -127,6 +127,42 @@ Use existing *sql.DB pool               GET /internal/tenants/:id/infrastructure
                         ▼
     [ Response to Client (201 Created or 200 OK) ]
 ```
+
+---
+
+### 2.3 Infrastructure Availability, Container Rebinding & Routing Invalidation (`tenant.infrastructure_changed`)
+
+```text
++-----------------------------------------------------------------------------------+
+|      Infrastructure Availability, Container Rebinding & Cache Invalidation        |
++-----------------------------------------------------------------------------------+
+
+[ Container Event / Admin / Failover ]
+    │  Container Rescheduled, IP/Port Changed, or Plan Upgraded/Downgraded
+    ▼
+[ tenant-service ]
+    │  1. Updates tenant infrastructure metadata (host, port, isolation mode)
+    │  2. Emits tenant.infrastructure_changed event to Fanout Exchange
+    ▼
+[ RabbitMQ Fanout Exchange (company.events) ]
+    │
+    ├───────────────────────────────┬───────────────────────────────┐
+    ▼ (Broadcast)                   ▼ (Broadcast)                   ▼ (Broadcast)
+[ Exclusive Queue: amq.gen-1 ]  [ Exclusive Queue: amq.gen-2 ]  [ Exclusive Queue: amq.gen-3 ]
+    │                               │                               │
+    ▼                               ▼                               ▼
+[ order-service-replica-1 ]     [ order-service-replica-2 ]     [ order-service-replica-3 ]
+    │ (Purges local Routing &       │ (Purges local Routing &       │ (Purges local Routing &
+    │  PoolRegistry caches)         │  PoolRegistry caches)         │  PoolRegistry caches)
+    ▼                               ▼                               ▼
+ Next request fetches fresh      Next request fetches fresh      Next request fetches fresh
+ Rebound Database DSN            Rebound Database DSN            Rebound Database DSN
+```
+
+* **New Tenant Registration:** Every `order-service` replica experiences a natural cache miss on its first request and lazily resolves the routing metadata.
+* **Infrastructure Rebinding & Plan Changes (Upgrades/Downgrades):** 
+  * If a dedicated DB container dies and is rescheduled on a new IP/port by Docker/K8s, OR if a tenant undergoes a plan upgrade/downgrade, `order-service` replicas hold stale DSNs in memory.
+  * To prevent routing to dead hosts or split-brain writes, `tenant-service` broadcasts `tenant.infrastructure_changed` over a **Fanout Exchange** to exclusive anonymous queues, forcing **all** `order-service` replicas to purge their local `RoutingRegistry` and `PoolRegistry` caches in real-time.
 
 ---
 
@@ -147,6 +183,8 @@ This repository contains comprehensive technical design deep-dives located in th
 | 9 | [How Do We Prevent Lateral Movement & Secure the Control Plane?](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs/9-how-do-we-prevent-lateral-movement-and-secure-the-control-plane-zero-trust-metadata-sanitization.md) | Control Plane Metadata Sanitization, Zero-Trust Inter-Service Auth & Ghost Route Removal |
 | 10 | [How Do We Isolate Domain Database Secrets Without OCP Violations?](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs/10-how-do-we-isolate-domain-database-secrets-without-ocp-violations-declarative-bootstrapping.md) | Declarative Configuration Bootstrapping, PostgreSQL Role Least Privilege & Root Key Trap Prevention |
 | 11 | [How Do We Eliminate Cache Stampedes and Decouple Data Plane Routing?](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs/11-how-do-we-eliminate-cache-stampedes-and-decouple-data-plane-routing-singleflight-and-in-memory-materialized-view.md) | Request Coalescing (`singleflight`), Context Shielding & Local In-Memory `RoutingRegistry` Materialized View |
+| 12 | [How Do We Prevent PostgreSQL Transaction Abortion?](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs/12-how-do-we-prevent-postgresql-transaction-abortion-and-maintain-clean-outer-layer-unit-of-work.md) | Outer-Layer Consumer Unit-of-Work, PostgreSQL Aborted Transaction Trap (`23505`) & `ON CONFLICT DO NOTHING` |
+| 13 | [How Do We Prevent Horizontal Split-Brain Cache Invalidation and Socket Sprawl?](file:///Users/putubayu/Documents/GitHub/Personal/microservice-api/docs/13-how-do-we-prevent-horizontal-split-brain-cache-invalidation-and-multi-tenant-connection-sprawl.md) | Fanout Broadcast Topology, Competing Consumer DDL Migration Guardrail, Double-Checked Reaper Sweeps & Connection Pool Tuning |
 
 ---
 

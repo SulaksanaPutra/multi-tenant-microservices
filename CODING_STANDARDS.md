@@ -130,3 +130,20 @@ Standardize error message prefixes: `<package>: <action>: %w`
 ```go
 return fmt.Errorf("user service: failed to create user: %w", err)
 ```
+
+---
+
+## 5. Event-Driven Messaging Standards (AMQP & RabbitMQ)
+
+### Rule 5.1: Centralized Event Definitions in `domain/events.go`
+* All AMQP exchanges, routing keys, queue names, and event payload structs MUST be explicitly declared in `internal/domain/events.go`.
+* **PROHIBITED:** Declaring package-level exchange names or routing key constants inside individual `consumer/` or `publisher/` files. Centralizing definitions in `domain` eliminates implicit package-scope magic and ensures explicit, predictable imports across packages.
+
+### Rule 5.2: Separation of Consumers & Publishers (Single Responsibility Principle)
+* **Consumers (`internal/consumer`):** AMQP consumers MUST strictly handle inbound message consumption, ACK/NACK channel management, and delegating work to application services. Consumers MUST NOT directly construct raw AMQP payload frames or publish outbound events.
+* **Publishers (`internal/publisher`):** Outbound event broadcasting MUST be encapsulated inside dedicated publisher adapters (`internal/publisher`). Consumers requiring outbound message dispatch MUST accept a publisher interface dependency via constructor injection.
+
+### Rule 5.3: AMQP Topology Alignment (Competing Consumer vs. Fanout Broadcast)
+* **Named Competing Consumer Queues:** Used for single-worker task execution (e.g., DDL migrations, user profile creation) where an event must be processed **exactly once** by a single microservice replica.
+* **Exclusive Anonymous Fanout Queues:** Used for real-time state synchronization and cache invalidation (`tenant.infrastructure_changed`) where an event must be broadcast to **all live microservice replicas simultaneously**.
+

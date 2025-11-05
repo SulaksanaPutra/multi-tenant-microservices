@@ -6,6 +6,7 @@ import (
 
 	"order-service/internal/consumer"
 	"order-service/internal/infrastructure/rabbitmq"
+	"order-service/internal/publisher"
 	"order-service/internal/registry"
 	"order-service/internal/service"
 )
@@ -24,8 +25,14 @@ func registerConsumers(
 	sharedSecret string,
 	sharedDBPass string,
 ) (*consumerRunner, error) {
+	orderDBReadyPub, err := publisher.NewOrderDBReadyPublisher(rmqClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize OrderDBReadyPublisher: %w", err)
+	}
+
 	ipConsumer, err := consumer.NewInfrastructureProvisionedConsumer(consumer.InfrastructureProvisionedConsumerParams{
 		Client:           rmqClient,
+		Publisher:        orderDBReadyPub,
 		MigrationService: migrationSvc,
 		PoolRegistry:     poolReg,
 		RoutingRegistry:  routingReg,

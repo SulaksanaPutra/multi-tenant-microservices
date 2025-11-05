@@ -6,53 +6,65 @@ import (
 	"fmt"
 	"log"
 
+	"order-service/internal/domain"
 	"order-service/internal/infrastructure/rabbitmq"
 	"order-service/internal/registry"
 )
 
-const (
-	RoutingKeyInfraChanged            = "tenant.infrastructure_changed"
-	QueueOrderServiceInfraChanged     = "order_service_infrastructure_changed"
-)
-
-// InfraChangedEvent is published by tenant-service when a tenant upgrades their plan.
-// order-service listens and evicts the stale cache entry so the next request
-// fetches the fresh Dedicated DSN.
-type InfraChangedEvent struct {
-	EventID  string `json:"event_id"`
-	TenantID string `json:"tenant_id"`
-}
-
 // InfraChangedConsumer handles cache invalidation and materialized view updates when a tenant's infrastructure changes.
+// Each replica process declares an exclusive, auto-delete anonymous queue so cache invalidations are broadcast to ALL live replicas.
 type InfraChangedConsumer struct {
 	client          *rabbitmq.Client
 	poolRegistry    *registry.PoolRegistry
 	routingRegistry *registry.RoutingRegistry
+	queueName       string
 }
 
 func NewInfraChangedConsumer(client *rabbitmq.Client, poolReg *registry.PoolRegistry, routingReg *registry.RoutingRegistry) (*InfraChangedConsumer, error) {
-	if err := client.DeclareExchange(ExchangeCompanyEvents, "topic"); err != nil {
+	if err := client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange: %w", err)
 	}
-	if err := client.DeclareAndBindQueue(
-		QueueOrderServiceInfraChanged, ExchangeCompanyEvents, RoutingKeyInfraChanged,
-	); err != nil {
-		return nil, fmt.Errorf("failed to bind infra-changed queue: %w", err)
+
+	// Declare an exclusive, auto-delete anonymous queue for this specific replica process
+	q, err := client.Channel.QueueDeclare(
+		"",    // empty string generates unique server-assigned queue name (e.g. amq.gen-12345)
+		false, // non-durable
+		true,  // auto-delete when connection drops
+		true,  // exclusive to this replica connection
+		false, // no-wait
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to declare exclusive anonymous queue: %w", err)
 	}
-	return &InfraChangedConsumer{client: client, poolRegistry: poolReg, routingRegistry: routingReg}, nil
+
+	if err := client.Channel.QueueBind(q.Name, domain.RoutingKeyInfraChanged, domain.ExchangeCompanyEvents, false, nil); err != nil {
+		return nil, fmt.Errorf("failed to bind exclusive queue to exchange: %w", err)
+	}
+
+	return &InfraChangedConsumer{
+		client:          client,
+		poolRegistry:    poolReg,
+		routingRegistry: routingReg,
+		queueName:       q.Name,
+	}, nil
 }
 
 func (c *InfraChangedConsumer) Start(ctx context.Context) error {
 	msgs, err := c.client.Channel.Consume(
-		QueueOrderServiceInfraChanged,
-		"order-service-cache-invalidator",
-		false, false, false, false, nil,
+		c.queueName,
+		"",    // auto-generated consumer tag
+		false, // autoAck
+		true,  // exclusive
+		false, // noLocal
+		false, // noWait
+		nil,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to consume from queue '%s': %w", QueueOrderServiceInfraChanged, err)
+		return fmt.Errorf("failed to consume from queue '%s': %w", c.queueName, err)
 	}
 
-	log.Printf("OrderService: Listening for tenant.infrastructure_changed events...")
+	log.Printf("OrderService: Listening for tenant.infrastructure_changed broadcast events on exclusive queue '%s'...", c.queueName)
 
 	go func() {
 		for {
@@ -64,7 +76,7 @@ func (c *InfraChangedConsumer) Start(ctx context.Context) error {
 					return
 				}
 
-				var evt InfraChangedEvent
+				var evt domain.InfraChangedEvent
 				if err := json.Unmarshal(d.Body, &evt); err != nil {
 					log.Printf("InfraChangedConsumer Error: Bad payload: %v", err)
 					_ = d.Nack(false, false)

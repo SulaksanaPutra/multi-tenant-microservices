@@ -7,42 +7,16 @@ import (
 	"log"
 
 	"order-service/internal/crypto"
+	"order-service/internal/domain"
 	"order-service/internal/infrastructure/rabbitmq"
+	"order-service/internal/publisher"
 	"order-service/internal/registry"
 	"order-service/internal/service"
 )
 
-const (
-	ExchangeCompanyEvents               = "company.events"
-	RoutingKeyInfrastructureProvisioned = "infrastructure.provisioned"
-	RoutingKeyTenantOrderDBReady        = "tenant.order_db.ready"
-	QueueOrderServiceInfraProvisioned   = "order_service_infrastructure_provisioned"
-)
-
-type InfrastructureProvisionedEvent struct {
-	EventID    string `json:"event_id"`
-	TenantID   string `json:"tenant_id"`
-	Plan       string `json:"plan"`
-	DBHost     string `json:"db_host"`
-	DBPort     int    `json:"db_port"`
-	DBName     string `json:"db_name"`
-	DBUser     string `json:"db_user"`
-	SchemaName string `json:"schema_name"`
-}
-
-type TenantOrderDBReadyEvent struct {
-	EventID     string `json:"event_id"`
-	TenantID    string `json:"tenant_id"`
-	ServiceName string `json:"service_name"`
-	DBHost      string `json:"db_host"`
-	DBPort      int    `json:"db_port"`
-	DBName      string `json:"db_name"`
-	DBUser      string `json:"db_user"`
-	SchemaName  string `json:"schema_name"`
-}
-
 type InfrastructureProvisionedConsumer struct {
 	client           *rabbitmq.Client
+	publisher        *publisher.OrderDBReadyPublisher
 	migrationService service.MigrationService
 	poolRegistry     *registry.PoolRegistry
 	routingRegistry  *registry.RoutingRegistry
@@ -52,6 +26,7 @@ type InfrastructureProvisionedConsumer struct {
 
 type InfrastructureProvisionedConsumerParams struct {
 	Client           *rabbitmq.Client
+	Publisher        *publisher.OrderDBReadyPublisher
 	MigrationService service.MigrationService
 	PoolRegistry     *registry.PoolRegistry
 	RoutingRegistry  *registry.RoutingRegistry
@@ -60,14 +35,14 @@ type InfrastructureProvisionedConsumerParams struct {
 }
 
 func NewInfrastructureProvisionedConsumer(params InfrastructureProvisionedConsumerParams) (*InfrastructureProvisionedConsumer, error) {
-	if err := params.Client.DeclareExchange(ExchangeCompanyEvents, "topic"); err != nil {
-		return nil, fmt.Errorf("failed to declare exchange '%s': %w", ExchangeCompanyEvents, err)
+	if err := params.Client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
+		return nil, fmt.Errorf("failed to declare exchange '%s': %w", domain.ExchangeCompanyEvents, err)
 	}
 
 	if err := params.Client.DeclareAndBindQueue(
-		QueueOrderServiceInfraProvisioned, ExchangeCompanyEvents, RoutingKeyInfrastructureProvisioned,
+		domain.QueueOrderServiceInfraProvisioned, domain.ExchangeCompanyEvents, domain.RoutingKeyInfrastructureProvisioned,
 	); err != nil {
-		return nil, fmt.Errorf("failed to bind queue '%s': %w", QueueOrderServiceInfraProvisioned, err)
+		return nil, fmt.Errorf("failed to bind queue '%s': %w", domain.QueueOrderServiceInfraProvisioned, err)
 	}
 
 	pass := params.SharedDBPass
@@ -77,6 +52,7 @@ func NewInfrastructureProvisionedConsumer(params InfrastructureProvisionedConsum
 
 	return &InfrastructureProvisionedConsumer{
 		client:           params.Client,
+		publisher:        params.Publisher,
 		migrationService: params.MigrationService,
 		poolRegistry:     params.PoolRegistry,
 		routingRegistry:  params.RoutingRegistry,
@@ -87,16 +63,16 @@ func NewInfrastructureProvisionedConsumer(params InfrastructureProvisionedConsum
 
 func (c *InfrastructureProvisionedConsumer) Start(ctx context.Context) error {
 	msgs, err := c.client.Channel.Consume(
-		QueueOrderServiceInfraProvisioned,
+		domain.QueueOrderServiceInfraProvisioned,
 		"order-service-infra-consumer",
 		false, // manual ack
 		false, false, false, nil,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to consume from queue '%s': %w", QueueOrderServiceInfraProvisioned, err)
+		return fmt.Errorf("failed to consume from queue '%s': %w", domain.QueueOrderServiceInfraProvisioned, err)
 	}
 
-	log.Printf("OrderService: Listening for '%s' events on queue '%s'...", RoutingKeyInfrastructureProvisioned, QueueOrderServiceInfraProvisioned)
+	log.Printf("OrderService: Listening for '%s' events on queue '%s'...", domain.RoutingKeyInfrastructureProvisioned, domain.QueueOrderServiceInfraProvisioned)
 
 	go func() {
 		for {
@@ -110,7 +86,7 @@ func (c *InfrastructureProvisionedConsumer) Start(ctx context.Context) error {
 					return
 				}
 
-				var evt InfrastructureProvisionedEvent
+				var evt domain.InfrastructureProvisionedEvent
 				if err := json.Unmarshal(d.Body, &evt); err != nil {
 					log.Printf("InfrastructureProvisionedConsumer Error: Bad payload: %v", err)
 					_ = d.Nack(false, false)
@@ -150,8 +126,8 @@ func (c *InfrastructureProvisionedConsumer) Start(ctx context.Context) error {
 				// 3. Evict any cached pool in order-service pool registry so fresh connection parameters are used
 				c.poolRegistry.Evict(evt.TenantID)
 
-				// 4. Emit tenant.order_db.ready event over RabbitMQ (Routing metadata ONLY, NO PASSWORDS)
-				readyEvt := TenantOrderDBReadyEvent{
+				// 4. Emit tenant.order_db.ready event via dedicated Publisher Adapter
+				readyEvt := domain.TenantOrderDBReadyEvent{
 					EventID:     evt.EventID,
 					TenantID:    evt.TenantID,
 					ServiceName: "order-service",
@@ -162,15 +138,15 @@ func (c *InfrastructureProvisionedConsumer) Start(ctx context.Context) error {
 					SchemaName:  evt.SchemaName,
 				}
 
-				if err := c.client.PublishEvent(ctx, ExchangeCompanyEvents, RoutingKeyTenantOrderDBReady, readyEvt); err != nil {
-					log.Printf("InfrastructureProvisionedConsumer Error: Failed to publish '%s': %v", RoutingKeyTenantOrderDBReady, err)
+				if err := c.publisher.Publish(ctx, readyEvt); err != nil {
+					log.Printf("InfrastructureProvisionedConsumer Error: Failed to publish tenant.order_db.ready: %v", err)
 					_ = d.Nack(false, true)
 					continue
 				}
 
 				_ = d.Ack(false)
 				log.Printf("InfrastructureProvisionedConsumer: Successfully provisioned order DB & published '%s' for tenant='%s'",
-					RoutingKeyTenantOrderDBReady, evt.TenantID)
+					domain.RoutingKeyTenantOrderDBReady, evt.TenantID)
 			}
 		}
 	}()

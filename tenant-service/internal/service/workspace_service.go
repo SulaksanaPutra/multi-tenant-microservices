@@ -10,7 +10,6 @@ import (
 
 	"tenant-service/internal/domain"
 	"tenant-service/internal/httputil"
-	"tenant-service/internal/publisher"
 	"tenant-service/internal/repository"
 	"tenant-service/internal/worker"
 )
@@ -97,7 +96,7 @@ func (s *WorkspaceService) RegisterWorkspace(ctx context.Context, input Register
 	slug := httputil.SanitizeSlug(input.TenantName)
 	outboxID := domain.GenerateOutboxID()
 
-	evt := publisher.WorkspaceInitiatedEvent{
+	evt := domain.WorkspaceInitiatedEvent{
 		EventID:    outboxID,
 		TenantID:   tenantID,
 		Plan:       plan.String(),
@@ -171,7 +170,7 @@ func (s *WorkspaceService) HandleInfrastructureUpdate(ctx context.Context, input
 	}
 
 	outboxID := domain.GenerateOutboxID()
-	readyEvt := publisher.WorkspaceReadyEvent{
+	readyEvt := domain.WorkspaceReadyEvent{
 		EventID:    outboxID,
 		TenantID:   input.TenantID,
 		OwnerEmail: tenant.OwnerEmail,

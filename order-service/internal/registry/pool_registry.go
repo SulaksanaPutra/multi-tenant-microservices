@@ -15,11 +15,11 @@ const (
 	// defaultMaxDedicatedCapacity is the maximum number of active pools stored for Dedicated Plan tenants.
 	defaultMaxDedicatedCapacity = 50
 
-	// defaultTTL is how long an unused pool entry stays cached.
-	defaultTTL = 15 * time.Minute
+	// defaultTTL is how long an unused pool entry stays cached (tuned down to 3 mins to aggressively release sockets).
+	defaultTTL = 3 * time.Minute
 
 	// reaperInterval is how often the background reaper sweeps for stale entries.
-	reaperInterval = 5 * time.Minute
+	reaperInterval = 1 * time.Minute
 
 	// fetchTimeout limits how long a singleflight DSN fetch & pool open can take.
 	fetchTimeout = 5 * time.Second
@@ -109,11 +109,11 @@ func (r *PoolRegistry) GetOrFetch(tenantID string, fetchDSN func() (*sql.DB, str
 			return nil, err
 		}
 
-		// Ensure connection idle settings to prevent connection leaks
-		db.SetMaxIdleConns(2)
-		db.SetMaxOpenConns(10)
-		db.SetConnMaxIdleTime(1 * time.Minute)
-		db.SetConnMaxLifetime(15 * time.Minute)
+		// Ensure strict connection idle settings to prevent host connection & socket leaks
+		db.SetMaxIdleConns(1)
+		db.SetMaxOpenConns(3)
+		db.SetConnMaxIdleTime(30 * time.Second)
+		db.SetConnMaxLifetime(5 * time.Minute)
 
 		r.mu.Lock()
 		// Evict LRU entry if maxCapacity is reached
@@ -194,16 +194,40 @@ func (r *PoolRegistry) StartReaper(ctx context.Context) {
 }
 
 func (r *PoolRegistry) reap() {
-	r.mu.Lock()
 	cutoff := time.Now().Add(-r.ttl)
+
+	// Step 1: Collect candidates under RLock
+	r.mu.RLock()
+	var candidates []string
 	for tenantID, entry := range r.entries {
 		if entry.lastUsed.Before(cutoff) {
-			delete(r.entries, tenantID)
-			r.closePoolGracefully(entry.db, tenantID)
-			log.Printf("PoolRegistry Reaper: Evicted idle pool for tenant '%s'", tenantID)
+			candidates = append(candidates, tenantID)
 		}
 	}
-	r.mu.Unlock()
+	r.mu.RUnlock()
+
+	if len(candidates) == 0 {
+		return
+	}
+
+	// Step 2: Per-candidate double-check under Write Lock & graceful close outside lock
+	for _, tenantID := range candidates {
+		var dbToClose *sql.DB
+
+		r.mu.Lock()
+		entry, ok := r.entries[tenantID]
+		// Double-check: ensure entry still exists and lastUsed is STILL before cutoff
+		if ok && entry.lastUsed.Before(cutoff) {
+			delete(r.entries, tenantID)
+			dbToClose = entry.db
+		}
+		r.mu.Unlock()
+
+		if dbToClose != nil {
+			r.closePoolGracefully(dbToClose, tenantID)
+			log.Printf("PoolRegistry Reaper: Evicted idle pool for tenant '%s' (double-checked)", tenantID)
+		}
+	}
 }
 
 func (r *PoolRegistry) closeAll() {

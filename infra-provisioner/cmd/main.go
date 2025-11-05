@@ -13,6 +13,7 @@ import (
 	"infra-provisioner/internal/consumer"
 	"infra-provisioner/internal/docker"
 	"infra-provisioner/internal/infrastructure/rabbitmq"
+	"infra-provisioner/internal/publisher"
 )
 
 func main() {
@@ -45,9 +46,15 @@ func main() {
 		log.Fatalf("Failed to initialize Docker provisioner: %v", err)
 	}
 
-	// 3. Initialize & Start Consumer
+	// 3. Initialize Publisher & Consumer
+	infraPub, err := publisher.NewInfraPublisher(rmqClient)
+	if err != nil {
+		log.Fatalf("Failed to initialize InfraPublisher: %v", err)
+	}
+
 	wiConsumer, err := consumer.NewWorkspaceInitiatedConsumer(consumer.Params{
 		Client:            rmqClient,
+		Publisher:         infraPub,
 		Provisioner:       dockerProv,
 		InfraMasterSecret: infraMasterSecret,
 		DomainSecrets:     domainSecrets,

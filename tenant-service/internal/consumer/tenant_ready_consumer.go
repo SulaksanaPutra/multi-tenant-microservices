@@ -6,27 +6,11 @@ import (
 	"fmt"
 	"log"
 
+	"tenant-service/internal/domain"
 	"tenant-service/internal/infrastructure/rabbitmq"
 	"tenant-service/internal/service"
 	"tenant-service/internal/txcontext"
 )
-
-const (
-	ExchangeCompanyEvents        = "company.events"
-	RoutingKeyTenantOrderDBReady = "tenant.order_db.ready"
-	QueueTenantServiceOrderReady = "tenant_service_order_db_ready"
-)
-
-type TenantOrderDBReadyEvent struct {
-	EventID     string `json:"event_id"`
-	TenantID    string `json:"tenant_id"`
-	ServiceName string `json:"service_name"`
-	DBHost      string `json:"db_host"`
-	DBPort      int    `json:"db_port"`
-	DBName      string `json:"db_name"`
-	DBUser      string `json:"db_user"`
-	SchemaName  string `json:"schema_name"`
-}
 
 // WorkspaceService is the consumer-side interface expected by TenantOrderDBReadyConsumer.
 type WorkspaceService interface {
@@ -40,12 +24,12 @@ type TenantOrderDBReadyConsumer struct {
 }
 
 func NewTenantOrderDBReadyConsumer(txManager txcontext.TxManager, client *rabbitmq.Client, workspaceSvc WorkspaceService) (*TenantOrderDBReadyConsumer, error) {
-	if err := client.DeclareExchange(ExchangeCompanyEvents, "topic"); err != nil {
-		return nil, fmt.Errorf("failed to declare exchange '%s': %w", ExchangeCompanyEvents, err)
+	if err := client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
+		return nil, fmt.Errorf("failed to declare exchange '%s': %w", domain.ExchangeCompanyEvents, err)
 	}
 
-	if err := client.DeclareAndBindQueue(QueueTenantServiceOrderReady, ExchangeCompanyEvents, RoutingKeyTenantOrderDBReady); err != nil {
-		return nil, fmt.Errorf("failed to bind queue '%s': %w", QueueTenantServiceOrderReady, err)
+	if err := client.DeclareAndBindQueue(domain.QueueTenantServiceOrderReady, domain.ExchangeCompanyEvents, domain.RoutingKeyTenantOrderDBReady); err != nil {
+		return nil, fmt.Errorf("failed to bind queue '%s': %w", domain.QueueTenantServiceOrderReady, err)
 	}
 
 	return &TenantOrderDBReadyConsumer{
@@ -57,16 +41,16 @@ func NewTenantOrderDBReadyConsumer(txManager txcontext.TxManager, client *rabbit
 
 func (c *TenantOrderDBReadyConsumer) Start(ctx context.Context) error {
 	msgs, err := c.client.Channel.Consume(
-		QueueTenantServiceOrderReady,
-		"tenant-service-order-ready-consumer",
+		domain.QueueTenantServiceOrderReady,
+		"tenant-service-ready-consumer",
 		false, // manual ack
 		false, false, false, nil,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to consume queue '%s': %w", QueueTenantServiceOrderReady, err)
+		return fmt.Errorf("failed to consume from queue '%s': %w", domain.QueueTenantServiceOrderReady, err)
 	}
 
-	log.Printf("TenantService: Listening for '%s' events on queue '%s'...", RoutingKeyTenantOrderDBReady, QueueTenantServiceOrderReady)
+	log.Printf("TenantService: Listening for '%s' events on queue '%s'...", domain.RoutingKeyTenantOrderDBReady, domain.QueueTenantServiceOrderReady)
 
 	go func() {
 		for {
@@ -80,18 +64,19 @@ func (c *TenantOrderDBReadyConsumer) Start(ctx context.Context) error {
 					return
 				}
 
-				var evt TenantOrderDBReadyEvent
+				var evt domain.TenantOrderDBReadyEvent
 				if err := json.Unmarshal(d.Body, &evt); err != nil {
 					log.Printf("TenantOrderDBReadyConsumer Error: Bad payload: %v", err)
 					_ = d.Nack(false, false)
 					continue
 				}
 
-				log.Printf("TenantOrderDBReadyConsumer: Received ready event for tenant='%s' service='%s' host='%s'",
-					evt.TenantID, evt.ServiceName, evt.DBHost)
+				log.Printf("TenantOrderDBReadyConsumer: Received order DB ready for tenant='%s' service='%s'",
+					evt.TenantID, evt.ServiceName)
 
+				// Wrap update handling inside transaction
 				err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-					return c.workspaceService.HandleInfrastructureUpdate(txCtx, service.InfraUpdateInput{
+					input := service.InfraUpdateInput{
 						TenantID:    evt.TenantID,
 						ServiceName: evt.ServiceName,
 						DBHost:      evt.DBHost,
@@ -99,17 +84,18 @@ func (c *TenantOrderDBReadyConsumer) Start(ctx context.Context) error {
 						DBName:      evt.DBName,
 						DBUser:      evt.DBUser,
 						SchemaName:  evt.SchemaName,
-					})
+					}
+					return c.workspaceService.HandleInfrastructureUpdate(txCtx, input)
 				})
 
 				if err != nil {
-					log.Printf("TenantOrderDBReadyConsumer Error: Failed to update infrastructure state for tenant='%s': %v", evt.TenantID, err)
-					_ = d.Nack(false, true) // requeue
+					log.Printf("TenantOrderDBReadyConsumer Error: Failed to handle infra update for tenant='%s': %v", evt.TenantID, err)
+					_ = d.Nack(false, true)
 					continue
 				}
 
 				_ = d.Ack(false)
-				log.Printf("TenantOrderDBReadyConsumer: Infrastructure routing state updated & tenant activated for tenant='%s'", evt.TenantID)
+				log.Printf("TenantOrderDBReadyConsumer: Successfully processed order DB ready event for tenant='%s'", evt.TenantID)
 			}
 		}
 	}()

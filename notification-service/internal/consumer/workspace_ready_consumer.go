@@ -6,27 +6,11 @@ import (
 	"fmt"
 	"log"
 
+	"notification-service/internal/domain"
 	"notification-service/internal/infrastructure/rabbitmq"
 	"notification-service/internal/service"
 	"notification-service/internal/txcontext"
 )
-
-const (
-	ExchangeCompanyEvents           = "company.events"
-	RoutingKeyWorkspaceReady        = "workspace.ready"
-	QueueNotificationWorkspaceReady = "notification_service_workspace_ready"
-)
-
-type WorkspaceReadyEvent struct {
-	EventID    string `json:"event_id"`
-	TenantID   string `json:"tenant_id"`
-	OwnerEmail string `json:"owner_email"`
-}
-
-// NotificationService is the consumer-side interface expected by WorkspaceReadyConsumer.
-type NotificationService interface {
-	ProcessEventAndTrySendWelcome(ctx context.Context, input service.ProcessEventInput) error
-}
 
 type WorkspaceReadyConsumer struct {
 	txManager           txcontext.TxManager
@@ -35,11 +19,11 @@ type WorkspaceReadyConsumer struct {
 }
 
 func NewWorkspaceReadyConsumer(txManager txcontext.TxManager, client *rabbitmq.Client, notifSvc NotificationService) (*WorkspaceReadyConsumer, error) {
-	if err := client.DeclareExchange(ExchangeCompanyEvents, "topic"); err != nil {
+	if err := client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange: %w", err)
 	}
 
-	if err := client.DeclareAndBindQueue(QueueNotificationWorkspaceReady, ExchangeCompanyEvents, RoutingKeyWorkspaceReady); err != nil {
+	if err := client.DeclareAndBindQueue(domain.QueueNotificationWorkspaceReady, domain.ExchangeCompanyEvents, domain.RoutingKeyWorkspaceReady); err != nil {
 		return nil, fmt.Errorf("failed to bind queue: %w", err)
 	}
 
@@ -52,19 +36,19 @@ func NewWorkspaceReadyConsumer(txManager txcontext.TxManager, client *rabbitmq.C
 
 func (c *WorkspaceReadyConsumer) Start(ctx context.Context) error {
 	msgs, err := c.client.Channel.Consume(
-		QueueNotificationWorkspaceReady, // queue
-		"notification-service-worker",    // consumer tag
-		false,                            // auto-ack
-		false,                            // exclusive
-		false,                            // no-local
-		false,                            // no-wait
-		nil,                              // args
+		domain.QueueNotificationWorkspaceReady, // queue
+		"notification-workspace-ready-consumer", // consumer tag
+		false,                                   // auto-ack
+		false,                                   // exclusive
+		false,                                   // no-local
+		false,                                   // no-wait
+		nil,                                     // args
 	)
 	if err != nil {
-		return fmt.Errorf("failed to consume from queue %s: %w", QueueNotificationWorkspaceReady, err)
+		return fmt.Errorf("failed to consume from queue %s: %w", domain.QueueNotificationWorkspaceReady, err)
 	}
 
-	log.Printf("Notification Service worker listening for events on queue '%s'...", QueueNotificationWorkspaceReady)
+	log.Printf("NotificationService listening for '%s' events on queue '%s'...", domain.RoutingKeyWorkspaceReady, domain.QueueNotificationWorkspaceReady)
 
 	go func() {
 		for {
@@ -77,34 +61,35 @@ func (c *WorkspaceReadyConsumer) Start(ctx context.Context) error {
 					log.Printf("WorkspaceReadyConsumer: Message channel closed.")
 					return
 				}
-				log.Printf("Received WorkspaceReady message from queue '%s'", QueueNotificationWorkspaceReady)
 
-				var evt WorkspaceReadyEvent
+				var evt domain.WorkspaceReadyEvent
 				if err := json.Unmarshal(d.Body, &evt); err != nil {
 					log.Printf("Error unmarshaling WorkspaceReady payload: %v", err)
-					d.Nack(false, false)
+					_ = d.Nack(false, false)
 					continue
 				}
 
-				input := service.ProcessEventInput{
-					EventID:    evt.EventID,
-					TenantID:   evt.TenantID,
-					EventType:  "workspace.ready",
-					OwnerEmail: evt.OwnerEmail,
-					Payload:    d.Body,
-				}
+				log.Printf("WorkspaceReadyConsumer processing event_id='%s' for tenant_id='%s'", evt.EventID, evt.TenantID)
 
 				err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+					input := service.ProcessEventInput{
+						EventID:    evt.EventID,
+						TenantID:   evt.TenantID,
+						EventType:  domain.RoutingKeyWorkspaceReady,
+						OwnerEmail: evt.OwnerEmail,
+						Payload:    d.Body,
+					}
 					return c.notificationService.ProcessEventAndTrySendWelcome(txCtx, input)
 				})
 
 				if err != nil {
-					log.Printf("Error processing notification: %v", err)
-					d.Nack(false, true)
+					log.Printf("WorkspaceReadyConsumer Error: Failed to handle WorkspaceReady for event '%s': %v", evt.EventID, err)
+					_ = d.Nack(false, true) // Requeue
 					continue
 				}
 
-				d.Ack(false)
+				_ = d.Ack(false)
+				log.Printf("WorkspaceReadyConsumer: Successfully processed & ACKed event_id='%s'", evt.EventID)
 			}
 		}
 	}()
