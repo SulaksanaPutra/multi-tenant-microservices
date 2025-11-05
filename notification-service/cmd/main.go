@@ -53,11 +53,11 @@ func main() {
 
 	// 3. Initialize Repositories (Data Access Layer & Inbox Pattern) & TxManager
 	txManager := txcontext.NewTxManager(dbClient.DB)
-	notifRepo := repository.NewNotificationRepository(dbClient)
-	inboxRepo := repository.NewInboxRepository(dbClient)
+	notifRepository := repository.NewNotificationRepository(dbClient)
+	inboxRepository := repository.NewInboxRepository(dbClient)
 
 	// 4. Initialize Domain Services
-	notifService := service.NewNotificationService(notifRepo, inboxRepo, m)
+	notifService := service.NewNotificationService(notifRepository, inboxRepository, m)
 
 	// 5. Register & Start Inbound Queue Consumers Collection
 	cRunner, err := registerConsumers(txManager, rmqClient, notifService)

@@ -63,8 +63,8 @@ CREATE TABLE IF NOT EXISTS public.tenants (
     created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
--- Refactored tenant_services: Sanitized routing metadata only (ZERO PASSWORDS)
-CREATE TABLE IF NOT EXISTS public.tenant_services (
+-- Refactored tenant_infrastructures: Sanitized routing metadata only (ZERO PASSWORDS)
+CREATE TABLE IF NOT EXISTS public.tenant_infrastructures (
     tenant_id     VARCHAR(36)  NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
     service_name  VARCHAR(100) NOT NULL,
     db_host       VARCHAR(255) NOT NULL,

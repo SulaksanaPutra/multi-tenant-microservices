@@ -11,7 +11,6 @@ import (
 	"tenant-service/internal/domain"
 	"tenant-service/internal/httputil"
 	"tenant-service/internal/repository"
-	"tenant-service/internal/worker"
 )
 
 var (
@@ -29,8 +28,8 @@ type RegisterWorkspaceInput struct {
 }
 
 type RegisterWorkspaceOutput struct {
-	TenantID string `json:"tenant_id"`
-	Status   string `json:"status"`
+	TenantID string
+	Status   string
 }
 
 type InfraUpdateInput struct {
@@ -44,45 +43,50 @@ type InfraUpdateInput struct {
 }
 
 type RoutingOutput struct {
-	DBHost     string `json:"db_host"`
-	DBPort     int    `json:"db_port"`
-	DBName     string `json:"db_name"`
-	DBUser     string `json:"db_user"`
-	SchemaName string `json:"schema_name"`
+	DBHost     string
+	DBPort     int
+	DBName     string
+	DBUser     string
+	SchemaName string
 }
 
-// ControlRepo is the consumer-side interface expected by WorkspaceService.
-type ControlRepo interface {
+// ControlPlaneRepository is the consumer-side interface expected by WorkspaceService.
+type ControlPlaneRepository interface {
 	CreateTenant(ctx context.Context, input repository.CreateTenantInput) error
 	UpsertServiceInfrastructure(ctx context.Context, input repository.UpsertServiceInfraInput) error
 	GetPendingServiceCount(ctx context.Context, tenantID string, requiredServices []string) (int, error)
-	GetTenantByID(ctx context.Context, tenantID string) (*repository.TenantRecord, error)
+	GetTenantByID(ctx context.Context, tenantID string) (*domain.Tenant, error)
 	ActivateTenant(ctx context.Context, tenantID string) error
-	GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*repository.ServiceInfraRecord, error)
+	GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*domain.TenantInfra, error)
 }
 
-// OutboxRepo is the consumer-side interface expected by WorkspaceService.
-type OutboxRepo interface {
-	CreateOutboxMessage(ctx context.Context, msg repository.OutboxMessage) error
+// OutboxRepository is the consumer-side interface expected by WorkspaceService.
+type OutboxRepository interface {
+	CreateOutboxMessage(ctx context.Context, msg domain.OutboxMessage) error
+}
+
+// OutboxWorker is the consumer-side interface expected by WorkspaceService.
+type OutboxWorker interface {
+	Poke()
 }
 
 type WorkspaceService struct {
-	controlRepo  ControlRepo
-	outboxRepo   OutboxRepo
-	outboxWorker *worker.OutboxWorker
+	controlPlaneRepository ControlPlaneRepository
+	outboxRepository       OutboxRepository
+	outboxWorker           OutboxWorker
 }
 
 type WorkspaceServiceParams struct {
-	ControlRepo  ControlRepo
-	OutboxRepo   OutboxRepo
-	OutboxWorker *worker.OutboxWorker
+	ControlPlaneRepository ControlPlaneRepository
+	OutboxRepository       OutboxRepository
+	OutboxWorker           OutboxWorker
 }
 
 func NewWorkspaceService(params WorkspaceServiceParams) *WorkspaceService {
 	return &WorkspaceService{
-		controlRepo:  params.ControlRepo,
-		outboxRepo:   params.OutboxRepo,
-		outboxWorker: params.OutboxWorker,
+		controlPlaneRepository: params.ControlPlaneRepository,
+		outboxRepository:       params.OutboxRepository,
+		outboxWorker:           params.OutboxWorker,
 	}
 }
 
@@ -108,7 +112,7 @@ func (s *WorkspaceService) RegisterWorkspace(ctx context.Context, input Register
 		return nil, fmt.Errorf("failed to marshal WorkspaceInitiated event: %w", err)
 	}
 
-	if err := s.controlRepo.CreateTenant(ctx, repository.CreateTenantInput{
+	if err := s.controlPlaneRepository.CreateTenant(ctx, repository.CreateTenantInput{
 		ID:         tenantID,
 		Name:       input.TenantName,
 		Slug:       slug,
@@ -119,7 +123,7 @@ func (s *WorkspaceService) RegisterWorkspace(ctx context.Context, input Register
 		return nil, fmt.Errorf("failed to create tenant record: %w", err)
 	}
 
-	outboxMsg := repository.OutboxMessage{
+	outboxMsg := domain.OutboxMessage{
 		ID:            outboxID,
 		TenantID:      &tenantID,
 		AggregateType: "WORKSPACE",
@@ -127,7 +131,7 @@ func (s *WorkspaceService) RegisterWorkspace(ctx context.Context, input Register
 		EventType:     "workspace.initiated",
 		Payload:       payloadBytes,
 	}
-	if err := s.outboxRepo.CreateOutboxMessage(ctx, outboxMsg); err != nil {
+	if err := s.outboxRepository.CreateOutboxMessage(ctx, outboxMsg); err != nil {
 		return nil, fmt.Errorf("failed to stage workspace.initiated outbox event: %w", err)
 	}
 
@@ -139,7 +143,7 @@ func (s *WorkspaceService) RegisterWorkspace(ctx context.Context, input Register
 }
 
 func (s *WorkspaceService) HandleInfrastructureUpdate(ctx context.Context, input InfraUpdateInput) error {
-	if err := s.controlRepo.UpsertServiceInfrastructure(ctx, repository.UpsertServiceInfraInput{
+	if err := s.controlPlaneRepository.UpsertServiceInfrastructure(ctx, repository.UpsertServiceInfraInput{
 		TenantID:    input.TenantID,
 		ServiceName: input.ServiceName,
 		DBHost:      input.DBHost,
@@ -154,7 +158,7 @@ func (s *WorkspaceService) HandleInfrastructureUpdate(ctx context.Context, input
 	log.Printf("WorkspaceService: Infrastructure routing updated for tenant_id='%s' service='%s' host='%s'",
 		input.TenantID, input.ServiceName, input.DBHost)
 
-	pendingCount, err := s.controlRepo.GetPendingServiceCount(ctx, input.TenantID, requiredServices)
+	pendingCount, err := s.controlPlaneRepository.GetPendingServiceCount(ctx, input.TenantID, requiredServices)
 	if err != nil {
 		return fmt.Errorf("failed to check pending service count: %w", err)
 	}
@@ -164,7 +168,7 @@ func (s *WorkspaceService) HandleInfrastructureUpdate(ctx context.Context, input
 		return nil
 	}
 
-	tenant, err := s.controlRepo.GetTenantByID(ctx, input.TenantID)
+	tenant, err := s.controlPlaneRepository.GetTenantByID(ctx, input.TenantID)
 	if err != nil {
 		return fmt.Errorf("failed to fetch tenant for activation: %w", err)
 	}
@@ -180,11 +184,11 @@ func (s *WorkspaceService) HandleInfrastructureUpdate(ctx context.Context, input
 		return fmt.Errorf("failed to marshal WorkspaceReady event: %w", err)
 	}
 
-	if err := s.controlRepo.ActivateTenant(ctx, input.TenantID); err != nil {
+	if err := s.controlPlaneRepository.ActivateTenant(ctx, input.TenantID); err != nil {
 		return fmt.Errorf("failed to activate tenant: %w", err)
 	}
 
-	outboxMsg := repository.OutboxMessage{
+	outboxMsg := domain.OutboxMessage{
 		ID:            outboxID,
 		TenantID:      &input.TenantID,
 		AggregateType: "WORKSPACE",
@@ -192,7 +196,7 @@ func (s *WorkspaceService) HandleInfrastructureUpdate(ctx context.Context, input
 		EventType:     "workspace.ready",
 		Payload:       payloadBytes,
 	}
-	if err := s.outboxRepo.CreateOutboxMessage(ctx, outboxMsg); err != nil {
+	if err := s.outboxRepository.CreateOutboxMessage(ctx, outboxMsg); err != nil {
 		return fmt.Errorf("failed to stage workspace.ready outbox event: %w", err)
 	}
 
@@ -202,7 +206,7 @@ func (s *WorkspaceService) HandleInfrastructureUpdate(ctx context.Context, input
 }
 
 func (s *WorkspaceService) GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*RoutingOutput, error) {
-	infra, err := s.controlRepo.GetServiceInfrastructure(ctx, tenantID, serviceName)
+	infra, err := s.controlPlaneRepository.GetServiceInfrastructure(ctx, tenantID, serviceName)
 	if err != nil {
 		return nil, err
 	}

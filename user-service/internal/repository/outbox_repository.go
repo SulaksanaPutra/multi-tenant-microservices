@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"user-service/internal/domain"
 	"user-service/internal/txcontext"
 )
 
@@ -36,22 +37,6 @@ func sanitizeError(err error) string {
 	return msg
 }
 
-type OutboxMessage struct {
-	ID            string
-	TenantID      *string
-	AggregateType string
-	AggregateID   string
-	EventType     string
-	Payload       []byte
-	Status        string
-	RetryCount    int
-	LastError     *string
-	NextRetryAt   *time.Time
-	ClaimedAt     *time.Time
-	CreatedAt     time.Time
-	ProcessedAt   *time.Time
-}
-
 type OutboxRepository struct {
 	db *sql.DB
 }
@@ -60,7 +45,7 @@ func NewOutboxRepository(db *sql.DB) *OutboxRepository {
 	return &OutboxRepository{db: db}
 }
 
-func (r *OutboxRepository) CreateOutboxMessage(ctx context.Context, msg OutboxMessage) error {
+func (r *OutboxRepository) CreateOutboxMessage(ctx context.Context, msg domain.OutboxMessage) error {
 	exec := txcontext.GetExecutor(ctx, r.db)
 	const query = `
 		INSERT INTO public.outbox (
@@ -75,7 +60,7 @@ func (r *OutboxRepository) CreateOutboxMessage(ctx context.Context, msg OutboxMe
 	return nil
 }
 
-func (r *OutboxRepository) FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]OutboxMessage, error) {
+func (r *OutboxRepository) FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
 	exec := txcontext.GetExecutor(ctx, r.db)
 	const query = `
 		WITH claimed AS (
@@ -109,9 +94,9 @@ func (r *OutboxRepository) FetchAndClaimBatch(ctx context.Context, eventType str
 		}
 	}(rows)
 
-	var list []OutboxMessage
+	var list []domain.OutboxMessage
 	for rows.Next() {
-		var msg OutboxMessage
+		var msg domain.OutboxMessage
 		var payloadStr string
 		if err := rows.Scan(
 			&msg.ID, &msg.TenantID, &msg.AggregateType, &msg.AggregateID, &msg.EventType,

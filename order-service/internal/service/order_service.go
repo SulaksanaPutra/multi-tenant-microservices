@@ -31,17 +31,17 @@ type OrderRepository interface {
 }
 
 type OrderService struct {
-	orderRepo OrderRepository
+	orderRepository OrderRepository
 }
 
-func NewOrderService(repo OrderRepository) *OrderService {
+func NewOrderService(orderRepository OrderRepository) *OrderService {
 	return &OrderService{
-		orderRepo: repo,
+		orderRepository: orderRepository,
 	}
 }
 
 func (s *OrderService) ListOrders(ctx context.Context) ([]domain.Order, error) {
-	return s.orderRepo.ListOrders(ctx)
+	return s.orderRepository.ListOrders(ctx)
 }
 
 func (s *OrderService) CreateOrder(ctx context.Context, input CreateOrderInput) (*domain.Order, error) {
@@ -77,7 +77,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, input CreateOrderInput) 
 		Amount:     input.Amount,
 	}
 
-	if err := s.orderRepo.CreateOrder(ctx, order); err != nil {
+	if err := s.orderRepository.CreateOrder(ctx, order); err != nil {
 		return nil, fmt.Errorf("order service: failed to create order: %w", err)
 	}
 

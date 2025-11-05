@@ -48,8 +48,8 @@ func main() {
 
 	// 2. Initialize Repositories & Transaction Manager
 	txManager := txcontext.NewTxManager(dbClient.DB)
-	controlRepo := repository.NewControlPlaneRepository(dbClient)
-	outboxRepo := repository.NewOutboxRepository(dbClient.DB)
+	controlPlaneRepository := repository.NewControlPlaneRepository(dbClient)
+	outboxRepository := repository.NewOutboxRepository(dbClient.DB)
 
 	// 3. Initialize Publisher
 	tenantPublisher, err := publisher.NewTenantPublisher(rmqClient)
@@ -58,16 +58,16 @@ func main() {
 	}
 
 	// 4. Register & Start Background Workers
-	wRunner := registerWorkers(outboxRepo, tenantPublisher)
+	wRunner := registerWorkers(outboxRepository, tenantPublisher)
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	defer workerCancel()
 	wRunner.start(workerCtx)
 
 	// 5. Initialize Domain Services
 	workspaceService := service.NewWorkspaceService(service.WorkspaceServiceParams{
-		ControlRepo:  controlRepo,
-		OutboxRepo:   outboxRepo,
-		OutboxWorker: wRunner.OutboxWorker(),
+		ControlPlaneRepository: controlPlaneRepository,
+		OutboxRepository:       outboxRepository,
+		OutboxWorker:           wRunner.OutboxWorker(),
 	})
 
 	// 6. Register & Start Inbound Queue Consumers

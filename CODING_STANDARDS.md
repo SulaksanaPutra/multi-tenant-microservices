@@ -53,7 +53,7 @@ func NewUserService(repo UserRepository) UserService
 ```
 
 ### Rule 2.2: Consumer-Side Interface Ownership
-Interfaces MUST be defined by the **consumer package** requiring the dependency, not by the provider package.
+Interfaces MUST be defined by the **consumer package** requiring the dependency, not by the provider package. This applies universally to repositories, services, mailers, workers, and publisher adapters.
 ```go
 // GOOD: Declared in internal/handler/user_handler.go
 type UserService interface {
@@ -65,6 +65,17 @@ type UserService interface {
 type UserRepository interface {
     GetUserByID(ctx context.Context, id string) (*domain.User, error)
     ListUsers(ctx context.Context) ([]domain.User, error)
+}
+
+// GOOD: Declared in internal/service/notification_service.go
+type Mailer interface {
+    SendWelcomeEmail(recipientEmail, tenantID string) (string, string, error)
+}
+
+// GOOD: Declared in internal/worker/outbox_worker.go
+type TenantEventPublisher interface {
+    PublishWorkspaceInitiated(ctx context.Context, evt domain.WorkspaceInitiatedEvent) error
+    PublishWorkspaceReady(ctx context.Context, evt domain.WorkspaceReadyEvent) error
 }
 ```
 
@@ -96,6 +107,14 @@ Initialisms MUST maintain consistent uppercase casing across all exported identi
   ```
 * **Eliminate Catch-all Anti-patterns:**
   Rename generic `utils` packages to `httputil` or specific domain utility packages.
+
+### Rule 3.4: Full-Word Layer Variable & Field Naming (No Layer Abbreviations)
+Initialized variables, struct fields, constructor parameters, and interface declarations MUST use **full, explicit layer words** rather than truncated abbreviations:
+* **Repository Layer:** Use `userRepository`, `outboxRepository`, `controlPlaneRepository`, `inboxRepository`, `notificationRepository`, `orderRepository` *(PROHIBITED: `repo`, `Repo`, `Repository`, `r`)*.
+* **Service Layer:** Use `userService`, `workspaceService`, `notificationService`, `orderService`, `migrationService` *(PROHIBITED: `svc`, `userSvc`, `workspaceSvc`)*.
+* **Publisher Layer:** Use `publisher`, `tenantEventPublisher`, `userEventPublisher` *(PROHIBITED: `pub`)*.
+* **Consumer Layer:** Use `workspaceInitiatedConsumer`, `userCreatedConsumer`, `tenantReadyConsumer` *(PROHIBITED: `cons`)*.
+* **Handler Layer:** Use `workspaceHandler`, `orderHandler`, `notificationHandler` *(PROHIBITED: `hnd`, `h`)*.
 
 ---
 
@@ -146,4 +165,35 @@ return fmt.Errorf("user service: failed to create user: %w", err)
 ### Rule 5.3: AMQP Topology Alignment (Competing Consumer vs. Fanout Broadcast)
 * **Named Competing Consumer Queues:** Used for single-worker task execution (e.g., DDL migrations, user profile creation) where an event must be processed **exactly once** by a single microservice replica.
 * **Exclusive Anonymous Fanout Queues:** Used for real-time state synchronization and cache invalidation (`tenant.infrastructure_changed`) where an event must be broadcast to **all live microservice replicas simultaneously**.
+
+---
+
+## 6. DTO, Domain Entity & Database Naming Standards
+
+### Rule 6.1: Layer-by-Layer DTO Suffix Conventions
+
+To maintain strict Clean Architecture boundaries and avoid transport coupling, each layer MUST follow these DTO suffix conventions:
+
+| Layer / Package | Incoming Struct Naming | Outgoing Struct Naming | Primary Responsibility |
+| :--- | :--- | :--- | :--- |
+| **`internal/handler`** | `{Action}{Entity}Request`<br>*(e.g. `RegisterWorkspaceRequest`)* | `{Action}{Entity}Response`<br>*(e.g. `RegisterWorkspaceResponse`)* | Holds HTTP transport rules, `json:"..."` struct tags, and Gin validation tags (`binding:"required"`). |
+| **`internal/service`** | `{UseCase}Input`<br>*(e.g. `RegisterWorkspaceInput`)* | `{UseCase}Output`<br>*(e.g. `RegisterWorkspaceOutput`)* | Transport-agnostic business logic inputs & outputs. Must NOT contain `json` tags. |
+| **`internal/consumer`** | `domain.{EventName}Event`<br>*(e.g. `domain.WorkspaceInitiatedEvent`)* | N/A *(ACK / NACK)* | Unmarshals raw AMQP bytes into Domain Event, maps to Service `{UseCase}Input`. |
+| **`internal/publisher`** | `domain.{EventName}Event`<br>*(e.g. `domain.UserCreatedEvent`)* | Raw AMQP Payload | Serializes Domain Event payload and publishes to AMQP exchange. |
+| **`internal/repository`** | `{Action}{Entity}Input`<br>*(e.g. `CreateTenantInput`)* | `domain.{Entity}`<br>*(e.g. `domain.Tenant`)* | Operation-specific DB write parameters (`Input`) vs. pure Domain Entities (`Output`). |
+| **`internal/domain`** | Pure Domain Entities & Integration Events | Pure Domain Entities & Integration Events | Single source of truth for business entities (`Tenant`, `User`, `Order`) and events (`WorkspaceReadyEvent`). |
+
+### Rule 6.2: DB Table to Domain Entity Singularization Rule
+
+* Domain entities inside `internal/domain` MUST represent the singular form of their underlying database table:
+  - Table **`public.tenants`** ──> Entity `domain.Tenant`
+  - Table **`public.tenant_infrastructures`** ──> Entity `domain.TenantInfra`
+  - Table **`public.users`** ──> Entity `domain.User`
+  - Table **`public.orders`** ──> Entity `domain.Order`
+  - Table **`public.notifications`** ──> Entity `domain.NotificationLog`
+  - Table **`public.inbox`** ──> Entity `domain.InboxMessage`
+  - Table **`public.outbox`** ──> Entity `domain.OutboxMessage`
+* **PROHIBITED:** Suffixing domain entity structs with `Record` (e.g. use `Tenant` instead of `TenantRecord`).
+* **Cognitive Collision Prevention Rule:** If a DB table's plural name (e.g. `tenant_services`) singularizes to an Application Service name (`TenantService`), the table MUST be named after its domain intent (e.g. `tenant_infrastructures` ──> `domain.TenantInfra`) to prevent mental model collisions between application services and database entities.
+
 

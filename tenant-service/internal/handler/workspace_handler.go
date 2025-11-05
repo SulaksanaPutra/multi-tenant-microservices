@@ -22,6 +22,14 @@ type RegisterWorkspaceResponse struct {
 	TenantID string `json:"tenant_id"`
 }
 
+type GetInfrastructureResponse struct {
+	DBHost     string `json:"db_host"`
+	DBPort     int    `json:"db_port"`
+	DBName     string `json:"db_name"`
+	DBUser     string `json:"db_user"`
+	SchemaName string `json:"schema_name"`
+}
+
 // WorkspaceService is the consumer-side interface expected by WorkspaceHandler.
 type WorkspaceService interface {
 	RegisterWorkspace(ctx context.Context, input service.RegisterWorkspaceInput) (*service.RegisterWorkspaceOutput, error)
@@ -33,10 +41,10 @@ type WorkspaceHandler struct {
 	workspaceService WorkspaceService
 }
 
-func NewWorkspaceHandler(txManager txcontext.TxManager, workspaceSvc WorkspaceService) *WorkspaceHandler {
+func NewWorkspaceHandler(txManager txcontext.TxManager, workspaceService WorkspaceService) *WorkspaceHandler {
 	return &WorkspaceHandler{
 		txManager:        txManager,
-		workspaceService: workspaceSvc,
+		workspaceService: workspaceService,
 	}
 }
 
@@ -85,5 +93,11 @@ func (h *WorkspaceHandler) GetServiceInfrastructure(c *gin.Context) {
 		return
 	}
 
-	httputil.WriteSuccess(c, http.StatusOK, "", output)
+	httputil.WriteSuccess(c, http.StatusOK, "", GetInfrastructureResponse{
+		DBHost:     output.DBHost,
+		DBPort:     output.DBPort,
+		DBName:     output.DBName,
+		DBUser:     output.DBUser,
+		SchemaName: output.SchemaName,
+	})
 }

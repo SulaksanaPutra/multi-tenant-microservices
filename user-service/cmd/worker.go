@@ -13,10 +13,10 @@ type workerRunner struct {
 }
 
 func registerWorkers(
-	outboxRepo *repository.OutboxRepository,
+	outboxRepository *repository.OutboxRepository,
 	userPublisher publisher.UserEventPublisher,
 ) *workerRunner {
-	outboxWorker := worker.NewOutboxWorker(outboxRepo, userPublisher)
+	outboxWorker := worker.NewOutboxWorker(outboxRepository, userPublisher)
 	return &workerRunner{outboxWorker: outboxWorker}
 }
 
