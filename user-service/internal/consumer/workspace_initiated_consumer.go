@@ -9,8 +9,12 @@ import (
 	"user-service/internal/domain"
 	"user-service/internal/infrastructure/rabbitmq"
 	"user-service/internal/service"
-	"user-service/internal/txcontext"
 )
+
+// TxManager is the consumer-side interface expected by WorkspaceInitiatedConsumer.
+type TxManager interface {
+	WithTransaction(ctx context.Context, fn func(txCtx context.Context) error) error
+}
 
 // UserService is the consumer-side interface expected by WorkspaceInitiatedConsumer.
 type UserService interface {
@@ -23,14 +27,14 @@ type InboxRepository interface {
 }
 
 type WorkspaceInitiatedConsumer struct {
-	txManager       txcontext.TxManager
+	txManager       TxManager
 	client          *rabbitmq.Client
 	inboxRepository InboxRepository
 	userService     UserService
 }
 
 func NewWorkspaceInitiatedConsumer(
-	txManager txcontext.TxManager,
+	txManager TxManager,
 	client *rabbitmq.Client,
 	inboxRepository InboxRepository,
 	userService UserService,

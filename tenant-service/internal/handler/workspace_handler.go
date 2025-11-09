@@ -6,7 +6,6 @@ import (
 
 	"tenant-service/internal/httputil"
 	"tenant-service/internal/service"
-	"tenant-service/internal/txcontext"
 
 	"github.com/gin-gonic/gin"
 )
@@ -30,6 +29,11 @@ type GetInfrastructureResponse struct {
 	SchemaName string `json:"schema_name"`
 }
 
+// TxManager is the consumer-side interface expected by WorkspaceHandler.
+type TxManager interface {
+	WithTransaction(ctx context.Context, fn func(txCtx context.Context) error) error
+}
+
 // WorkspaceService is the consumer-side interface expected by WorkspaceHandler.
 type WorkspaceService interface {
 	RegisterWorkspace(ctx context.Context, input service.RegisterWorkspaceInput) (*service.RegisterWorkspaceOutput, error)
@@ -41,12 +45,12 @@ type TenantInfrastructureService interface {
 }
 
 type WorkspaceHandler struct {
-	txManager                   txcontext.TxManager
+	txManager                   TxManager
 	workspaceService            WorkspaceService
 	tenantInfrastructureService TenantInfrastructureService
 }
 
-func NewWorkspaceHandler(txManager txcontext.TxManager, workspaceService WorkspaceService, tenantInfrastructureService TenantInfrastructureService) *WorkspaceHandler {
+func NewWorkspaceHandler(txManager TxManager, workspaceService WorkspaceService, tenantInfrastructureService TenantInfrastructureService) *WorkspaceHandler {
 	return &WorkspaceHandler{
 		txManager:                   txManager,
 		workspaceService:            workspaceService,

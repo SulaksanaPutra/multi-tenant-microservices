@@ -14,7 +14,7 @@ type consumerRunner struct {
 	tenantOrderDBReadyConsumer *consumer.TenantOrderDBReadyConsumer
 }
 
-func registerConsumers(txManager txcontext.TxManager, rmqClient *rabbitmq.Client, tenantInfrastructureSvc *service.TenantInfrastructureService) (*consumerRunner, error) {
+func registerConsumers(txManager *txcontext.SQLTxManager, rmqClient *rabbitmq.Client, tenantInfrastructureSvc *service.TenantInfrastructureService) (*consumerRunner, error) {
 	c, err := consumer.NewTenantOrderDBReadyConsumer(txManager, rmqClient, tenantInfrastructureSvc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register TenantOrderDBReadyConsumer: %w", err)

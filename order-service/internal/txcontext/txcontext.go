@@ -15,21 +15,16 @@ type DBExecutor interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-// TxManager executes operations within a database transaction boundary.
-type TxManager interface {
-	WithTransaction(ctx context.Context, fn func(txCtx context.Context) error) error
-}
-
-type sqlTxManager struct {
+type SQLTxManager struct {
 	db *sql.DB
 }
 
-// NewTxManager returns a new TxManager instance backed by standard *sql.DB.
-func NewTxManager(db *sql.DB) TxManager {
-	return &sqlTxManager{db: db}
+// NewTxManager returns a new SQLTxManager instance backed by standard *sql.DB.
+func NewTxManager(db *sql.DB) *SQLTxManager {
+	return &SQLTxManager{db: db}
 }
 
-func (m *sqlTxManager) WithTransaction(ctx context.Context, fn func(txCtx context.Context) error) (err error) {
+func (m *SQLTxManager) WithTransaction(ctx context.Context, fn func(txCtx context.Context) error) (err error) {
 	tx, err := m.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
