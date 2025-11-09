@@ -11,16 +11,16 @@ import (
 	"order-service/internal/registry"
 )
 
-// InfraChangedConsumer handles cache invalidation and materialized view updates when a tenant's infrastructure changes.
+// InfrastructureChangedConsumer handles cache invalidation and materialized view updates when a tenant's infrastructure changes.
 // Each replica process declares an exclusive, auto-delete anonymous queue so cache invalidations are broadcast to ALL live replicas.
-type InfraChangedConsumer struct {
+type InfrastructureChangedConsumer struct {
 	client          *rabbitmq.Client
 	poolRegistry    *registry.PoolRegistry
 	routingRegistry *registry.RoutingRegistry
 	queueName       string
 }
 
-func NewInfraChangedConsumer(client *rabbitmq.Client, poolReg *registry.PoolRegistry, routingReg *registry.RoutingRegistry) (*InfraChangedConsumer, error) {
+func NewInfrastructureChangedConsumer(client *rabbitmq.Client, poolReg *registry.PoolRegistry, routingReg *registry.RoutingRegistry) (*InfrastructureChangedConsumer, error) {
 	if err := client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange: %w", err)
 	}
@@ -42,7 +42,7 @@ func NewInfraChangedConsumer(client *rabbitmq.Client, poolReg *registry.PoolRegi
 		return nil, fmt.Errorf("failed to bind exclusive queue to exchange: %w", err)
 	}
 
-	return &InfraChangedConsumer{
+	return &InfrastructureChangedConsumer{
 		client:          client,
 		poolRegistry:    poolReg,
 		routingRegistry: routingReg,
@@ -50,7 +50,7 @@ func NewInfraChangedConsumer(client *rabbitmq.Client, poolReg *registry.PoolRegi
 	}, nil
 }
 
-func (c *InfraChangedConsumer) Start(ctx context.Context) error {
+func (c *InfrastructureChangedConsumer) Start(ctx context.Context) error {
 	msgs, err := c.client.Channel.Consume(
 		c.queueName,
 		"",    // auto-generated consumer tag
@@ -78,12 +78,12 @@ func (c *InfraChangedConsumer) Start(ctx context.Context) error {
 
 				var evt domain.InfraChangedEvent
 				if err := json.Unmarshal(d.Body, &evt); err != nil {
-					log.Printf("InfraChangedConsumer Error: Bad payload: %v", err)
+					log.Printf("InfrastructureChangedConsumer Error: Bad payload: %v", err)
 					_ = d.Nack(false, false)
 					continue
 				}
 
-				log.Printf("InfraChangedConsumer: Evicting pool & resetting routing metadata for tenant='%s'", evt.TenantID)
+				log.Printf("InfrastructureChangedConsumer: Evicting pool & resetting routing metadata for tenant='%s'", evt.TenantID)
 				c.poolRegistry.Evict(evt.TenantID)
 				c.routingRegistry.Delete(evt.TenantID)
 				_ = d.Ack(false)

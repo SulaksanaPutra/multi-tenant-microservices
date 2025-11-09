@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"user-service/internal/domain"
-	"user-service/internal/publisher"
 )
 
 const (
@@ -26,9 +25,14 @@ type OutboxRepository interface {
 	MarkPublished(ctx context.Context, id string) error
 }
 
+// UserEventPublisher is the consumer-side interface expected by OutboxWorker.
+type UserEventPublisher interface {
+	PublishUserCreated(ctx context.Context, evt domain.UserCreatedEvent) error
+}
+
 type OutboxWorker struct {
 	outboxRepository OutboxRepository
-	publisher        publisher.UserEventPublisher
+	publisher        UserEventPublisher
 	wakeUpChan       chan struct{}
 	debounceDelay    time.Duration
 	pollInterval     time.Duration
@@ -37,7 +41,7 @@ type OutboxWorker struct {
 
 func NewOutboxWorker(
 	outboxRepository OutboxRepository,
-	publisher publisher.UserEventPublisher,
+	publisher UserEventPublisher,
 ) *OutboxWorker {
 	return &OutboxWorker{
 		outboxRepository: outboxRepository,

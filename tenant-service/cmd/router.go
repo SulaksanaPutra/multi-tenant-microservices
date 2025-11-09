@@ -11,12 +11,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func newRouter(txManager txcontext.TxManager, workspaceService *service.WorkspaceService, internalToken string) http.Handler {
+func newRouter(txManager txcontext.TxManager, workspaceService *service.WorkspaceService, tenantInfrastructureService *service.TenantInfrastructureService, internalToken string) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery(), gin.Logger())
 
-	workspaceHandler := handler.NewWorkspaceHandler(txManager, workspaceService)
+	workspaceHandler := handler.NewWorkspaceHandler(txManager, workspaceService, tenantInfrastructureService)
 
 	// Public registration endpoint
 	r.POST("/api/register", workspaceHandler.RegisterWorkspace)

@@ -12,23 +12,18 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-type TenantEventPublisher interface {
-	PublishWorkspaceInitiated(ctx context.Context, evt domain.WorkspaceInitiatedEvent) error
-	PublishWorkspaceReady(ctx context.Context, evt domain.WorkspaceReadyEvent) error
-}
-
-type RabbitMQTenantPublisher struct {
+type TenantPublisher struct {
 	client *rabbitmq.Client
 }
 
-func NewTenantPublisher(client *rabbitmq.Client) (*RabbitMQTenantPublisher, error) {
+func NewTenantPublisher(client *rabbitmq.Client) (*TenantPublisher, error) {
 	if err := client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange for tenant publisher: %w", err)
 	}
-	return &RabbitMQTenantPublisher{client: client}, nil
+	return &TenantPublisher{client: client}, nil
 }
 
-func (p *RabbitMQTenantPublisher) PublishWorkspaceInitiated(ctx context.Context, evt domain.WorkspaceInitiatedEvent) error {
+func (p *TenantPublisher) PublishWorkspaceInitiated(ctx context.Context, evt domain.WorkspaceInitiatedEvent) error {
 	body, err := json.Marshal(evt)
 	if err != nil {
 		return fmt.Errorf("failed to marshal WorkspaceInitiated event: %w", err)
@@ -51,7 +46,7 @@ func (p *RabbitMQTenantPublisher) PublishWorkspaceInitiated(ctx context.Context,
 	return nil
 }
 
-func (p *RabbitMQTenantPublisher) PublishWorkspaceReady(ctx context.Context, evt domain.WorkspaceReadyEvent) error {
+func (p *TenantPublisher) PublishWorkspaceReady(ctx context.Context, evt domain.WorkspaceReadyEvent) error {
 	body, err := json.Marshal(evt)
 	if err != nil {
 		return fmt.Errorf("failed to marshal WorkspaceReady event: %w", err)
