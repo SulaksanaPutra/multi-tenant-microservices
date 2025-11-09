@@ -48,7 +48,8 @@ func main() {
 
 	// 2. Initialize Repositories & Transaction Manager
 	txManager := txcontext.NewTxManager(dbClient.DB)
-	controlPlaneRepository := repository.NewControlPlaneRepository(dbClient)
+	tenantRepository := repository.NewTenantRepository(dbClient)
+	tenantInfrastructureRepository := repository.NewTenantInfrastructureRepository(dbClient)
 	outboxRepository := repository.NewOutboxRepository(dbClient.DB)
 
 	// 3. Initialize Publisher
@@ -65,13 +66,17 @@ func main() {
 
 	// 5. Initialize Domain Services
 	workspaceService := service.NewWorkspaceService(service.WorkspaceServiceParams{
-		ControlPlaneRepository: controlPlaneRepository,
-		OutboxRepository:       outboxRepository,
-		OutboxWorker:           wRunner.OutboxWorker(),
+		TenantRepository: tenantRepository,
+		OutboxRepository: outboxRepository,
+		OutboxWorker:     wRunner.OutboxWorker(),
+	})
+	tenantInfrastructureService := service.NewTenantInfrastructureService(service.TenantInfrastructureServiceParams{
+		InfrastructureRepository: tenantInfrastructureRepository,
+		WorkspaceActivator:       workspaceService,
 	})
 
 	// 6. Register & Start Inbound Queue Consumers
-	cRunner, err := registerConsumers(txManager, rmqClient, workspaceService)
+	cRunner, err := registerConsumers(txManager, rmqClient, tenantInfrastructureService)
 	if err != nil {
 		log.Fatalf("Failed to register consumers: %v", err)
 	}
@@ -83,7 +88,7 @@ func main() {
 	}
 
 	// 7. Register HTTP Router with Zero-Trust internal token check
-	httpRouter := newRouter(txManager, workspaceService, internalToken)
+	httpRouter := newRouter(txManager, workspaceService, tenantInfrastructureService, internalToken)
 	httpServer := &http.Server{
 		Addr:    ":" + httpPort,
 		Handler: httpRouter,

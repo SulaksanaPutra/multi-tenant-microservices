@@ -12,16 +12,7 @@ import (
 	"tenant-service/internal/txcontext"
 )
 
-type CreateTenantInput struct {
-	ID         string
-	Name       string
-	Slug       string
-	OwnerEmail string
-	OwnerName  string
-	Plan       string
-}
-
-type UpsertServiceInfraInput struct {
+type UpsertServiceInfrastructureInput struct {
 	TenantID    string
 	ServiceName string
 	DBHost      string
@@ -31,30 +22,15 @@ type UpsertServiceInfraInput struct {
 	SchemaName  string
 }
 
-type ControlPlaneRepository struct {
+type TenantInfrastructureRepository struct {
 	dbClient *postgres.Client
 }
 
-func NewControlPlaneRepository(dbClient *postgres.Client) *ControlPlaneRepository {
-	return &ControlPlaneRepository{dbClient: dbClient}
+func NewTenantInfrastructureRepository(dbClient *postgres.Client) *TenantInfrastructureRepository {
+	return &TenantInfrastructureRepository{dbClient: dbClient}
 }
 
-func (r *ControlPlaneRepository) CreateTenant(ctx context.Context, input CreateTenantInput) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
-	const query = `
-		INSERT INTO public.tenants (id, name, slug, owner_email, owner_name, plan, status)
-		VALUES ($1, $2, $3, $4, $5, $6, 'pending');
-	`
-	_, err := exec.ExecContext(ctx, query,
-		input.ID, input.Name, input.Slug, input.OwnerEmail, input.OwnerName, input.Plan,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to insert tenant record: %w", err)
-	}
-	return nil
-}
-
-func (r *ControlPlaneRepository) UpsertServiceInfrastructure(ctx context.Context, input UpsertServiceInfraInput) error {
+func (r *TenantInfrastructureRepository) UpsertServiceInfrastructure(ctx context.Context, input UpsertServiceInfrastructureInput) error {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	const query = `
 		INSERT INTO public.tenant_infrastructures (tenant_id, service_name, db_host, db_port, db_name, db_user, schema_name, checked_in_at)
@@ -83,7 +59,7 @@ func (r *ControlPlaneRepository) UpsertServiceInfrastructure(ctx context.Context
 	return nil
 }
 
-func (r *ControlPlaneRepository) GetPendingServiceCount(ctx context.Context, tenantID string, requiredServices []string) (int, error) {
+func (r *TenantInfrastructureRepository) GetPendingServiceCount(ctx context.Context, tenantID string, requiredServices []string) (int, error) {
 	if len(requiredServices) == 0 {
 		return 0, nil
 	}
@@ -116,19 +92,7 @@ func (r *ControlPlaneRepository) GetPendingServiceCount(ctx context.Context, ten
 	return count, nil
 }
 
-func (r *ControlPlaneRepository) ActivateTenant(ctx context.Context, tenantID string) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
-	const query = `
-		UPDATE public.tenants SET status = 'active' WHERE id = $1;
-	`
-	_, err := exec.ExecContext(ctx, query, tenantID)
-	if err != nil {
-		return fmt.Errorf("failed to activate tenant '%s': %w", tenantID, err)
-	}
-	return nil
-}
-
-func (r *ControlPlaneRepository) GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*domain.TenantInfra, error) {
+func (r *TenantInfrastructureRepository) GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*domain.TenantInfra, error) {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	const query = `
 		SELECT db_host, db_port, db_name, db_user, COALESCE(schema_name, '')
@@ -149,24 +113,4 @@ func (r *ControlPlaneRepository) GetServiceInfrastructure(ctx context.Context, t
 		return nil, fmt.Errorf("failed to query service infrastructure: %w", err)
 	}
 	return &res, nil
-}
-
-func (r *ControlPlaneRepository) GetTenantByID(ctx context.Context, tenantID string) (*domain.Tenant, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
-	const query = `
-		SELECT id, name, slug, owner_email, owner_name, plan, status, created_at
-		FROM public.tenants
-		WHERE id = $1;
-	`
-	var t domain.Tenant
-	err := exec.QueryRowContext(ctx, query, tenantID).Scan(
-		&t.ID, &t.Name, &t.Slug, &t.OwnerEmail, &t.OwnerName, &t.Plan, &t.Status, &t.CreatedAt,
-	)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("tenant '%s' not found", tenantID)
-		}
-		return nil, fmt.Errorf("failed to query tenant by ID: %w", err)
-	}
-	return &t, nil
 }

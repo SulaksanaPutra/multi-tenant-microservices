@@ -11,26 +11,22 @@ import (
 	_ "github.com/lib/pq"
 )
 
-type MigrationService interface {
-	MigrateTenantDB(ctx context.Context, dsn, schemaName string) error
-}
-
-type migrationService struct {
+type MigrationService struct {
 	migrationSQL string
 }
 
-func NewMigrationService(migrationFilePath string) (MigrationService, error) {
+func NewMigrationService(migrationFilePath string) (*MigrationService, error) {
 	migrationBytes, err := os.ReadFile(migrationFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read migration file '%s': %w", migrationFilePath, err)
 	}
 
-	return &migrationService{
+	return &MigrationService{
 		migrationSQL: string(migrationBytes),
 	}, nil
 }
 
-func (s *migrationService) MigrateTenantDB(ctx context.Context, dsn, schemaName string) error {
+func (s *MigrationService) MigrateTenantDB(ctx context.Context, dsn, schemaName string) error {
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return fmt.Errorf("failed to open database connection: %w", err)

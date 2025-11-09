@@ -12,18 +12,18 @@ import (
 	"tenant-service/internal/txcontext"
 )
 
-// WorkspaceService is the consumer-side interface expected by TenantOrderDBReadyConsumer.
-type WorkspaceService interface {
-	HandleInfrastructureUpdate(ctx context.Context, input service.InfraUpdateInput) error
+// TenantInfrastructureService is the consumer-side interface expected by TenantOrderDBReadyConsumer.
+type TenantInfrastructureService interface {
+	HandleInfrastructureUpdate(ctx context.Context, input service.InfrastructureUpdateInput) error
 }
 
 type TenantOrderDBReadyConsumer struct {
-	txManager        txcontext.TxManager
-	client           *rabbitmq.Client
-	workspaceService WorkspaceService
+	txManager                   txcontext.TxManager
+	client                      *rabbitmq.Client
+	tenantInfrastructureService TenantInfrastructureService
 }
 
-func NewTenantOrderDBReadyConsumer(txManager txcontext.TxManager, client *rabbitmq.Client, workspaceService WorkspaceService) (*TenantOrderDBReadyConsumer, error) {
+func NewTenantOrderDBReadyConsumer(txManager txcontext.TxManager, client *rabbitmq.Client, tenantInfrastructureService TenantInfrastructureService) (*TenantOrderDBReadyConsumer, error) {
 	if err := client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange '%s': %w", domain.ExchangeCompanyEvents, err)
 	}
@@ -33,9 +33,9 @@ func NewTenantOrderDBReadyConsumer(txManager txcontext.TxManager, client *rabbit
 	}
 
 	return &TenantOrderDBReadyConsumer{
-		txManager:        txManager,
-		client:           client,
-		workspaceService: workspaceService,
+		txManager:                   txManager,
+		client:                      client,
+		tenantInfrastructureService: tenantInfrastructureService,
 	}, nil
 }
 
@@ -76,7 +76,7 @@ func (c *TenantOrderDBReadyConsumer) Start(ctx context.Context) error {
 
 				// Wrap update handling inside transaction
 				err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-					input := service.InfraUpdateInput{
+					input := service.InfrastructureUpdateInput{
 						TenantID:    evt.TenantID,
 						ServiceName: evt.ServiceName,
 						DBHost:      evt.DBHost,
@@ -85,7 +85,7 @@ func (c *TenantOrderDBReadyConsumer) Start(ctx context.Context) error {
 						DBUser:      evt.DBUser,
 						SchemaName:  evt.SchemaName,
 					}
-					return c.workspaceService.HandleInfrastructureUpdate(txCtx, input)
+					return c.tenantInfrastructureService.HandleInfrastructureUpdate(txCtx, input)
 				})
 
 				if err != nil {

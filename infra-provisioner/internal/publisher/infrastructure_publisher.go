@@ -12,21 +12,21 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-type InfraEventPublisher struct {
+type InfrastructurePublisher struct {
 	client *rabbitmq.Client
 }
 
-func NewInfraPublisher(client *rabbitmq.Client) (*InfraEventPublisher, error) {
+func NewInfrastructurePublisher(client *rabbitmq.Client) (*InfrastructurePublisher, error) {
 	if err := client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange '%s': %w", domain.ExchangeCompanyEvents, err)
 	}
-	return &InfraEventPublisher{client: client}, nil
+	return &InfrastructurePublisher{client: client}, nil
 }
 
-func (p *InfraEventPublisher) PublishInfrastructureProvisioned(ctx context.Context, evt domain.InfrastructureProvisionedEvent) error {
+func (p *InfrastructurePublisher) PublishInfrastructureProvisioned(ctx context.Context, evt domain.InfrastructureProvisionedEvent) error {
 	payload, err := json.Marshal(evt)
 	if err != nil {
-		return fmt.Errorf("infra_publisher: failed to marshal payload: %w", err)
+		return fmt.Errorf("infrastructure_publisher: failed to marshal payload: %w", err)
 	}
 
 	err = p.client.Channel.PublishWithContext(
@@ -41,9 +41,9 @@ func (p *InfraEventPublisher) PublishInfrastructureProvisioned(ctx context.Conte
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("infra_publisher: failed to publish infrastructure.provisioned event: %w", err)
+		return fmt.Errorf("infrastructure_publisher: failed to publish infrastructure.provisioned event: %w", err)
 	}
 
-	log.Printf("InfraPublisher: Published infrastructure.provisioned event_id='%s' tenant_id='%s'", evt.EventID, evt.TenantID)
+	log.Printf("InfrastructurePublisher: Published infrastructure.provisioned event_id='%s' tenant_id='%s'", evt.EventID, evt.TenantID)
 	return nil
 }

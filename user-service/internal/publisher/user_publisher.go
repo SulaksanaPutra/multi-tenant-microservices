@@ -12,22 +12,18 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-type UserEventPublisher interface {
-	PublishUserCreated(ctx context.Context, evt domain.UserCreatedEvent) error
-}
-
-type RabbitMQUserPublisher struct {
+type UserPublisher struct {
 	client *rabbitmq.Client
 }
 
-func NewUserPublisher(client *rabbitmq.Client) (*RabbitMQUserPublisher, error) {
+func NewUserPublisher(client *rabbitmq.Client) (*UserPublisher, error) {
 	if err := client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange for user publisher: %w", err)
 	}
-	return &RabbitMQUserPublisher{client: client}, nil
+	return &UserPublisher{client: client}, nil
 }
 
-func (p *RabbitMQUserPublisher) PublishUserCreated(ctx context.Context, evt domain.UserCreatedEvent) error {
+func (p *UserPublisher) PublishUserCreated(ctx context.Context, evt domain.UserCreatedEvent) error {
 	body, err := json.Marshal(evt)
 	if err != nil {
 		return fmt.Errorf("failed to marshal UserCreated event: %w", err)

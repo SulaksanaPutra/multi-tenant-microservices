@@ -9,11 +9,10 @@ import (
 
 	"infra-provisioner/internal/domain"
 	"infra-provisioner/internal/infrastructure/rabbitmq"
-	"infra-provisioner/internal/publisher"
 )
 
-// InfraEventPublisher is the consumer-side interface expected by WorkspaceInitiatedConsumer.
-type InfraEventPublisher interface {
+// InfrastructureEventPublisher is the consumer-side interface expected by WorkspaceInitiatedConsumer.
+type InfrastructureEventPublisher interface {
 	PublishInfrastructureProvisioned(ctx context.Context, evt domain.InfrastructureProvisionedEvent) error
 }
 
@@ -24,7 +23,7 @@ type Provisioner interface {
 
 type WorkspaceInitiatedConsumer struct {
 	client            *rabbitmq.Client
-	publisher         InfraEventPublisher
+	publisher         InfrastructureEventPublisher
 	provisioner       Provisioner
 	infraMasterSecret string
 	domainSecrets     map[string]string
@@ -33,7 +32,7 @@ type WorkspaceInitiatedConsumer struct {
 
 type Params struct {
 	Client            *rabbitmq.Client
-	Publisher         InfraEventPublisher
+	Publisher         InfrastructureEventPublisher
 	Provisioner       Provisioner
 	InfraMasterSecret string
 	DomainSecrets     map[string]string

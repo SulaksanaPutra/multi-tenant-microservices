@@ -47,9 +47,9 @@ func main() {
 	}
 
 	// 3. Initialize Publisher & Consumer
-	infraPub, err := publisher.NewInfraPublisher(rmqClient)
+	infraPub, err := publisher.NewInfrastructurePublisher(rmqClient)
 	if err != nil {
-		log.Fatalf("Failed to initialize InfraPublisher: %v", err)
+		log.Fatalf("Failed to initialize InfrastructurePublisher: %v", err)
 	}
 
 	wiConsumer, err := consumer.NewWorkspaceInitiatedConsumer(consumer.Params{

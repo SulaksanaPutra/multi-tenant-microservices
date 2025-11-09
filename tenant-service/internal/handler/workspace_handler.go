@@ -33,18 +33,24 @@ type GetInfrastructureResponse struct {
 // WorkspaceService is the consumer-side interface expected by WorkspaceHandler.
 type WorkspaceService interface {
 	RegisterWorkspace(ctx context.Context, input service.RegisterWorkspaceInput) (*service.RegisterWorkspaceOutput, error)
+}
+
+// TenantInfrastructureService is the consumer-side interface expected by WorkspaceHandler.
+type TenantInfrastructureService interface {
 	GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*service.RoutingOutput, error)
 }
 
 type WorkspaceHandler struct {
-	txManager        txcontext.TxManager
-	workspaceService WorkspaceService
+	txManager                   txcontext.TxManager
+	workspaceService            WorkspaceService
+	tenantInfrastructureService TenantInfrastructureService
 }
 
-func NewWorkspaceHandler(txManager txcontext.TxManager, workspaceService WorkspaceService) *WorkspaceHandler {
+func NewWorkspaceHandler(txManager txcontext.TxManager, workspaceService WorkspaceService, tenantInfrastructureService TenantInfrastructureService) *WorkspaceHandler {
 	return &WorkspaceHandler{
-		txManager:        txManager,
-		workspaceService: workspaceService,
+		txManager:                   txManager,
+		workspaceService:            workspaceService,
+		tenantInfrastructureService: tenantInfrastructureService,
 	}
 }
 
@@ -87,7 +93,7 @@ func (h *WorkspaceHandler) GetServiceInfrastructure(c *gin.Context) {
 		return
 	}
 
-	output, err := h.workspaceService.GetServiceInfrastructure(c.Request.Context(), tenantID, serviceName)
+	output, err := h.tenantInfrastructureService.GetServiceInfrastructure(c.Request.Context(), tenantID, serviceName)
 	if err != nil {
 		httputil.WriteError(c, http.StatusNotFound, err.Error())
 		return
