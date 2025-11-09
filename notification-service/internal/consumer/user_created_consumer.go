@@ -9,20 +9,24 @@ import (
 	"notification-service/internal/domain"
 	"notification-service/internal/infrastructure/rabbitmq"
 	"notification-service/internal/service"
-	"notification-service/internal/txcontext"
 )
+
+// TxManager is the consumer-side interface expected by UserCreatedConsumer.
+type TxManager interface {
+	WithTransaction(ctx context.Context, fn func(txCtx context.Context) error) error
+}
 
 type NotificationService interface {
 	ProcessEventAndTrySendWelcome(ctx context.Context, input service.ProcessEventInput) error
 }
 
 type UserCreatedConsumer struct {
-	txManager           txcontext.TxManager
+	txManager           TxManager
 	client              *rabbitmq.Client
 	notificationService NotificationService
 }
 
-func NewUserCreatedConsumer(txManager txcontext.TxManager, client *rabbitmq.Client, notifSvc NotificationService) (*UserCreatedConsumer, error) {
+func NewUserCreatedConsumer(txManager TxManager, client *rabbitmq.Client, notifSvc NotificationService) (*UserCreatedConsumer, error) {
 	if err := client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange: %w", err)
 	}

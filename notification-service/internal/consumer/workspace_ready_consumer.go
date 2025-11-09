@@ -9,16 +9,15 @@ import (
 	"notification-service/internal/domain"
 	"notification-service/internal/infrastructure/rabbitmq"
 	"notification-service/internal/service"
-	"notification-service/internal/txcontext"
 )
 
 type WorkspaceReadyConsumer struct {
-	txManager           txcontext.TxManager
+	txManager           TxManager
 	client              *rabbitmq.Client
 	notificationService NotificationService
 }
 
-func NewWorkspaceReadyConsumer(txManager txcontext.TxManager, client *rabbitmq.Client, notifSvc NotificationService) (*WorkspaceReadyConsumer, error) {
+func NewWorkspaceReadyConsumer(txManager TxManager, client *rabbitmq.Client, notifSvc NotificationService) (*WorkspaceReadyConsumer, error) {
 	if err := client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange: %w", err)
 	}

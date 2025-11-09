@@ -48,7 +48,7 @@ func main() {
 	txManager := txcontext.NewTxManager(dbClient.DB)
 	userRepository := repository.NewUserRepository(dbClient)
 	inboxRepository := repository.NewInboxRepository(dbClient)
-	outboxRepository := repository.NewOutboxRepository(dbClient.DB)
+	outboxRepository := repository.NewOutboxRepository(dbClient)
 
 	// Initialize Publisher
 	userPublisher, err := publisher.NewUserPublisher(rmqClient)

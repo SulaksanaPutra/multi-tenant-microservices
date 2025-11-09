@@ -9,8 +9,12 @@ import (
 	"tenant-service/internal/domain"
 	"tenant-service/internal/infrastructure/rabbitmq"
 	"tenant-service/internal/service"
-	"tenant-service/internal/txcontext"
 )
+
+// TxManager is the consumer-side interface expected by TenantOrderDBReadyConsumer.
+type TxManager interface {
+	WithTransaction(ctx context.Context, fn func(txCtx context.Context) error) error
+}
 
 // TenantInfrastructureService is the consumer-side interface expected by TenantOrderDBReadyConsumer.
 type TenantInfrastructureService interface {
@@ -18,12 +22,12 @@ type TenantInfrastructureService interface {
 }
 
 type TenantOrderDBReadyConsumer struct {
-	txManager                   txcontext.TxManager
+	txManager                   TxManager
 	client                      *rabbitmq.Client
 	tenantInfrastructureService TenantInfrastructureService
 }
 
-func NewTenantOrderDBReadyConsumer(txManager txcontext.TxManager, client *rabbitmq.Client, tenantInfrastructureService TenantInfrastructureService) (*TenantOrderDBReadyConsumer, error) {
+func NewTenantOrderDBReadyConsumer(txManager TxManager, client *rabbitmq.Client, tenantInfrastructureService TenantInfrastructureService) (*TenantOrderDBReadyConsumer, error) {
 	if err := client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange '%s': %w", domain.ExchangeCompanyEvents, err)
 	}

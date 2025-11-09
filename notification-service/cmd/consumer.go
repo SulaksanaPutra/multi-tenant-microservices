@@ -15,7 +15,7 @@ type consumerRunner struct {
 	userCreatedConsumer    *consumer.UserCreatedConsumer
 }
 
-func registerConsumers(txManager txcontext.TxManager, rmqClient *rabbitmq.Client, notifService *service.NotificationService) (*consumerRunner, error) {
+func registerConsumers(txManager *txcontext.SQLTxManager, rmqClient *rabbitmq.Client, notifService *service.NotificationService) (*consumerRunner, error) {
 	workspaceReadyConsumer, err := consumer.NewWorkspaceReadyConsumer(txManager, rmqClient, notifService)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize WorkspaceReadyConsumer: %w", err)

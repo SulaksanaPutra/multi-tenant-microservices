@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func newRouter(txManager txcontext.TxManager, workspaceService *service.WorkspaceService, tenantInfrastructureService *service.TenantInfrastructureService, internalToken string) http.Handler {
+func newRouter(txManager *txcontext.SQLTxManager, workspaceService *service.WorkspaceService, tenantInfrastructureService *service.TenantInfrastructureService, internalToken string) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery(), gin.Logger())
