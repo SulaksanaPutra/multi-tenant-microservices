@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"log"
 	"sync"
 )
 
@@ -52,11 +53,11 @@ func (r *RoutingRegistry) Delete(tenantID string) {
 	delete(r.routes, tenantID)
 }
 
-// PurgeAll clears all stored tenant routing metadata. Thread-safe.
+// PurgeAll clears all stored tenant routing metadata using an O(1) map swap. Thread-safe.
 func (r *RoutingRegistry) PurgeAll() {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	count := len(r.routes)
 	r.routes = make(map[string]RoutingMetadata)
+	r.mu.Unlock() // Release before logging — no need to hold lock during I/O.
 	log.Printf("RoutingRegistry: Purged all tenant routes (%d routes evicted)", count)
 }

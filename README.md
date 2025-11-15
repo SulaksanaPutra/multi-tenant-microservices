@@ -26,7 +26,7 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
       │                                             │
       │         ┌───────────────────────────────────┼─────────────────────────┬─────────────────────────┐
       │         ▼                                   ▼                         ▼                         ▼
-      └─────► POST / GET /api/orders   [ infra-provisioner ]      [ user-service :8081 ]   [ notification-service :8084 ]
+      └─────► POST / GET /api/orders   [ infra-provisioner ]      [ user-service :8081 ]   [ notification-service :8083 ]
                      │                 (Docker Worker, QoS=1)                 │                         │
                      ▼                         │                              ▼                         ▼
             [ order-service :8084 ]            ▼ Publish:               [ userDB ]            [ notificationDB ]
@@ -223,7 +223,7 @@ microservice-api/
 │   └── Dockerfile
 │
 ├── notification-service/         # Async Notification Worker
-│   ├── cmd/main.go               # Port 8084 - Mailpit Dispatcher & Audit Logger
+│   ├── cmd/main.go               # Port 8083 - Mailpit Dispatcher & Audit Logger
 │   └── Dockerfile
 │
 ├── infrastructure/               # Shared Infrastructure & Docker Topology
@@ -249,7 +249,7 @@ microservice-api/
 | **tenant-service** | `8082` | `tenant-service:8082` | Control plane registry & registration API |
 | **order-service** | `8084` | `order-service:8084` | Orders data plane & migration consumer |
 | **user-service** | `8081` | `user-service:8081` | User profile service |
-| **notification-service** | `8084` | `notification-service:8084` | Email notification worker |
+| **notification-service** | `8083` | `notification-service:8083` | Email notification worker |
 | **infra-provisioner** | *None* | *Internal Worker* | Docker container provisioner (QoS=1, isolated socket) |
 | **RabbitMQ Management**| `15672` | `http://localhost:15672` | Queue dashboard (`guest` / `guest`) |
 | **Mailpit Dashboard** | `8025` | `http://localhost:8025` | Mock email inbox UI |
