@@ -39,6 +39,11 @@ type Resolver struct {
 
 	sharedPoolMu sync.Mutex
 	sharedPool   *sql.DB
+
+	// httpSemaphore caps concurrent outbound routing fetches to tenant-service.
+	// When all 50 tokens are held, new callers are rejected immediately (fail-fast)
+	// rather than blocking a Gin HTTP worker goroutine and risking worker-pool starvation.
+	httpSemaphore chan struct{}
 }
 
 type Params struct {
@@ -71,6 +76,10 @@ func NewResolver(params Params) *Resolver {
 		internalServiceToken: token,
 		sharedSecret:         params.SharedSecret,
 		sharedDBPass:         pass,
+		// 50 concurrent control-plane fetches is a generous ceiling that protects
+		// tenant-service's PostgreSQL connection pool while still absorbing normal
+		// burst traffic after a cache purge.
+		httpSemaphore: make(chan struct{}, 50),
 	}
 }
 
@@ -191,6 +200,22 @@ func (r *Resolver) openDedicatedPool(tenantID string, meta registry.RoutingMetad
 }
 
 func (r *Resolver) fetchRoutingFromService(ctx context.Context, tenantID string) (registry.RoutingMetadata, error) {
+	// Attempt to acquire a concurrency token without blocking.
+	// If 50 fetches are already in-flight and the control plane is slow, the 51st
+	// request returns immediately so the Gin HTTP worker goroutine is freed.
+	// The client receives a retriable error; warm-tenant requests are unaffected.
+	select {
+	case r.httpSemaphore <- struct{}{}:
+		defer func() { <-r.httpSemaphore }()
+	case <-ctx.Done():
+		return registry.RoutingMetadata{}, ctx.Err()
+	default:
+		// Fail fast — do not hoard a Gin HTTP worker goroutine.
+		return registry.RoutingMetadata{}, fmt.Errorf(
+			"tenantdb: control plane fetch limit reached, shedding load for tenant '%s'", tenantID,
+		)
+	}
+
 	url := fmt.Sprintf("%s/internal/tenants/%s/infrastructure/order-service", r.tenantServiceURL, tenantID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

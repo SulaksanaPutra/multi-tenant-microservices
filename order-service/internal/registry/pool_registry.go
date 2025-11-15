@@ -23,6 +23,10 @@ const (
 
 	// fetchTimeout limits how long a singleflight DSN fetch & pool open can take.
 	fetchTimeout = 5 * time.Second
+
+	// cleanupQueueCapacity is the buffer depth for the backgroundSweeper channel.
+	// Absorbs up to 5 rapid PurgeAll() calls before the overflow goroutine path is taken.
+	cleanupQueueCapacity = 5
 )
 
 type poolEntry struct {
@@ -55,23 +59,35 @@ func WithTTL(ttl time.Duration) PoolRegistryOption {
 }
 
 // PoolRegistry is a thread-safe, Bounded LRU cache of tenant *sql.DB pools.
+// A single backgroundSweeper goroutine owns all async pool cleanup — preventing
+// the goroutine leak that would result from spawning inline goroutines per eviction.
 type PoolRegistry struct {
 	mu          sync.RWMutex
 	entries     map[string]*poolEntry
 	maxCapacity int
 	ttl         time.Duration
 	sfGroup     singleflight.Group
+
+	// cleanupQueue receives maps of stale pool entries from PurgeAll().
+	// The backgroundSweeper goroutine is the sole consumer.
+	// Bounded at cleanupQueueCapacity to prevent unbounded memory growth on broker flap.
+	cleanupQueue chan map[string]*poolEntry
 }
 
 func NewPoolRegistry(opts ...PoolRegistryOption) *PoolRegistry {
 	pr := &PoolRegistry{
-		entries:     make(map[string]*poolEntry),
-		maxCapacity: defaultMaxDedicatedCapacity,
-		ttl:         defaultTTL,
+		entries:      make(map[string]*poolEntry),
+		maxCapacity:  defaultMaxDedicatedCapacity,
+		ttl:          defaultTTL,
+		cleanupQueue: make(chan map[string]*poolEntry, cleanupQueueCapacity),
 	}
 	for _, opt := range opts {
 		opt(pr)
 	}
+	// Start the single long-lived sweeper goroutine.
+	// Explicit goroutine ownership: this goroutine is the only one that closes *sql.DB handles
+	// from PurgeAll(), and it terminates when cleanupQueue is closed (on closeAll()).
+	go pr.backgroundSweeper()
 	return pr
 }
 
@@ -120,7 +136,6 @@ func (r *PoolRegistry) GetOrFetch(tenantID string, fetchDSN func() (*sql.DB, str
 		if len(r.entries) >= r.maxCapacity {
 			r.evictLRULocked()
 		}
-
 		r.entries[tenantID] = &poolEntry{db: db, schemaName: schemaName, lastUsed: time.Now()}
 		r.mu.Unlock()
 
@@ -176,21 +191,58 @@ func (r *PoolRegistry) Evict(tenantID string) {
 	log.Printf("PoolRegistry: Evicted dedicated pool for tenant '%s'", tenantID)
 }
 
-// PurgeAll closes and removes all tenant database connection pools. Thread-safe.
+// PurgeAll evicts every tenant pool from the registry in O(1) time and schedules
+// their graceful closure without holding the global write lock.
+//
+// Mechanism:
+//  1. Swap the live entries map for a new empty map under the write lock — O(1), minimal lock hold time.
+//  2. Hand the stale map to backgroundSweeper via cleanupQueue (non-blocking).
+//  3. If cleanupQueue is full (extreme broker flapping), spawn an overflow goroutine.
+//     The overflow goroutine violates strict bounded-goroutine policy, but this is the
+//     lesser evil: dropping *sql.DB pointers without Close() leaves TCP sockets in
+//     ESTABLISHED/CLOSE_WAIT, eventually causing "too many open files".
 func (r *PoolRegistry) PurgeAll() {
 	r.mu.Lock()
-	toClose := make(map[string]*sql.DB)
-	for tenantID, entry := range r.entries {
-		toClose[tenantID] = entry.db
-		delete(r.entries, tenantID)
-	}
+	staleEntries := r.entries
+	r.entries = make(map[string]*poolEntry) // O(1) pointer swap — lock released immediately after
 	r.mu.Unlock()
 
-	for tenantID, db := range toClose {
-		r.sfGroup.Forget(tenantID)
-		r.closePoolGracefully(db, tenantID)
+	count := len(staleEntries)
+	if count == 0 {
+		return
 	}
-	log.Printf("PoolRegistry: Purged all tenant connection pools (%d pools evicted)", len(toClose))
+
+	// Primary path: hand stale map to the backgroundSweeper non-blocking.
+	select {
+	case r.cleanupQueue <- staleEntries:
+		log.Printf("PoolRegistry: PurgeAll queued cleanup of %d pools", count)
+	default:
+		// The sweeper is overwhelmed (extreme broker flapping, queue at capacity).
+		// We CANNOT drop this map: the Go GC does not call db.Close() when *sql.DB
+		// pointers become unreachable. Underlying TCP sockets persist in ESTABLISHED or
+		// CLOSE_WAIT until the database server force-kills them or the OS exhausts
+		// ephemeral ports with "too many open files".
+		// Spawn an overflow goroutine as the lesser evil to guarantee FD reclamation.
+		go func(m map[string]*poolEntry) {
+			log.Printf("WARN: PoolRegistry cleanup queue full; spawning overflow worker to prevent FD leak (%d pools)", len(m))
+			for tenantID, entry := range m {
+				r.sfGroup.Forget(tenantID)
+				r.closePoolGracefully(entry.db, tenantID)
+			}
+		}(staleEntries)
+	}
+}
+
+// backgroundSweeper is the single long-lived goroutine that drains the cleanupQueue.
+// It terminates when cleanupQueue is closed (triggered by closeAll() on graceful shutdown).
+func (r *PoolRegistry) backgroundSweeper() {
+	for stale := range r.cleanupQueue {
+		for tenantID, entry := range stale {
+			r.sfGroup.Forget(tenantID)
+			r.closePoolGracefully(entry.db, tenantID)
+		}
+		log.Printf("PoolRegistry: backgroundSweeper drained a cleanup batch of %d pools", len(stale))
+	}
 }
 
 // StartReaper launches a background goroutine that periodically closes idle pools.
@@ -247,14 +299,21 @@ func (r *PoolRegistry) reap() {
 	}
 }
 
+// closeAll drains and closes all remaining pools on graceful shutdown.
+// Closing cleanupQueue terminates the backgroundSweeper goroutine cleanly.
 func (r *PoolRegistry) closeAll() {
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	remaining := r.entries
+	r.entries = make(map[string]*poolEntry)
+	r.mu.Unlock()
 
-	for tenantID, entry := range r.entries {
+	for tenantID, entry := range remaining {
 		r.closePoolGracefully(entry.db, tenantID)
-		delete(r.entries, tenantID)
+		delete(remaining, tenantID)
 	}
+
+	// Signal the backgroundSweeper to exit after draining any queued batches.
+	close(r.cleanupQueue)
 	log.Printf("PoolRegistry: All pools scheduled for graceful close.")
 }
 
@@ -283,4 +342,3 @@ func (r *PoolRegistry) closePoolGracefully(db *sql.DB, tenantID string) {
 		}
 	}()
 }
-

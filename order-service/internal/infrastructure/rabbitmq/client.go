@@ -5,35 +5,63 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+// Client wraps an AMQP connection with automatic reconnection, a connection-lifetime
+// context for instant disconnect detection, and a closed-channel broadcast for
+// zero-CPU reconnect waiting.
 type Client struct {
-	mu          sync.RWMutex
-	amqpURL     string
-	Conn        *amqp.Connection
-	Channel     *amqp.Channel
-	reconnectCh chan struct{}
-	isClosed    bool
+	mu      sync.RWMutex
+	amqpURL string
+	Conn    *amqp.Connection
+	Channel *amqp.Channel
+
+	isClosed bool
+
+	// ctx is cancelled the instant the TCP socket drops — before any retry sleep.
+	// Consumers select on <-client.ConnContext().Done() to detect disconnect immediately.
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	// readyCh is closed when the connection is ready.
+	// It is reset to a new unclosed channel on each disconnect, then closed again
+	// after a successful reconnect. Consumers call WaitUntilReady(ctx) to park
+	// with zero CPU until the connection is re-established.
+	readyCh chan struct{}
 }
 
 func NewClient(amqpURL string) (*Client, error) {
-	client := &Client{
-		amqpURL:     amqpURL,
-		reconnectCh: make(chan struct{}, 1),
+	// Initialize ctx, cancel, and readyCh at construction time.
+	// This guarantees ConnContext() and WaitUntilReady() are always safe to call —
+	// even if invoked by consumers before the first watchConnection() cycle completes.
+	ctx, cancel := context.WithCancel(context.Background())
+	c := &Client{
+		amqpURL: amqpURL,
+		ctx:     ctx,
+		cancel:  cancel,
+		readyCh: make(chan struct{}),
 	}
 
-	if err := client.connect(); err != nil {
-		return nil, err
+	if err := c.connect(); err != nil {
+		cancel()
+		return nil, fmt.Errorf("rabbitmq: initial connection failed: %w", err)
 	}
 
-	go client.watchConnection()
+	// Signal that the initial connection is ready.
+	// Consumers calling WaitUntilReady() before Start() returns will unblock instantly.
+	close(c.readyCh)
 
-	return client, nil
+	go c.watchConnection()
+
+	return c, nil
 }
 
+// connect dials RabbitMQ and opens a channel. It retries up to 10 times with a
+// 2-second sleep between attempts. It is called from NewClient() and watchConnection().
 func (c *Client) connect() error {
 	var conn *amqp.Connection
 	var err error
@@ -66,6 +94,9 @@ func (c *Client) connect() error {
 	return nil
 }
 
+// watchConnection monitors the active connection and drives the reconnect lifecycle.
+// On socket drop it immediately cancels the connection context (notifying all consumers
+// before any sleep), resets readyCh, then reconnects and broadcasts recovery.
 func (c *Client) watchConnection() {
 	for {
 		c.mu.RLock()
@@ -81,18 +112,30 @@ func (c *Client) watchConnection() {
 			continue
 		}
 
+		// Block until the broker closes the connection.
 		closeErr := <-conn.NotifyClose(make(chan *amqp.Error, 1))
+
 		c.mu.RLock()
 		closed := c.isClosed
 		c.mu.RUnlock()
-
 		if closed {
 			return
 		}
 
+		// 1. Immediately cancel the connection context.
+		//    Any goroutine selecting on <-c.ConnContext().Done() receives the signal
+		//    right now — before the first time.Sleep(2s) in the reconnect loop below.
+		//    cancel() is idempotent and non-blocking.
+		c.mu.Lock()
+		c.cancel()
+		// 2. Reset readyCh so that consumers calling WaitUntilReady() will block
+		//    until the new connection is ready.
+		c.readyCh = make(chan struct{})
+		c.mu.Unlock()
+
 		log.Printf("Order Service RabbitMQ Driver: Connection dropped (reason: %v). Attempting reconnection...", closeErr)
 
-		// Reconnection loop with backoff
+		// 3. Reconnect loop with fixed 2-second backoff at the driver level.
 		for {
 			c.mu.RLock()
 			if c.isClosed {
@@ -102,12 +145,15 @@ func (c *Client) watchConnection() {
 			c.mu.RUnlock()
 
 			if err := c.connect(); err == nil {
+				c.mu.Lock()
+				// 4. Fresh context for the new connection lifetime.
+				c.ctx, c.cancel = context.WithCancel(context.Background())
+				// 5. Broadcast reconnection to all WaitUntilReady() callers.
+				//    Closing a channel wakes every goroutine blocked on <-readyCh simultaneously.
+				close(c.readyCh)
+				c.mu.Unlock()
+
 				log.Println("Order Service RabbitMQ Driver: Reconnection established successfully!")
-				// Broadcast notification to active consumers
-				select {
-				case c.reconnectCh <- struct{}{}:
-				default:
-				}
 				break
 			}
 			time.Sleep(2 * time.Second)
@@ -115,9 +161,28 @@ func (c *Client) watchConnection() {
 	}
 }
 
-// NotifyReconnect returns a channel that receives a signal when RabbitMQ reconnects.
-func (c *Client) NotifyReconnect() <-chan struct{} {
-	return c.reconnectCh
+// ConnContext returns the context bound to the current active AMQP connection lifetime.
+// It is cancelled the instant the TCP socket drops, before any reconnect retry sleep.
+// Always returns a non-nil context (initialized in NewClient).
+func (c *Client) ConnContext() context.Context {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.ctx
+}
+
+// WaitUntilReady blocks until the RabbitMQ connection is established or ctx is cancelled.
+// Uses a closed-channel broadcast — zero CPU footprint while waiting.
+func (c *Client) WaitUntilReady(ctx context.Context) error {
+	c.mu.RLock()
+	ready := c.readyCh
+	c.mu.RUnlock()
+
+	select {
+	case <-ready:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (c *Client) DeclareExchange(name, kind string) error {
@@ -181,6 +246,7 @@ func (c *Client) PublishEvent(ctx context.Context, exchangeName, routingKey stri
 func (c *Client) Close() {
 	c.mu.Lock()
 	c.isClosed = true
+	c.cancel()
 	ch := c.Channel
 	conn := c.Conn
 	c.mu.Unlock()
