@@ -176,6 +176,23 @@ func (r *PoolRegistry) Evict(tenantID string) {
 	log.Printf("PoolRegistry: Evicted dedicated pool for tenant '%s'", tenantID)
 }
 
+// PurgeAll closes and removes all tenant database connection pools. Thread-safe.
+func (r *PoolRegistry) PurgeAll() {
+	r.mu.Lock()
+	toClose := make(map[string]*sql.DB)
+	for tenantID, entry := range r.entries {
+		toClose[tenantID] = entry.db
+		delete(r.entries, tenantID)
+	}
+	r.mu.Unlock()
+
+	for tenantID, db := range toClose {
+		r.sfGroup.Forget(tenantID)
+		r.closePoolGracefully(db, tenantID)
+	}
+	log.Printf("PoolRegistry: Purged all tenant connection pools (%d pools evicted)", len(toClose))
+}
+
 // StartReaper launches a background goroutine that periodically closes idle pools.
 func (r *PoolRegistry) StartReaper(ctx context.Context) {
 	go func() {
