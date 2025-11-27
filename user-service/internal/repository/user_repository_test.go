@@ -9,10 +9,9 @@ import (
 
 	"user-service/internal/domain"
 	"user-service/internal/infrastructure/postgres"
+	"user-service/internal/testutil"
 	"user-service/internal/txcontext"
 )
-
-
 
 func TestUserRepository_Constructor(t *testing.T) {
 	client := &postgres.Client{}
@@ -26,8 +25,8 @@ func TestUserRepository_CreateUser_Success(t *testing.T) {
 	var capturedQuery string
 	var capturedArgs []any
 
-	mockExec := &mockDBExecutor{
-		execContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
 			capturedQuery = query
 			capturedArgs = args
 			return nil, nil
@@ -64,8 +63,8 @@ func TestUserRepository_CreateUser_Success(t *testing.T) {
 
 func TestUserRepository_CreateUser_Error(t *testing.T) {
 	dbErr := errors.New("database connection error")
-	mockExec := &mockDBExecutor{
-		execContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
 			return nil, dbErr
 		},
 	}
