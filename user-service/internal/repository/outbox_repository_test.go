@@ -9,9 +9,9 @@ import (
 
 	"user-service/internal/domain"
 	"user-service/internal/infrastructure/postgres"
+	"user-service/internal/testutil"
 	"user-service/internal/txcontext"
 )
-
 
 func TestSanitizeError(t *testing.T) {
 	tests := []struct {
@@ -70,8 +70,8 @@ func TestOutboxRepository_CreateOutboxMessage_Success(t *testing.T) {
 	var capturedQuery string
 	var capturedArgs []any
 
-	mockExec := &mockDBExecutor{
-		execContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
 			capturedQuery = query
 			capturedArgs = args
 			return nil, nil
@@ -110,8 +110,8 @@ func TestOutboxRepository_CreateOutboxMessage_Success(t *testing.T) {
 
 func TestOutboxRepository_CreateOutboxMessage_Error(t *testing.T) {
 	dbErr := errors.New("db insert fail")
-	mockExec := &mockDBExecutor{
-		execContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
 			return nil, dbErr
 		},
 	}
@@ -134,8 +134,8 @@ func TestOutboxRepository_CreateOutboxMessage_Error(t *testing.T) {
 
 func TestOutboxRepository_FetchAndClaimBatch_QueryError(t *testing.T) {
 	dbErr := errors.New("query error")
-	mockExec := &mockDBExecutor{
-		queryContextFn: func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	mockExec := &testutil.MockDBExecutor{
+		QueryContextFn: func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 			return nil, dbErr
 		},
 	}
@@ -158,8 +158,8 @@ func TestOutboxRepository_RecoverStuckClaims_Success(t *testing.T) {
 	var capturedQuery string
 	var capturedArgs []any
 
-	mockExec := &mockDBExecutor{
-		execContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
 			capturedQuery = query
 			capturedArgs = args
 			return nil, nil
@@ -185,8 +185,8 @@ func TestOutboxRepository_RecoverStuckClaims_Success(t *testing.T) {
 
 func TestOutboxRepository_RecoverStuckClaims_Error(t *testing.T) {
 	dbErr := errors.New("recover error")
-	mockExec := &mockDBExecutor{
-		execContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
 			return nil, dbErr
 		},
 	}
@@ -207,8 +207,8 @@ func TestOutboxRepository_MarkPublished_Success(t *testing.T) {
 	var capturedQuery string
 	var capturedArgs []any
 
-	mockExec := &mockDBExecutor{
-		execContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
 			capturedQuery = query
 			capturedArgs = args
 			return nil, nil
@@ -233,8 +233,8 @@ func TestOutboxRepository_MarkPublished_Success(t *testing.T) {
 
 func TestOutboxRepository_MarkPublished_Error(t *testing.T) {
 	dbErr := errors.New("publish mark fail")
-	mockExec := &mockDBExecutor{
-		execContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
 			return nil, dbErr
 		},
 	}
@@ -254,8 +254,8 @@ func TestOutboxRepository_MarkPublished_Error(t *testing.T) {
 func TestOutboxRepository_MarkFailed_Success(t *testing.T) {
 	var capturedArgs []any
 
-	mockExec := &mockDBExecutor{
-		execContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
 			capturedArgs = args
 			return nil, nil
 		},
@@ -286,8 +286,8 @@ func TestOutboxRepository_MarkFailed_Success(t *testing.T) {
 
 func TestOutboxRepository_MarkFailed_Error(t *testing.T) {
 	dbErr := errors.New("fail mark fail")
-	mockExec := &mockDBExecutor{
-		execContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
 			return nil, dbErr
 		},
 	}

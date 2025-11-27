@@ -9,6 +9,7 @@ import (
 
 	"notification-service/internal/domain"
 	"notification-service/internal/infrastructure/postgres"
+	"notification-service/internal/testutil"
 	"notification-service/internal/txcontext"
 )
 
@@ -21,7 +22,7 @@ func TestNotificationRepository_Constructor(t *testing.T) {
 }
 
 func TestNotificationRepository_CreateNotificationLog_Error(t *testing.T) {
-	mockExec := &mockDBExecutor{}
+	mockExec := &testutil.MockDBExecutor{}
 
 	repo := NewNotificationRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
@@ -48,7 +49,7 @@ func TestNotificationRepository_CreateNotificationLog_Error(t *testing.T) {
 }
 
 func TestNotificationRepository_HasSentNotification_Error(t *testing.T) {
-	mockExec := &mockDBExecutor{}
+	mockExec := &testutil.MockDBExecutor{}
 
 	repo := NewNotificationRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
@@ -67,8 +68,8 @@ func TestNotificationRepository_HasSentNotification_Error(t *testing.T) {
 
 func TestNotificationRepository_ListNotifications_WithTenant_QueryError(t *testing.T) {
 	dbErr := errors.New("query notifications by tenant error")
-	mockExec := &mockDBExecutor{
-		queryContextFn: func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	mockExec := &testutil.MockDBExecutor{
+		QueryContextFn: func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 			if !strings.Contains(query, "WHERE tenant_id = $1") {
 				t.Errorf("expected tenant_id query, got %s", query)
 			}
@@ -96,8 +97,8 @@ func TestNotificationRepository_ListNotifications_WithTenant_QueryError(t *testi
 
 func TestNotificationRepository_ListNotifications_All_QueryError(t *testing.T) {
 	dbErr := errors.New("query all notifications error")
-	mockExec := &mockDBExecutor{
-		queryContextFn: func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	mockExec := &testutil.MockDBExecutor{
+		QueryContextFn: func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 			if !strings.Contains(query, "LIMIT 50") {
 				t.Errorf("expected LIMIT 50 query when tenantID is empty, got %s", query)
 			}

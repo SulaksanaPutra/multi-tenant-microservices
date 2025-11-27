@@ -9,6 +9,7 @@ import (
 
 	"notification-service/internal/domain"
 	"notification-service/internal/infrastructure/postgres"
+	"notification-service/internal/testutil"
 	"notification-service/internal/txcontext"
 
 	"github.com/lib/pq"
@@ -26,8 +27,8 @@ func TestInboxRepository_TryInsert_Success(t *testing.T) {
 	var capturedQuery string
 	var capturedArgs []any
 
-	mockExec := &mockDBExecutor{
-		execContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
 			capturedQuery = query
 			capturedArgs = args
 			return nil, nil
@@ -66,8 +67,8 @@ func TestInboxRepository_TryInsert_Success(t *testing.T) {
 
 func TestInboxRepository_TryInsert_DuplicatePqError(t *testing.T) {
 	pqErr := &pq.Error{Code: "23505", Message: "duplicate key value violates unique constraint"}
-	mockExec := &mockDBExecutor{
-		execContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
 			return nil, pqErr
 		},
 	}
@@ -87,8 +88,8 @@ func TestInboxRepository_TryInsert_DuplicatePqError(t *testing.T) {
 
 func TestInboxRepository_TryInsert_GenericError(t *testing.T) {
 	dbErr := errors.New("connection failed")
-	mockExec := &mockDBExecutor{
-		execContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
 			return nil, dbErr
 		},
 	}
@@ -111,8 +112,8 @@ func TestInboxRepository_TryInsert_GenericError(t *testing.T) {
 
 func TestInboxRepository_GetEventsByTenantID_QueryError(t *testing.T) {
 	dbErr := errors.New("query failure")
-	mockExec := &mockDBExecutor{
-		queryContextFn: func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	mockExec := &testutil.MockDBExecutor{
+		QueryContextFn: func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 			return nil, dbErr
 		},
 	}

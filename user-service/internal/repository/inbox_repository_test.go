@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"user-service/internal/infrastructure/postgres"
+	"user-service/internal/testutil"
 	"user-service/internal/txcontext"
 )
-
 
 func TestInboxRepository_Constructor(t *testing.T) {
 	client := &postgres.Client{}
@@ -24,11 +24,11 @@ func TestInboxRepository_TryInsert_NewEvent(t *testing.T) {
 	var capturedQuery string
 	var capturedArgs []any
 
-	mockExec := &mockDBExecutor{
-		execContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
 			capturedQuery = query
 			capturedArgs = args
-			return mockResult{rowsAffected: 1}, nil
+			return testutil.MockResult{RowsAffectedVal: 1}, nil
 		},
 	}
 
@@ -53,9 +53,9 @@ func TestInboxRepository_TryInsert_NewEvent(t *testing.T) {
 }
 
 func TestInboxRepository_TryInsert_DuplicateEvent(t *testing.T) {
-	mockExec := &mockDBExecutor{
-		execContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
-			return mockResult{rowsAffected: 0}, nil
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+			return testutil.MockResult{RowsAffectedVal: 0}, nil
 		},
 	}
 
@@ -73,8 +73,8 @@ func TestInboxRepository_TryInsert_DuplicateEvent(t *testing.T) {
 
 func TestInboxRepository_TryInsert_ExecError(t *testing.T) {
 	dbErr := errors.New("exec error")
-	mockExec := &mockDBExecutor{
-		execContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
 			return nil, dbErr
 		},
 	}
@@ -96,9 +96,9 @@ func TestInboxRepository_TryInsert_ExecError(t *testing.T) {
 
 func TestInboxRepository_TryInsert_RowsAffectedError(t *testing.T) {
 	raErr := errors.New("rows affected fail")
-	mockExec := &mockDBExecutor{
-		execContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
-			return mockResult{rowsAffectedErr: raErr}, nil
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+			return testutil.MockResult{RowsAffectedErrVal: raErr}, nil
 		},
 	}
 
