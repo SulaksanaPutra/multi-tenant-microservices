@@ -28,6 +28,7 @@ func NewClient(host, port, user, password, dbname string) (*Client, error) {
 				log.Println("User Service PostgreSQL Infrastructure Driver: Connected successfully")
 				return &Client{database}, nil
 			}
+			database.Close()
 		}
 		log.Printf("User Service PostgreSQL connection attempt %d/10 failed: %v. Retrying in 2s...", i+1, err)
 		time.Sleep(2 * time.Second)
@@ -37,7 +38,7 @@ func NewClient(host, port, user, password, dbname string) (*Client, error) {
 }
 
 func (c *Client) Close() {
-	if c.DB != nil {
+	if c != nil && c.DB != nil {
 		c.DB.Close()
 	}
 }

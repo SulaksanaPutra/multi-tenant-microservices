@@ -29,6 +29,7 @@ func NewClient(host, port, user, password, dbname string) (*Client, error) {
 		}
 		if pingErr := database.Ping(); pingErr != nil {
 			log.Printf("postgres.NewClient: attempt %d: failed to ping: %v", attempt, pingErr)
+			database.Close()
 			time.Sleep(time.Duration(attempt) * 2 * time.Second)
 			continue
 		}
@@ -66,7 +67,10 @@ func NewClientFromDSN(dsn string) (*sql.DB, error) {
 }
 
 func (c *Client) Close() {
-	if err := c.DB.Close(); err != nil {
-		log.Printf("postgres.Client.Close: error closing DB: %v", err)
+	if c != nil && c.DB != nil {
+		if err := c.DB.Close(); err != nil {
+			log.Printf("postgres.Client.Close: error closing DB: %v", err)
+		}
 	}
 }
+

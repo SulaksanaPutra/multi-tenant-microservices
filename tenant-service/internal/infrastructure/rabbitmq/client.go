@@ -1,6 +1,8 @@
 package rabbitmq
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -72,11 +74,37 @@ func (c *Client) DeclareAndBindQueue(queueName, exchangeName, routingKey string)
 	return nil
 }
 
-func (c *Client) Close() {
-	if c.Channel != nil {
-		c.Channel.Close()
+func (c *Client) PublishEvent(ctx context.Context, exchangeName, routingKey string, payload interface{}) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal event payload: %w", err)
 	}
-	if c.Conn != nil {
-		c.Conn.Close()
+
+	if c == nil || c.Channel == nil {
+		return fmt.Errorf("channel is nil")
+	}
+
+	return c.Channel.PublishWithContext(
+		ctx,
+		exchangeName,
+		routingKey,
+		false,
+		false,
+		amqp.Publishing{
+			ContentType: "application/json",
+			Body:        body,
+		},
+	)
+}
+
+func (c *Client) Close() {
+	if c != nil {
+		if c.Channel != nil {
+			_ = c.Channel.Close()
+		}
+		if c.Conn != nil {
+			_ = c.Conn.Close()
+		}
 	}
 }
+
