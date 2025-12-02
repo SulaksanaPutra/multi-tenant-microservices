@@ -185,6 +185,13 @@ func (c *Client) WaitUntilReady(ctx context.Context) error {
 	}
 }
 
+// NotifyReconnect returns a channel that is closed when the connection is established or recovered.
+func (c *Client) NotifyReconnect() <-chan struct{} {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.readyCh
+}
+
 func (c *Client) DeclareExchange(name, kind string) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
