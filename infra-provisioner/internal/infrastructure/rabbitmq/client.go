@@ -67,6 +67,10 @@ func (c *Client) PublishEvent(ctx context.Context, exchangeName, routingKey stri
 		return fmt.Errorf("failed to marshal event payload: %w", err)
 	}
 
+	if c == nil || c.Channel == nil {
+		return fmt.Errorf("channel is nil")
+	}
+
 	return c.Channel.PublishWithContext(
 		ctx,
 		exchangeName,
@@ -81,10 +85,12 @@ func (c *Client) PublishEvent(ctx context.Context, exchangeName, routingKey stri
 }
 
 func (c *Client) Close() {
-	if c.Channel != nil {
-		_ = c.Channel.Close()
-	}
-	if c.Conn != nil {
-		_ = c.Conn.Close()
+	if c != nil {
+		if c.Channel != nil {
+			_ = c.Channel.Close()
+		}
+		if c.Conn != nil {
+			_ = c.Conn.Close()
+		}
 	}
 }

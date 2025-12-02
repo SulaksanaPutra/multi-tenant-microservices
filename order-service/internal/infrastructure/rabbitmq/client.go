@@ -244,6 +244,9 @@ func (c *Client) PublishEvent(ctx context.Context, exchangeName, routingKey stri
 }
 
 func (c *Client) Close() {
+	if c == nil {
+		return
+	}
 	c.mu.Lock()
 	c.isClosed = true
 	c.cancel()
@@ -258,3 +261,4 @@ func (c *Client) Close() {
 		_ = conn.Close()
 	}
 }
+
