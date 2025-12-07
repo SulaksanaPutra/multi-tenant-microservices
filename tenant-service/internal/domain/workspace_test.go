@@ -22,6 +22,9 @@ func TestPlanValidation(t *testing.T) {
 		if got := tt.plan.IsValid(); got != tt.isValid {
 			t.Errorf("Plan(%q).IsValid() = %v, want %v", tt.plan, got, tt.isValid)
 		}
+		if tt.plan.String() != string(tt.plan) {
+			t.Errorf("Plan(%q).String() = %q, want %q", tt.plan, tt.plan.String(), string(tt.plan))
+		}
 	}
 }
 
@@ -30,7 +33,6 @@ func TestIDGenerators(t *testing.T) {
 	if !strings.HasPrefix(tenantID, domain.PrefixTenant) {
 		t.Errorf("GenerateTenantID() = %q, expected prefix %q", tenantID, domain.PrefixTenant)
 	}
-	// "tnt_" (4 chars) + 16 hex chars = 20 chars total
 	if len(tenantID) != 20 {
 		t.Errorf("GenerateTenantID() length = %d, want 20", len(tenantID))
 	}
@@ -39,7 +41,6 @@ func TestIDGenerators(t *testing.T) {
 	if !strings.HasPrefix(outboxID, domain.PrefixOutbox) {
 		t.Errorf("GenerateOutboxID() = %q, expected prefix %q", outboxID, domain.PrefixOutbox)
 	}
-	// "outbox_" (7 chars) + 32 hex chars = 39 chars total
 	if len(outboxID) != 39 {
 		t.Errorf("GenerateOutboxID() length = %d, want 39", len(outboxID))
 	}
