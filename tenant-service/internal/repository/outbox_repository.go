@@ -88,10 +88,12 @@ func (r *OutboxRepository) FetchAndClaimBatch(ctx context.Context, eventType str
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch and claim outbox batch: %w", err)
 	}
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			println(err.Error())
+	if rows == nil {
+		return nil, nil
+	}
+	defer func(r *sql.Rows) {
+		if r != nil {
+			_ = r.Close()
 		}
 	}(rows)
 

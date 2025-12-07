@@ -51,6 +51,7 @@ func main() {
 	tenantRepository := repository.NewTenantRepository(dbClient)
 	tenantInfrastructureRepository := repository.NewTenantInfrastructureRepository(dbClient)
 	outboxRepository := repository.NewOutboxRepository(dbClient)
+	inboxRepository := repository.NewInboxRepository(dbClient)
 
 	// 3. Initialize Publisher
 	tenantPublisher, err := publisher.NewTenantPublisher(rmqClient)
@@ -76,7 +77,7 @@ func main() {
 	})
 
 	// 6. Register & Start Inbound Queue Consumers
-	cRunner, err := registerConsumers(txManager, rmqClient, tenantInfrastructureService)
+	cRunner, err := registerConsumers(txManager, rmqClient, tenantInfrastructureService, inboxRepository)
 	if err != nil {
 		log.Fatalf("Failed to register consumers: %v", err)
 	}

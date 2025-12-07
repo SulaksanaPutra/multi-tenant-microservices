@@ -11,8 +11,6 @@ import (
 	"notification-service/internal/infrastructure/postgres"
 	"notification-service/internal/testutil"
 	"notification-service/internal/txcontext"
-
-	"github.com/lib/pq"
 )
 
 func TestInboxRepository_Constructor(t *testing.T) {
@@ -31,7 +29,7 @@ func TestInboxRepository_TryInsert_Success(t *testing.T) {
 		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
 			capturedQuery = query
 			capturedArgs = args
-			return nil, nil
+			return testutil.MockResult{RowsAffectedVal: 1}, nil
 		},
 	}
 
@@ -65,11 +63,10 @@ func TestInboxRepository_TryInsert_Success(t *testing.T) {
 	}
 }
 
-func TestInboxRepository_TryInsert_DuplicatePqError(t *testing.T) {
-	pqErr := &pq.Error{Code: "23505", Message: "duplicate key value violates unique constraint"}
+func TestInboxRepository_TryInsert_DuplicateOnConflict(t *testing.T) {
 	mockExec := &testutil.MockDBExecutor{
 		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
-			return nil, pqErr
+			return testutil.MockResult{RowsAffectedVal: 0}, nil
 		},
 	}
 
@@ -79,10 +76,34 @@ func TestInboxRepository_TryInsert_DuplicatePqError(t *testing.T) {
 	msg := domain.InboxMessage{EventID: "evt-dup-1002"}
 	isDuplicate, err := repo.TryInsert(ctx, msg)
 	if err != nil {
-		t.Fatalf("expected nil error on unique violation (code 23505), got %v", err)
+		t.Fatalf("expected nil error on ON CONFLICT DO NOTHING, got %v", err)
 	}
 	if !isDuplicate {
 		t.Errorf("expected isDuplicate to be true for duplicate event, got false")
+	}
+}
+
+func TestInboxRepository_TryInsert_RowsAffectedError(t *testing.T) {
+	raErr := errors.New("rows affected failed")
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+			return testutil.MockResult{RowsAffectedErrVal: raErr}, nil
+		},
+	}
+
+	repo := NewInboxRepository(&postgres.Client{})
+	ctx := txcontext.WithExecutor(context.Background(), mockExec)
+
+	msg := domain.InboxMessage{EventID: "evt-ra-1003"}
+	isDuplicate, err := repo.TryInsert(ctx, msg)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if isDuplicate {
+		t.Errorf("expected isDuplicate to be false on error, got true")
+	}
+	if !errors.Is(err, raErr) {
+		t.Errorf("expected underlying error to be raErr, got %v", err)
 	}
 }
 
@@ -97,7 +118,7 @@ func TestInboxRepository_TryInsert_GenericError(t *testing.T) {
 	repo := NewInboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	msg := domain.InboxMessage{EventID: "evt-err-1003"}
+	msg := domain.InboxMessage{EventID: "evt-err-1004"}
 	isDuplicate, err := repo.TryInsert(ctx, msg)
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -130,5 +151,28 @@ func TestInboxRepository_GetEventsByTenantID_QueryError(t *testing.T) {
 	}
 	if !errors.Is(err, dbErr) {
 		t.Errorf("expected underlying error to be dbErr, got %v", err)
+	}
+}
+
+func TestInboxRepository_GetEventsByTenantID_EmptyResult(t *testing.T) {
+	mockDB, _ := sql.Open("postgres", "host=localhost port=1 user=dummy dbname=dummy sslmode=disable")
+	_ = mockDB.Close()
+
+	mockExec := &testutil.MockDBExecutor{
+		QueryContextFn: func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+			rows, _ := mockDB.QueryContext(ctx, "SELECT 1 WHERE 1=0")
+			return rows, nil
+		},
+	}
+
+	repo := NewInboxRepository(&postgres.Client{})
+	ctx := txcontext.WithExecutor(context.Background(), mockExec)
+
+	events, err := repo.GetEventsByTenantID(ctx, "tenant-test")
+	if err != nil {
+		t.Fatalf("expected nil error on empty query result, got %v", err)
+	}
+	if len(events) != 0 {
+		t.Errorf("expected 0 events, got %d", len(events))
 	}
 }

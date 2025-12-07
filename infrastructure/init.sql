@@ -92,6 +92,11 @@ CREATE TABLE IF NOT EXISTS public.outbox (
     processed_at   TIMESTAMPTZ
 );
 
+CREATE TABLE IF NOT EXISTS public.inbox (
+    event_id     VARCHAR(255) PRIMARY KEY,
+    processed_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_tenants_slug ON public.tenants(slug);
 CREATE INDEX IF NOT EXISTS idx_outbox_status_event_type ON public.outbox (status, event_type, retry_count, created_at);
 
