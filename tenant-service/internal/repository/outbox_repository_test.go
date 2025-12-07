@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"user-service/internal/domain"
-	"user-service/internal/infrastructure/postgres"
-	"user-service/internal/testutil"
-	"user-service/internal/txcontext"
+	"tenant-service/internal/domain"
+	"tenant-service/internal/infrastructure/postgres"
+	"tenant-service/internal/testutil"
+	"tenant-service/internal/txcontext"
 )
 
 func TestSanitizeError(t *testing.T) {
@@ -85,10 +85,10 @@ func TestOutboxRepository_CreateOutboxMessage_Success(t *testing.T) {
 	msg := domain.OutboxMessage{
 		ID:            "msg-123",
 		TenantID:      &tenantID,
-		AggregateType: "User",
-		AggregateID:   "usr-123",
-		EventType:     "user.created",
-		Payload:       []byte(`{"email":"test@example.com"}`),
+		AggregateType: "Tenant",
+		AggregateID:   "tenant-999",
+		EventType:     "workspace.initiated",
+		Payload:       []byte(`{"name":"Acme Corp"}`),
 	}
 
 	err := repo.CreateOutboxMessage(ctx, msg)
@@ -124,7 +124,7 @@ func TestOutboxRepository_CreateOutboxMessage_Error(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "failed to insert outbox message in transaction") {
+	if !strings.Contains(err.Error(), "failed to insert outbox message") {
 		t.Errorf("expected wrapped error message, got: %v", err)
 	}
 	if !errors.Is(err, dbErr) {
@@ -142,7 +142,7 @@ func TestOutboxRepository_FetchAndClaimBatch_QueryError(t *testing.T) {
 	repo := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	_, err := repo.FetchAndClaimBatch(ctx, "user.created", 10)
+	_, err := repo.FetchAndClaimBatch(ctx, "workspace.initiated", 10)
 	if err == nil {
 		t.Fatal("expected error when QueryContext returns nil rows/error, got nil")
 	}
@@ -168,7 +168,7 @@ func TestOutboxRepository_FetchAndClaimBatch_EmptyResult(t *testing.T) {
 	repo := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	list, err := repo.FetchAndClaimBatch(ctx, "user.created", 10)
+	list, err := repo.FetchAndClaimBatch(ctx, "workspace.initiated", 10)
 	if err != nil {
 		t.Fatalf("expected nil error on empty batch result, got %v", err)
 	}
@@ -192,7 +192,7 @@ func TestOutboxRepository_RecoverStuckClaims_Success(t *testing.T) {
 	repo := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.RecoverStuckClaims(ctx, "user.created")
+	err := repo.RecoverStuckClaims(ctx, "workspace.initiated")
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -201,7 +201,7 @@ func TestOutboxRepository_RecoverStuckClaims_Success(t *testing.T) {
 		t.Errorf("expected recovery query, got %s", capturedQuery)
 	}
 
-	if len(capturedArgs) != 2 || capturedArgs[0] != "user.created" {
+	if len(capturedArgs) != 2 || capturedArgs[0] != "workspace.initiated" {
 		t.Errorf("unexpected arguments: %v", capturedArgs)
 	}
 }
@@ -217,7 +217,7 @@ func TestOutboxRepository_RecoverStuckClaims_Error(t *testing.T) {
 	repo := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.RecoverStuckClaims(ctx, "user.created")
+	err := repo.RecoverStuckClaims(ctx, "workspace.initiated")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
