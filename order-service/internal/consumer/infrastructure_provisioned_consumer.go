@@ -121,6 +121,15 @@ func (c *InfrastructureProvisionedConsumer) Start(ctx context.Context) error {
 							continue
 						}
 
+						// Check delivery count to prevent infinite poison pill retry loops
+						deliveryCount := getDeliveryCount(d.Headers)
+						if deliveryCount >= 3 {
+							log.Printf("InfrastructureProvisionedConsumer Warning: Max retries (3) reached for tenant='%s' event_id='%s' (delivery_count=%d). Routing directly to DLQ.",
+								evt.TenantID, evt.EventID, deliveryCount)
+							_ = d.Nack(false, false)
+							continue
+						}
+
 						log.Printf("InfrastructureProvisionedConsumer: Configuring DB & migrations for tenant='%s' plan='%s' host='%s'",
 							evt.TenantID, evt.Plan, evt.DBHost)
 
@@ -195,4 +204,40 @@ func (c *InfrastructureProvisionedConsumer) Start(ctx context.Context) error {
 	}()
 
 	return nil
+}
+
+func getDeliveryCount(headers map[string]any) int {
+	if headers == nil {
+		return 0
+	}
+
+	// 1. Quorum Queues (x-delivery-count header)
+	if count, ok := headers["x-delivery-count"]; ok {
+		switch v := count.(type) {
+		case int:
+			return v
+		case int32:
+			return int(v)
+		case int64:
+			return int(v)
+		}
+	}
+
+	// 2. Classic Queues DLX (x-death array header fallback)
+	if xDeath, ok := headers["x-death"].([]any); ok && len(xDeath) > 0 {
+		if deathMap, ok := xDeath[0].(map[string]any); ok {
+			if count, ok := deathMap["count"]; ok {
+				switch v := count.(type) {
+				case int:
+					return v
+				case int32:
+					return int(v)
+				case int64:
+					return int(v)
+				}
+			}
+		}
+	}
+
+	return 0
 }

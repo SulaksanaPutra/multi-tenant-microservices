@@ -86,6 +86,10 @@ func (c *Client) connect() error {
 		return fmt.Errorf("failed to open RabbitMQ channel: %w", err)
 	}
 
+	if err := ch.Confirm(false); err != nil {
+		log.Printf("Order Service RabbitMQ Driver Warning: Failed to enable Publisher Confirms: %v", err)
+	}
+
 	c.mu.Lock()
 	c.Conn = conn
 	c.Channel = ch
@@ -224,6 +228,10 @@ func (c *Client) DeclareAndBindQueue(queueName, exchangeName, routingKey string)
 }
 
 func (c *Client) PublishEvent(ctx context.Context, exchangeName, routingKey string, payload interface{}) error {
+	return c.PublishEventWithConfirm(ctx, exchangeName, routingKey, payload)
+}
+
+func (c *Client) PublishEventWithConfirm(ctx context.Context, exchangeName, routingKey string, payload interface{}) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal payload: %w", err)
@@ -237,17 +245,36 @@ func (c *Client) PublishEvent(ctx context.Context, exchangeName, routingKey stri
 		return fmt.Errorf("channel is nil")
 	}
 
-	return ch.PublishWithContext(
+	confirmCh := ch.NotifyPublish(make(chan amqp.Confirmation, 1))
+
+	err = ch.PublishWithContext(
 		ctx,
 		exchangeName,
 		routingKey,
 		false,
 		false,
 		amqp.Publishing{
-			ContentType: "application/json",
-			Body:        body,
+			ContentType:  "application/json",
+			DeliveryMode: amqp.Persistent,
+			Body:         body,
 		},
 	)
+	if err != nil {
+		return fmt.Errorf("failed to publish event: %w", err)
+	}
+
+	select {
+	case confirm, ok := <-confirmCh:
+		if !ok || !confirm.Ack {
+			return fmt.Errorf("publisher confirm failed: message was NACKed by broker")
+		}
+	case <-ctx.Done():
+		return fmt.Errorf("publisher confirm context cancelled while waiting for broker ACK: %w", ctx.Err())
+	case <-time.After(5 * time.Second):
+		return fmt.Errorf("publisher confirm timed out waiting for broker ACK after 5s")
+	}
+
+	return nil
 }
 
 func (c *Client) Close() {
