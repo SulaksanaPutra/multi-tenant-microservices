@@ -6,6 +6,7 @@ import (
 
 	"tenant-service/internal/consumer"
 	"tenant-service/internal/infrastructure/rabbitmq"
+	"tenant-service/internal/repository"
 	"tenant-service/internal/service"
 	"tenant-service/internal/txcontext"
 )
