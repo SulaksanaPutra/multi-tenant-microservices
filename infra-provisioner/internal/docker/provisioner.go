@@ -194,6 +194,15 @@ func (p *DockerProvisioner) bootstrapDomainDatabases(
 
 		// Grant privileges to domain user
 		_, _ = db.ExecContext(ctx, fmt.Sprintf("GRANT ALL PRIVILEGES ON DATABASE %s TO %s;", quotedDB, quotedUser))
+
+		// Grant schema public privileges in domain database
+		domainDSN := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+			host, port, rootUser, rootPassword, domainDB)
+		domainDBConn, dErr := sql.Open("postgres", domainDSN)
+		if dErr == nil {
+			_, _ = domainDBConn.ExecContext(ctx, fmt.Sprintf("GRANT ALL ON SCHEMA public TO %s;", quotedUser))
+			_ = domainDBConn.Close()
+		}
 	}
 
 	return nil
