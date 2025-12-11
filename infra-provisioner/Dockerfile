@@ -1,4 +1,4 @@
-FROM golang:1.22-alpine AS builder
+FROM golang:alpine AS builder
 
 WORKDIR /app
 
@@ -16,6 +16,6 @@ WORKDIR /
 
 COPY --from=builder /app/infra-provisioner /infra-provisioner
 
-USER nonroot:nonroot
+USER root:root
 
 ENTRYPOINT ["/infra-provisioner"]

@@ -245,9 +245,7 @@ func (c *Client) PublishEventWithConfirm(ctx context.Context, exchangeName, rout
 		return fmt.Errorf("channel is nil")
 	}
 
-	confirmCh := ch.NotifyPublish(make(chan amqp.Confirmation, 1))
-
-	err = ch.PublishWithContext(
+	deferred, err := ch.PublishWithDeferredConfirmWithContext(
 		ctx,
 		exchangeName,
 		routingKey,
@@ -263,15 +261,14 @@ func (c *Client) PublishEventWithConfirm(ctx context.Context, exchangeName, rout
 		return fmt.Errorf("failed to publish event: %w", err)
 	}
 
-	select {
-	case confirm, ok := <-confirmCh:
-		if !ok || !confirm.Ack {
-			return fmt.Errorf("publisher confirm failed: message was NACKed by broker")
+	if deferred != nil {
+		confirmCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+
+		ok, err := deferred.WaitContext(confirmCtx)
+		if err != nil || !ok {
+			return fmt.Errorf("publisher confirm failed (ack=%v): %w", ok, err)
 		}
-	case <-ctx.Done():
-		return fmt.Errorf("publisher confirm context cancelled while waiting for broker ACK: %w", ctx.Err())
-	case <-time.After(5 * time.Second):
-		return fmt.Errorf("publisher confirm timed out waiting for broker ACK after 5s")
 	}
 
 	return nil
