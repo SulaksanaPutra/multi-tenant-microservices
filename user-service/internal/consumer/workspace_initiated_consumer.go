@@ -3,6 +3,7 @@ package consumer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 
@@ -56,6 +57,42 @@ func NewWorkspaceInitiatedConsumer(
 }
 
 func (c *WorkspaceInitiatedConsumer) Start(ctx context.Context) error {
+	go func() {
+		for {
+			connCtx := c.client.ConnContext()
+
+			err := c.runConsumerLoop(ctx, connCtx)
+
+			if ctx.Err() != nil {
+				return
+			}
+
+			log.Printf("WorkspaceInitiatedConsumer: connection context cancelled (%v); waiting for RabbitMQ reconnection...", err)
+
+			if err := c.client.WaitUntilReady(ctx); err != nil {
+				return
+			}
+
+			log.Println("WorkspaceInitiatedConsumer: reconnected; re-binding queue topology...")
+		}
+	}()
+
+	return nil
+}
+
+func (c *WorkspaceInitiatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
+	if err := c.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
+		return fmt.Errorf("failed to declare exchange: %w", err)
+	}
+
+	if err := c.client.DeclareAndBindQueue(domain.QueueUserServiceWorkspaceInitiated, domain.ExchangeCompanyEvents, domain.RoutingKeyWorkspaceInitiated); err != nil {
+		return fmt.Errorf("failed to bind queue: %w", err)
+	}
+
+	if c.client == nil || c.client.Channel == nil {
+		return errors.New("channel is nil")
+	}
+
 	msgs, err := c.client.Channel.Consume(
 		domain.QueueUserServiceWorkspaceInitiated, // queue
 		"user-service-worker",                     // consumer tag
@@ -66,73 +103,69 @@ func (c *WorkspaceInitiatedConsumer) Start(ctx context.Context) error {
 		nil,                                       // args
 	)
 	if err != nil {
-		return fmt.Errorf("failed to consume from queue %s: %w", domain.QueueUserServiceWorkspaceInitiated, err)
+		return fmt.Errorf("failed to start consume: %w", err)
 	}
 
 	log.Printf("User Service worker listening for events on queue '%s'...", domain.QueueUserServiceWorkspaceInitiated)
 
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				log.Printf("WorkspaceInitiatedConsumer: Context cancelled, shutting down.")
-				return
-			case d, ok := <-msgs:
-				if !ok {
-					log.Printf("WorkspaceInitiatedConsumer: Message channel closed.")
-					return
-				}
+	for {
+		select {
+		case <-appCtx.Done():
+			log.Printf("WorkspaceInitiatedConsumer: Context cancelled, shutting down.")
+			return appCtx.Err()
 
-				var evt domain.WorkspaceInitiatedEvent
-				if err := json.Unmarshal(d.Body, &evt); err != nil {
-					log.Printf("Error unmarshaling WorkspaceInitiated payload: %v", err)
-					err := d.Nack(false, false)
-					if err != nil {
-						return
-					}
-					continue
-				}
+		case <-connCtx.Done():
+			return connCtx.Err()
 
-				log.Printf("WorkspaceInitiatedConsumer processing event_id='%s' for tenant_id='%s'", evt.EventID, evt.TenantID)
-
-				// Wrap Consumer execution inside Unit of Work (Transaction boundary)
-				err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-					// 1. Transactional Inbox Guard
-					isDup, err := c.inboxRepository.TryInsert(txCtx, evt.EventID)
-					if err != nil {
-						return fmt.Errorf("inbox guard failure: %w", err)
-					}
-					if isDup {
-						log.Printf("WorkspaceInitiatedConsumer: Event '%s' already processed in Inbox guard. Skipping cleanly.", evt.EventID)
-						return nil
-					}
-
-					// 2. Execute Domain logic (Create user profile + Outbox event inside same transaction)
-					input := service.CreateUserFromWorkspaceInput{
-						EventID:    evt.EventID,
-						TenantID:   evt.TenantID,
-						OwnerEmail: evt.OwnerEmail,
-						OwnerName:  evt.OwnerName,
-					}
-					if err := c.userService.CreateUserFromWorkspace(txCtx, input); err != nil {
-						return fmt.Errorf("failed to create user profile: %w", err)
-					}
-
-					return nil
-				})
-
-				if err != nil {
-					log.Printf("WorkspaceInitiatedConsumer Error: Transaction failed for event '%s': %v", evt.EventID, err)
-					_ = d.Nack(false, true) // Requeue on transient error
-					continue
-				}
-
-				// Ack message on RabbitMQ only after successful DB commit
-				_ = d.Ack(false)
-				log.Printf("WorkspaceInitiatedConsumer: Successfully committed transaction & ACKed message event_id='%s'", evt.EventID)
+		case d, ok := <-msgs:
+			if !ok {
+				return errors.New("delivery channel closed")
 			}
-		}
-	}()
 
-	return nil
+			var evt domain.WorkspaceInitiatedEvent
+			if err := json.Unmarshal(d.Body, &evt); err != nil {
+				log.Printf("Error unmarshaling WorkspaceInitiated payload: %v", err)
+				_ = d.Nack(false, false)
+				continue
+			}
+
+			log.Printf("WorkspaceInitiatedConsumer processing event_id='%s' for tenant_id='%s'", evt.EventID, evt.TenantID)
+
+			// Wrap Consumer execution inside Unit of Work (Transaction boundary)
+			err := c.txManager.WithTransaction(appCtx, func(txCtx context.Context) error {
+				// 1. Transactional Inbox Guard
+				isDup, err := c.inboxRepository.TryInsert(txCtx, evt.EventID)
+				if err != nil {
+					return fmt.Errorf("inbox guard failure: %w", err)
+				}
+				if isDup {
+					log.Printf("WorkspaceInitiatedConsumer: Event '%s' already processed in Inbox guard. Skipping cleanly.", evt.EventID)
+					return nil
+				}
+
+				// 2. Execute Domain logic (Create user profile + Outbox event inside same transaction)
+				input := service.CreateUserFromWorkspaceInput{
+					EventID:    evt.EventID,
+					TenantID:   evt.TenantID,
+					OwnerEmail: evt.OwnerEmail,
+					OwnerName:  evt.OwnerName,
+				}
+				if err := c.userService.CreateUserFromWorkspace(txCtx, input); err != nil {
+					return fmt.Errorf("failed to create user profile: %w", err)
+				}
+
+				return nil
+			})
+
+			if err != nil {
+				log.Printf("WorkspaceInitiatedConsumer Error: Transaction failed for event '%s': %v", evt.EventID, err)
+				_ = d.Nack(false, true) // Requeue on transient error
+				continue
+			}
+
+			// Ack message on RabbitMQ only after successful DB commit
+			_ = d.Ack(false)
+			log.Printf("WorkspaceInitiatedConsumer: Successfully committed transaction & ACKed message event_id='%s'", evt.EventID)
+		}
+	}
 }

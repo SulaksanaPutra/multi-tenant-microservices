@@ -2,7 +2,7 @@
 
 ## 1. Executive Summary
 
-This document serves as the formal technical test specification and architectural verification report for the multi-tenant microservices platform. The automated test suite contained within this directory validates core system guarantees, including event-driven control plane registration, dynamic database container orchestration, at-least-once message delivery idempotency, fanout cache invalidation, container crash resilience, and horizontal scaling concurrency.
+This document serves as the formal technical test specification and architectural verification report for the multi-tenant microservices platform. The automated test suite contained within this directory validates core system guarantees, including event-driven control plane registration, dynamic database container orchestration, at-least-once message delivery idempotency, fanout cache invalidation, container crash resilience, horizontal scaling concurrency, outbox broker retry survival, singleflight cache stampede prevention, and transactional DDL rollbacks.
 
 ---
 
@@ -112,6 +112,45 @@ This document serves as the formal technical test specification and architectura
 * **Test Procedure**:
   1. Issue HTTP request `POST /api/register` with malformed email payload (`invalid-email-format`).
 * **Expected Result**: Gateway returns HTTP 400 Bad Request before database or message broker operations occur.
+
+---
+
+### 3.8 Test Case TC-E2E-009: Outbox Broadcaster Retry Survival (Docs Case #1)
+* **Test File**: [`./outbox_broker_outage_e2e_test.go`](./outbox_broker_outage_e2e_test.go)
+* **Objective**: Validate At-Least-Once Delivery and Outbox Worker retry survival when the message broker is temporarily unavailable.
+* **Architectural Scope**: Outbox Repository, Outbox Worker, RabbitMQ connection manager.
+* **Test Procedure**:
+  1. Stop RabbitMQ container (`docker stop rabbitmq`).
+  2. Register a tenant via Gateway (`POST /api/register`).
+  3. Query `public.outbox` to verify outbox record is safely stored in database (`status = 'PENDING'`).
+  4. Restart RabbitMQ container (`docker start rabbitmq`) and wait for TCP connection initialization.
+  5. Trigger outbox dead-letter recovery sweeper and poll database until tenant reaches `active` status.
+* **Expected Result**: Outbox worker handles broker downtime gracefully without crashing; publishes pending event upon broker recovery; tenant transitions to `active`.
+
+---
+
+### 3.9 Test Case TC-E2E-010: Cache Stampede Prevention via Singleflight (Docs Case #11)
+* **Test File**: [`./cache_stampede_singleflight_e2e_test.go`](./cache_stampede_singleflight_e2e_test.go)
+* **Objective**: Validate that `singleflight` request coalescing prevents database connection cache stampedes under high concurrency.
+* **Architectural Scope**: `TenantDBResolver`, `singleflight.Group`, `PoolRegistry`.
+* **Test Procedure**:
+  1. Register a tenant and wait for activation (when connection cache is empty).
+  2. Issue 50 concurrent `GET /api/orders` HTTP requests simultaneously.
+* **Expected Result**: 100% of concurrent requests succeed with HTTP 200 OK; singleflight barrier coalesces calls into a single routing RPC and connection pool setup.
+
+---
+
+### 3.10 Test Case TC-E2E-011: Transactional DDL Migration Rollback Safety (Docs Case #4)
+* **Test File**: [`./transactional_ddl_rollback_e2e_test.go`](./transactional_ddl_rollback_e2e_test.go)
+* **Objective**: Verify database schema safety and atomic rollback if SQL DDL migrations fail midway.
+* **Architectural Scope**: PostgreSQL DDL transaction handling.
+* **Test Procedure**:
+  1. Begin DDL transaction on PostgreSQL connection.
+  2. Execute valid table creation statement (`CREATE TABLE valid_table_before_failure`).
+  3. Execute invalid DDL statement (`CREATE TABLE bad_table (id NON_EXISTENT_TYPE)`), triggering a SQL syntax error midway.
+  4. Call `tx.Rollback()`.
+  5. Query `information_schema.tables` for the test schema.
+* **Expected Result**: PostgreSQL transaction rolls back atomically; `valid_table_before_failure` creation is completely undone; zero partial tables remain.
 
 ---
 

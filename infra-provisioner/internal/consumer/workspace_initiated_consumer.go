@@ -3,6 +3,7 @@ package consumer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -50,11 +51,6 @@ func NewWorkspaceInitiatedConsumer(params Params) (*WorkspaceInitiatedConsumer, 
 		return nil, fmt.Errorf("failed to bind queue '%s': %w", domain.QueueInfraProvisionerWorkspace, err)
 	}
 
-	// Enforce strict QoS prefetch count of 1 to prevent resource exhaustion
-	if err := params.Client.Channel.Qos(1, 0, false); err != nil {
-		return nil, fmt.Errorf("failed to set Channel QoS prefetch count: %w", err)
-	}
-
 	sharedHost := params.SharedDBHost
 	if sharedHost == "" {
 		sharedHost = "postgres"
@@ -78,6 +74,46 @@ func NewWorkspaceInitiatedConsumer(params Params) (*WorkspaceInitiatedConsumer, 
 }
 
 func (c *WorkspaceInitiatedConsumer) Start(ctx context.Context) error {
+	go func() {
+		for {
+			connCtx := c.client.ConnContext()
+
+			err := c.runConsumerLoop(ctx, connCtx)
+
+			if ctx.Err() != nil {
+				return
+			}
+
+			log.Printf("WorkspaceInitiatedConsumer: connection context cancelled (%v); waiting for RabbitMQ reconnection...", err)
+
+			if err := c.client.WaitUntilReady(ctx); err != nil {
+				return
+			}
+
+			log.Println("WorkspaceInitiatedConsumer: reconnected; re-binding queue topology...")
+		}
+	}()
+
+	return nil
+}
+
+func (c *WorkspaceInitiatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
+	if err := c.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
+		return fmt.Errorf("failed to declare exchange '%s': %w", domain.ExchangeCompanyEvents, err)
+	}
+
+	if err := c.client.DeclareAndBindQueue(
+		domain.QueueInfraProvisionerWorkspace, domain.ExchangeCompanyEvents, domain.RoutingKeyWorkspaceInitiated,
+	); err != nil {
+		return fmt.Errorf("failed to bind queue '%s': %w", domain.QueueInfraProvisionerWorkspace, err)
+	}
+
+	if c.client == nil || c.client.Channel == nil {
+		return errors.New("channel is nil")
+	}
+
+	_ = c.client.Channel.Qos(1, 0, false)
+
 	msgs, err := c.client.Channel.Consume(
 		domain.QueueInfraProvisionerWorkspace,
 		"infra-provisioner-worker",
@@ -85,54 +121,53 @@ func (c *WorkspaceInitiatedConsumer) Start(ctx context.Context) error {
 		false, false, false, nil,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to consume queue '%s': %w", domain.QueueInfraProvisionerWorkspace, err)
+		return fmt.Errorf("failed to start consume: %w", err)
 	}
 
 	log.Printf("InfraProvisioner: Listening for '%s' events on queue '%s' (QoS prefetch=1)...", domain.RoutingKeyWorkspaceInitiated, domain.QueueInfraProvisionerWorkspace)
 
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				log.Printf("WorkspaceInitiatedConsumer: Context cancelled. Stopping consumer.")
-				return
-			case d, ok := <-msgs:
-				if !ok {
-					log.Printf("WorkspaceInitiatedConsumer: Message channel closed.")
-					return
-				}
+	for {
+		select {
+		case <-appCtx.Done():
+			log.Printf("WorkspaceInitiatedConsumer: Context cancelled. Stopping consumer.")
+			return appCtx.Err()
 
-				var evt domain.WorkspaceInitiatedEvent
-				if err := json.Unmarshal(d.Body, &evt); err != nil {
-					log.Printf("WorkspaceInitiatedConsumer Error: Bad payload JSON: %v", err)
-					_ = d.Nack(false, false) // unrecoverable bad JSON
-					continue
-				}
+		case <-connCtx.Done():
+			return connCtx.Err()
 
-				log.Printf("WorkspaceInitiatedConsumer: Processing infrastructure for tenant='%s' plan='%s'", evt.TenantID, evt.Plan)
-
-				provEvent, err := c.handleProvisioning(ctx, evt)
-				if err != nil {
-					log.Printf("WorkspaceInitiatedConsumer Error: Provisioning failed for tenant='%s': %v", evt.TenantID, err)
-					_ = d.Nack(false, true) // requeue for retry
-					continue
-				}
-
-				// Publish infrastructure.provisioned event via Publisher Adapter
-				if err := c.publisher.PublishInfrastructureProvisioned(ctx, *provEvent); err != nil {
-					log.Printf("WorkspaceInitiatedConsumer Error: Failed to publish '%s' for tenant='%s': %v", domain.RoutingKeyInfrastructureProvisioned, evt.TenantID, err)
-					_ = d.Nack(false, true)
-					continue
-				}
-
-				_ = d.Ack(false)
-				log.Printf("WorkspaceInitiatedConsumer: Published '%s' for tenant='%s' (host=%s, schema=%s)",
-					domain.RoutingKeyInfrastructureProvisioned, evt.TenantID, provEvent.DBHost, provEvent.SchemaName)
+		case d, ok := <-msgs:
+			if !ok {
+				return errors.New("delivery channel closed")
 			}
-		}
-	}()
 
-	return nil
+			var evt domain.WorkspaceInitiatedEvent
+			if err := json.Unmarshal(d.Body, &evt); err != nil {
+				log.Printf("WorkspaceInitiatedConsumer Error: Bad payload JSON: %v", err)
+				_ = d.Nack(false, false) // unrecoverable bad JSON
+				continue
+			}
+
+			log.Printf("WorkspaceInitiatedConsumer: Processing infrastructure for tenant='%s' plan='%s'", evt.TenantID, evt.Plan)
+
+			provEvent, err := c.handleProvisioning(appCtx, evt)
+			if err != nil {
+				log.Printf("WorkspaceInitiatedConsumer Error: Provisioning failed for tenant='%s': %v", evt.TenantID, err)
+				_ = d.Nack(false, true) // requeue for retry
+				continue
+			}
+
+			// Publish infrastructure.provisioned event via Publisher Adapter
+			if err := c.publisher.PublishInfrastructureProvisioned(appCtx, *provEvent); err != nil {
+				log.Printf("WorkspaceInitiatedConsumer Error: Failed to publish '%s' for tenant='%s': %v", domain.RoutingKeyInfrastructureProvisioned, evt.TenantID, err)
+				_ = d.Nack(false, true)
+				continue
+			}
+
+			_ = d.Ack(false)
+			log.Printf("WorkspaceInitiatedConsumer: Published '%s' for tenant='%s' (host=%s, schema=%s)",
+				domain.RoutingKeyInfrastructureProvisioned, evt.TenantID, provEvent.DBHost, provEvent.SchemaName)
+		}
+	}
 }
 
 func (c *WorkspaceInitiatedConsumer) handleProvisioning(ctx context.Context, evt domain.WorkspaceInitiatedEvent) (*domain.InfrastructureProvisionedEvent, error) {
