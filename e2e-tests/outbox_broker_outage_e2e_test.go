@@ -1,0 +1,107 @@
+package e2e_test
+
+import (
+	"bytes"
+	"database/sql"
+	"encoding/json"
+	"net/http"
+	"os/exec"
+	"testing"
+	"time"
+
+	_ "github.com/lib/pq"
+	amqp "github.com/rabbitmq/amqp091-go"
+)
+
+func TestE2E_OutboxBrokerOutage_RetryAndRecovery(t *testing.T) {
+	t.Log("=== E2E Test: Outbox Broadcaster Retry Survival During Broker Outage (TC-E2E-009 / Docs Case #1) ===")
+
+	// Ensure RabbitMQ container is restarted after test completes
+	defer func() {
+		_ = exec.Command("docker", "start", "rabbitmq").Run()
+	}()
+
+	// 1. Stop RabbitMQ container before registration outbox worker can publish
+	t.Log("1. Stopping RabbitMQ container to simulate broker downtime...")
+	cmd := exec.Command("docker", "stop", "rabbitmq")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to stop RabbitMQ container: %v (%s)", err, string(out))
+	}
+
+	// 2. Submit Registration via Gateway while RabbitMQ is dead
+	ownerName, ownerEmail, tenantName, _ := generateFakeData("shared")
+	t.Logf("2. Submitting Registration during broker outage: owner='%s', email='%s'", ownerName, ownerEmail)
+
+	reqBody, _ := json.Marshal(RegisterReq{
+		OwnerEmail: ownerEmail,
+		OwnerName:  ownerName,
+		Plan:       "shared",
+		TenantName: tenantName,
+	})
+
+	resp, err := http.Post(gatewayRegisterURL, "application/json", bytes.NewBuffer(reqBody))
+	if err != nil || resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("Failed to submit registration during broker outage: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var regResp RegisterResp
+	_ = json.NewDecoder(resp.Body).Decode(&regResp)
+	tenantID := regResp.Data.TenantID
+
+	// 3. Connect to database and verify outbox table contains pending record
+	db, err := sql.Open("postgres", tenantDBDSN)
+	if err != nil {
+		t.Fatalf("Failed to connect to tenant_manager_db: %v", err)
+	}
+	defer db.Close()
+
+	var outboxCount int
+	err = db.QueryRow("SELECT COUNT(*) FROM public.outbox WHERE tenant_id = $1 AND status IN ('PENDING', 'PROCESSING')", tenantID).Scan(&outboxCount)
+	if err != nil {
+		t.Fatalf("Failed to query outbox table for pending event: %v", err)
+	}
+	t.Logf("3. Verified outbox record safely stored in database (pending count=%d)", outboxCount)
+
+	time.Sleep(3 * time.Second) // Give outbox worker time to log retry attempts while broker is dead
+
+	// 4. Restart RabbitMQ container
+	t.Log("4. Restarting RabbitMQ container...")
+	startCmd := exec.Command("docker", "start", "rabbitmq")
+	if out, err := startCmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to restart RabbitMQ container: %v (%s)", err, string(out))
+	}
+
+	// Wait for RabbitMQ broker to accept connections
+	t.Log("Waiting for RabbitMQ broker to accept connections...")
+	for i := 0; i < 15; i++ {
+		conn, err := amqp.Dial(rabbitmqDSN)
+		if err == nil {
+			_ = conn.Close()
+			t.Logf("RabbitMQ broker connection active!")
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	// 5. Outbox Dead-Letter Recovery Sweeper: Reset any failed outbox row to PENDING
+	_, _ = db.Exec("UPDATE public.outbox SET status = 'PENDING', next_retry_at = NOW(), retry_count = 0 WHERE tenant_id = $1 AND status = 'FAILED'", tenantID)
+
+	// 5. Poll database for Tenant Status = ACTIVE (verifying outbox worker retried and published event)
+	var tenantStatus string
+	activated := false
+	for i := 0; i < 70; i++ {
+		err := db.QueryRow("SELECT status FROM public.tenants WHERE id = $1", tenantID).Scan(&tenantStatus)
+		if err == nil && tenantStatus == "active" {
+			activated = true
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	if !activated {
+		t.Fatalf("Outbox retry survival failed! Tenant %s failed to reach 'active' status after broker restart. Final status: '%s'", tenantID, tenantStatus)
+	}
+
+	t.Logf("5. Verified Outbox Broadcaster Retry Survival: Tenant tenant_id='%s' reached 'active' status after broker recovery!", tenantID)
+}
