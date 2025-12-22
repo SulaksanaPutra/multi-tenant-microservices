@@ -58,3 +58,30 @@ func TestPoolRegistry_BoundedLRUEviction(t *testing.T) {
 	reg.Evict("tenant-1")
 	reg.Evict("tenant-3")
 }
+
+func TestPoolRegistry_SingleflightTimeout_HangingLeader(t *testing.T) {
+	// Create PoolRegistry with an aggressive fetchTimeout of 50ms
+	reg := registry.NewPoolRegistry(registry.WithFetchTimeout(50 * time.Millisecond))
+
+	// Hanging fetch function that blocks indefinitely
+	hangingFetch := func() (*sql.DB, string, error) {
+		time.Sleep(1 * time.Second)
+		return nil, "", fmt.Errorf("should have timed out")
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := reg.GetOrFetch("tenant-hanging", hangingFetch)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatalf("expected error from hanging singleflight leader, got nil")
+		}
+		t.Logf("Successfully caught hanging singleflight leader timeout: %v", err)
+	case <-time.After(200 * time.Millisecond):
+		t.Fatalf("singleflight leader call blocked beyond fetchTimeout barrier!")
+	}
+}
