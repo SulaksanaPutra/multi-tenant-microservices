@@ -58,15 +58,24 @@ func WithTTL(ttl time.Duration) PoolRegistryOption {
 	}
 }
 
+func WithFetchTimeout(timeout time.Duration) PoolRegistryOption {
+	return func(pr *PoolRegistry) {
+		if timeout > 0 {
+			pr.fetchTimeout = timeout
+		}
+	}
+}
+
 // PoolRegistry is a thread-safe, Bounded LRU cache of tenant *sql.DB pools.
 // A single backgroundSweeper goroutine owns all async pool cleanup — preventing
 // the goroutine leak that would result from spawning inline goroutines per eviction.
 type PoolRegistry struct {
-	mu          sync.RWMutex
-	entries     map[string]*poolEntry
-	maxCapacity int
-	ttl         time.Duration
-	sfGroup     singleflight.Group
+	mu           sync.RWMutex
+	entries      map[string]*poolEntry
+	maxCapacity  int
+	ttl          time.Duration
+	fetchTimeout time.Duration
+	sfGroup      singleflight.Group
 
 	// cleanupQueue receives maps of stale pool entries from PurgeAll().
 	// The backgroundSweeper goroutine is the sole consumer.
@@ -79,6 +88,7 @@ func NewPoolRegistry(opts ...PoolRegistryOption) *PoolRegistry {
 		entries:      make(map[string]*poolEntry),
 		maxCapacity:  defaultMaxDedicatedCapacity,
 		ttl:          defaultTTL,
+		fetchTimeout: fetchTimeout,
 		cleanupQueue: make(chan map[string]*poolEntry, cleanupQueueCapacity),
 	}
 	for _, opt := range opts {
@@ -108,7 +118,11 @@ func (r *PoolRegistry) GetOrFetch(tenantID string, fetchDSN func() (*sql.DB, str
 	}
 
 	// 2. Slow path: Request coalescing with singleflight OUTSIDE the global write lock
-	v, err, _ := r.sfGroup.Do(tenantID, func() (interface{}, error) {
+	// Uses DoChan with a fetchTimeout context barrier to prevent hanging leaders from locking callers indefinitely.
+	ctx, cancel := context.WithTimeout(context.Background(), r.fetchTimeout)
+	defer cancel()
+
+	ch := r.sfGroup.DoChan(tenantID, func() (interface{}, error) {
 		r.mu.RLock()
 		entry, ok := r.entries[tenantID]
 		r.mu.RUnlock()
@@ -143,12 +157,17 @@ func (r *PoolRegistry) GetOrFetch(tenantID string, fetchDSN func() (*sql.DB, str
 		return fetchResult{db: db, schemaName: schemaName}, nil
 	})
 
-	if err != nil {
-		return nil, "", fmt.Errorf("pool registry: failed to open pool for tenant '%s': %w", tenantID, err)
+	select {
+	case res := <-ch:
+		if res.Err != nil {
+			return nil, "", fmt.Errorf("pool registry: failed to open pool for tenant '%s': %w", tenantID, res.Err)
+		}
+		resVal := res.Val.(fetchResult)
+		return resVal.db, resVal.schemaName, nil
+	case <-ctx.Done():
+		r.sfGroup.Forget(tenantID)
+		return nil, "", fmt.Errorf("pool registry: singleflight leader timed out after %v opening pool for tenant '%s': %w", r.fetchTimeout, tenantID, ctx.Err())
 	}
-
-	res := v.(fetchResult)
-	return res.db, res.schemaName, nil
 }
 
 // evictLRULocked evicts the least recently used pool entry. Must be called with r.mu write-lock held.
