@@ -30,7 +30,19 @@ func NewMigrationServiceFromSQL(migrationSQL string) *MigrationService {
 	}
 }
 
+// BuildMigrationSQL performs schema placeholder substitution, defaulting empty schemaName to 'public' to prevent syntax errors.
+func (s *MigrationService) BuildMigrationSQL(schemaName string) string {
+	if strings.TrimSpace(schemaName) == "" {
+		schemaName = "public"
+	}
+	return strings.ReplaceAll(s.migrationSQL, "{{SCHEMA_NAME}}", schemaName)
+}
+
 func (s *MigrationService) MigrateTenantDB(ctx context.Context, dsn, schemaName string) error {
+	if strings.TrimSpace(schemaName) == "" {
+		schemaName = "public"
+	}
+
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return fmt.Errorf("failed to open database connection: %w", err)
@@ -41,14 +53,14 @@ func (s *MigrationService) MigrateTenantDB(ctx context.Context, dsn, schemaName 
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	if schemaName != "" && schemaName != "public" {
+	if schemaName != "public" {
 		log.Printf("MigrationService: Ensuring schema '%s' exists...", schemaName)
 		if _, err := db.ExecContext(ctx, fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s;", schemaName)); err != nil {
 			return fmt.Errorf("failed to create schema '%s': %w", schemaName, err)
 		}
 	}
 
-	sqlStr := strings.ReplaceAll(s.migrationSQL, "{{SCHEMA_NAME}}", schemaName)
+	sqlStr := s.BuildMigrationSQL(schemaName)
 	isNonTransactional := strings.Contains(sqlStr, "-- tx: false") || strings.Contains(sqlStr, "-- migrate: no-transaction")
 
 	if isNonTransactional {

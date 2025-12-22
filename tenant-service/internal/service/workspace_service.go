@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,8 +15,11 @@ import (
 )
 
 var (
-	ErrInvalidPlan    = errors.New("workspace service: invalid plan, must be shared or dedicated")
-	ErrTenantNotFound = errors.New("workspace service: tenant not found")
+	ErrInvalidPlan        = errors.New("workspace service: invalid plan, must be shared or dedicated")
+	ErrTenantNotFound     = errors.New("workspace service: tenant not found")
+	ErrOwnerEmailRequired = errors.New("workspace service: owner_email is required")
+	ErrTenantNameRequired = errors.New("workspace service: tenant_name is required")
+	ErrTenantIDRequired   = errors.New("workspace service: tenant_id is required")
 )
 
 type RegisterWorkspaceInput struct {
@@ -68,9 +72,16 @@ func NewWorkspaceService(params WorkspaceServiceParams) *WorkspaceService {
 }
 
 func (s *WorkspaceService) RegisterWorkspace(ctx context.Context, input RegisterWorkspaceInput) (*RegisterWorkspaceOutput, error) {
+	if strings.TrimSpace(input.OwnerEmail) == "" {
+		return nil, ErrOwnerEmailRequired
+	}
+	if strings.TrimSpace(input.TenantName) == "" {
+		return nil, ErrTenantNameRequired
+	}
+
 	plan := domain.Plan(strings.ToLower(input.Plan))
 	if !plan.IsValid() {
-		return nil, fmt.Errorf("invalid plan '%s': must be '%s' or '%s'", input.Plan, domain.PlanShared, domain.PlanDedicated)
+		return nil, fmt.Errorf("%w: '%s' (must be '%s' or '%s')", ErrInvalidPlan, input.Plan, domain.PlanShared, domain.PlanDedicated)
 	}
 
 	tenantID := domain.GenerateTenantID()
@@ -115,14 +126,26 @@ func (s *WorkspaceService) RegisterWorkspace(ctx context.Context, input Register
 	log.Printf("WorkspaceService: Registered tenant_id='%s' slug='%s' plan='%s' outbox_id='%s'",
 		tenantID, slug, plan, outboxID)
 
-	s.outboxWorker.Poke()
+	if s.outboxWorker != nil {
+		s.outboxWorker.Poke()
+	}
 	return &RegisterWorkspaceOutput{TenantID: tenantID}, nil
 }
 
 func (s *WorkspaceService) ActivateWorkspace(ctx context.Context, tenantID string) error {
+	if strings.TrimSpace(tenantID) == "" {
+		return ErrTenantIDRequired
+	}
+
 	tenant, err := s.tenantRepository.GetTenantByID(ctx, tenantID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "not found") {
+			return fmt.Errorf("%w: %s", ErrTenantNotFound, tenantID)
+		}
 		return fmt.Errorf("failed to fetch tenant for activation: %w", err)
+	}
+	if tenant == nil {
+		return fmt.Errorf("%w: %s", ErrTenantNotFound, tenantID)
 	}
 
 	outboxID := domain.GenerateOutboxID()
@@ -153,6 +176,8 @@ func (s *WorkspaceService) ActivateWorkspace(ctx context.Context, tenantID strin
 	}
 
 	log.Printf("WorkspaceService: Workspace ACTIVE for tenant_id='%s' — WorkspaceReady staged.", tenantID)
-	s.outboxWorker.Poke()
+	if s.outboxWorker != nil {
+		s.outboxWorker.Poke()
+	}
 	return nil
 }

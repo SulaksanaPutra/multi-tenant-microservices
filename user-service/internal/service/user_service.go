@@ -51,6 +51,13 @@ func NewUserService(
 }
 
 func (s *UserService) CreateUserFromWorkspace(ctx context.Context, input CreateUserFromWorkspaceInput) error {
+	if input.TenantID == "" {
+		return ErrTenantIDRequired
+	}
+	if input.OwnerEmail == "" {
+		return ErrEmailRequired
+	}
+
 	userID := domain.GenerateUserID()
 	userObj := domain.User{
 		ID:    userID,
