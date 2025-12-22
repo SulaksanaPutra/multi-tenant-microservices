@@ -2,14 +2,18 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"strings"
 
 	"tenant-service/internal/domain"
 	"tenant-service/internal/repository"
 )
 
-var requiredServices = []string{"order-service"}
+var (
+	ErrServiceNameRequired = errors.New("tenant infrastructure service: service_name is required")
+)
 
 type InfrastructureUpdateInput struct {
 	TenantID    string
@@ -44,21 +48,35 @@ type WorkspaceActivator interface {
 type TenantInfrastructureService struct {
 	infrastructureRepository TenantInfrastructureRepository
 	workspaceActivator       WorkspaceActivator
+	requiredServices         []string
 }
 
 type TenantInfrastructureServiceParams struct {
 	InfrastructureRepository TenantInfrastructureRepository
 	WorkspaceActivator       WorkspaceActivator
+	RequiredServices         []string
 }
 
 func NewTenantInfrastructureService(params TenantInfrastructureServiceParams) *TenantInfrastructureService {
+	reqServices := params.RequiredServices
+	if len(reqServices) == 0 {
+		reqServices = []string{"order-service"}
+	}
 	return &TenantInfrastructureService{
 		infrastructureRepository: params.InfrastructureRepository,
 		workspaceActivator:       params.WorkspaceActivator,
+		requiredServices:         reqServices,
 	}
 }
 
 func (s *TenantInfrastructureService) HandleInfrastructureUpdate(ctx context.Context, input InfrastructureUpdateInput) error {
+	if strings.TrimSpace(input.TenantID) == "" {
+		return ErrTenantIDRequired
+	}
+	if strings.TrimSpace(input.ServiceName) == "" {
+		return ErrServiceNameRequired
+	}
+
 	if err := s.infrastructureRepository.UpsertServiceInfrastructure(ctx, repository.UpsertServiceInfrastructureInput{
 		TenantID:    input.TenantID,
 		ServiceName: input.ServiceName,
@@ -74,7 +92,7 @@ func (s *TenantInfrastructureService) HandleInfrastructureUpdate(ctx context.Con
 	log.Printf("TenantInfrastructureService: Infrastructure routing updated for tenant_id='%s' service='%s' host='%s'",
 		input.TenantID, input.ServiceName, input.DBHost)
 
-	pendingCount, err := s.infrastructureRepository.GetPendingServiceCount(ctx, input.TenantID, requiredServices)
+	pendingCount, err := s.infrastructureRepository.GetPendingServiceCount(ctx, input.TenantID, s.requiredServices)
 	if err != nil {
 		return fmt.Errorf("failed to check pending service count: %w", err)
 	}
@@ -84,14 +102,23 @@ func (s *TenantInfrastructureService) HandleInfrastructureUpdate(ctx context.Con
 		return nil
 	}
 
-	if err := s.workspaceActivator.ActivateWorkspace(ctx, input.TenantID); err != nil {
-		return fmt.Errorf("failed to trigger workspace activation: %w", err)
+	if s.workspaceActivator != nil {
+		if err := s.workspaceActivator.ActivateWorkspace(ctx, input.TenantID); err != nil {
+			return fmt.Errorf("failed to trigger workspace activation: %w", err)
+		}
 	}
 
 	return nil
 }
 
 func (s *TenantInfrastructureService) GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*RoutingOutput, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, ErrTenantIDRequired
+	}
+	if strings.TrimSpace(serviceName) == "" {
+		return nil, ErrServiceNameRequired
+	}
+
 	infra, err := s.infrastructureRepository.GetServiceInfrastructure(ctx, tenantID, serviceName)
 	if err != nil {
 		return nil, err
