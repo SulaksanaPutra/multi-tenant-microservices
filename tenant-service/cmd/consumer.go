@@ -16,7 +16,12 @@ type consumerRunner struct {
 }
 
 func registerConsumers(txManager *txcontext.SQLTxManager, rmqClient *rabbitmq.Client, tenantInfrastructureSvc *service.TenantInfrastructureService, inboxRepo *repository.InboxRepository) (*consumerRunner, error) {
-	c, err := consumer.NewTenantOrderDBReadyConsumer(txManager, rmqClient, tenantInfrastructureSvc, inboxRepo)
+	c, err := consumer.NewTenantOrderDBReadyConsumer(consumer.TenantOrderDBReadyConsumerParams{
+		TxManager:                   txManager,
+		Client:                      rmqClient,
+		TenantInfrastructureService: tenantInfrastructureSvc,
+		InboxRepo:                   inboxRepo,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to register TenantOrderDBReadyConsumer: %w", err)
 	}

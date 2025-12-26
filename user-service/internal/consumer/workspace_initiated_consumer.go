@@ -27,6 +27,13 @@ type InboxRepository interface {
 	TryInsert(ctx context.Context, eventID string) (bool, error)
 }
 
+type WorkspaceInitiatedConsumerParams struct {
+	TxManager       TxManager
+	Client          *rabbitmq.Client
+	InboxRepository InboxRepository
+	UserService     UserService
+}
+
 type WorkspaceInitiatedConsumer struct {
 	txManager       TxManager
 	client          *rabbitmq.Client
@@ -34,26 +41,31 @@ type WorkspaceInitiatedConsumer struct {
 	userService     UserService
 }
 
-func NewWorkspaceInitiatedConsumer(
-	txManager TxManager,
-	client *rabbitmq.Client,
-	inboxRepository InboxRepository,
-	userService UserService,
-) (*WorkspaceInitiatedConsumer, error) {
-	if err := client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
-		return nil, fmt.Errorf("failed to declare exchange: %w", err)
+func NewWorkspaceInitiatedConsumer(params WorkspaceInitiatedConsumerParams) (*WorkspaceInitiatedConsumer, error) {
+	consumer := &WorkspaceInitiatedConsumer{
+		txManager:       params.TxManager,
+		client:          params.Client,
+		inboxRepository: params.InboxRepository,
+		userService:     params.UserService,
 	}
 
-	if err := client.DeclareAndBindQueue(domain.QueueUserServiceWorkspaceInitiated, domain.ExchangeCompanyEvents, domain.RoutingKeyWorkspaceInitiated); err != nil {
-		return nil, fmt.Errorf("failed to bind queue: %w", err)
+	if err := consumer.setupTopology(); err != nil {
+		return nil, err
 	}
 
-	return &WorkspaceInitiatedConsumer{
-		txManager:       txManager,
-		client:          client,
-		inboxRepository: inboxRepository,
-		userService:     userService,
-	}, nil
+	return consumer, nil
+}
+
+func (c *WorkspaceInitiatedConsumer) setupTopology() error {
+	if err := c.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
+		return fmt.Errorf("failed to declare exchange: %w", err)
+	}
+
+	if err := c.client.DeclareAndBindQueue(domain.QueueUserServiceWorkspaceInitiated, domain.ExchangeCompanyEvents, domain.RoutingKeyWorkspaceInitiated); err != nil {
+		return fmt.Errorf("failed to bind queue: %w", err)
+	}
+
+	return nil
 }
 
 func (c *WorkspaceInitiatedConsumer) Start(ctx context.Context) error {
@@ -81,12 +93,8 @@ func (c *WorkspaceInitiatedConsumer) Start(ctx context.Context) error {
 }
 
 func (c *WorkspaceInitiatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
-	if err := c.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
-		return fmt.Errorf("failed to declare exchange: %w", err)
-	}
-
-	if err := c.client.DeclareAndBindQueue(domain.QueueUserServiceWorkspaceInitiated, domain.ExchangeCompanyEvents, domain.RoutingKeyWorkspaceInitiated); err != nil {
-		return fmt.Errorf("failed to bind queue: %w", err)
+	if err := c.setupTopology(); err != nil {
+		return err
 	}
 
 	if c.client == nil || c.client.Channel == nil {
@@ -122,50 +130,55 @@ func (c *WorkspaceInitiatedConsumer) runConsumerLoop(appCtx, connCtx context.Con
 				return errors.New("delivery channel closed")
 			}
 
-			var evt domain.WorkspaceInitiatedEvent
-			if err := json.Unmarshal(d.Body, &evt); err != nil {
-				log.Printf("Error unmarshaling WorkspaceInitiated payload: %v", err)
-				_ = d.Nack(false, false)
-				continue
-			}
-
-			log.Printf("WorkspaceInitiatedConsumer processing event_id='%s' for tenant_id='%s'", evt.EventID, evt.TenantID)
-
-			// Wrap Consumer execution inside Unit of Work (Transaction boundary)
-			err := c.txManager.WithTransaction(appCtx, func(txCtx context.Context) error {
-				// 1. Transactional Inbox Guard
-				isDup, err := c.inboxRepository.TryInsert(txCtx, evt.EventID)
-				if err != nil {
-					return fmt.Errorf("inbox guard failure: %w", err)
-				}
-				if isDup {
-					log.Printf("WorkspaceInitiatedConsumer: Event '%s' already processed in Inbox guard. Skipping cleanly.", evt.EventID)
-					return nil
-				}
-
-				// 2. Execute Domain logic (Create user profile + Outbox event inside same transaction)
-				input := service.CreateUserFromWorkspaceInput{
-					EventID:    evt.EventID,
-					TenantID:   evt.TenantID,
-					OwnerEmail: evt.OwnerEmail,
-					OwnerName:  evt.OwnerName,
-				}
-				if err := c.userService.CreateUserFromWorkspace(txCtx, input); err != nil {
-					return fmt.Errorf("failed to create user profile: %w", err)
-				}
-
-				return nil
-			})
-
-			if err != nil {
-				log.Printf("WorkspaceInitiatedConsumer Error: Transaction failed for event '%s': %v", evt.EventID, err)
-				_ = d.Nack(false, true) // Requeue on transient error
-				continue
-			}
-
-			// Ack message on RabbitMQ only after successful DB commit
-			_ = d.Ack(false)
-			log.Printf("WorkspaceInitiatedConsumer: Successfully committed transaction & ACKed message event_id='%s'", evt.EventID)
+			_ = c.handleDelivery(appCtx, d)
 		}
 	}
+}
+
+func (c *WorkspaceInitiatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
+	var evt domain.WorkspaceInitiatedEvent
+	if err := json.Unmarshal(d.Body, &evt); err != nil {
+		log.Printf("Error unmarshaling WorkspaceInitiated payload: %v", err)
+		_ = d.Nack(false, false)
+		return err
+	}
+
+	log.Printf("WorkspaceInitiatedConsumer processing event_id='%s' for tenant_id='%s'", evt.EventID, evt.TenantID)
+
+	// Wrap Consumer execution inside Unit of Work (Transaction boundary)
+	err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		// 1. Transactional Inbox Guard
+		isDup, err := c.inboxRepository.TryInsert(txCtx, evt.EventID)
+		if err != nil {
+			return fmt.Errorf("inbox guard failure: %w", err)
+		}
+		if isDup {
+			log.Printf("WorkspaceInitiatedConsumer: Event '%s' already processed in Inbox guard. Skipping cleanly.", evt.EventID)
+			return nil
+		}
+
+		// 2. Execute Domain logic (Create user profile + Outbox event inside same transaction)
+		input := service.CreateUserFromWorkspaceInput{
+			EventID:    evt.EventID,
+			TenantID:   evt.TenantID,
+			OwnerEmail: evt.OwnerEmail,
+			OwnerName:  evt.OwnerName,
+		}
+		if err := c.userService.CreateUserFromWorkspace(txCtx, input); err != nil {
+			return fmt.Errorf("failed to create user profile: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		log.Printf("WorkspaceInitiatedConsumer Error: Transaction failed for event '%s': %v", evt.EventID, err)
+		_ = d.Nack(false, true) // Requeue on transient error
+		return err
+	}
+
+	// Ack message on RabbitMQ only after successful DB commit
+	_ = d.Ack(false)
+	log.Printf("WorkspaceInitiatedConsumer: Successfully committed transaction & ACKed message event_id='%s'", evt.EventID)
+	return nil
 }

@@ -11,6 +11,9 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+// Delivery is a type alias for the underlying AMQP delivery frame.
+type Delivery = amqp.Delivery
+
 type Client struct {
 	mu       sync.RWMutex
 	amqpURL  string

@@ -12,6 +12,12 @@ import (
 	"order-service/internal/registry"
 )
 
+type InfrastructureChangedConsumerParams struct {
+	Client          *rabbitmq.Client
+	PoolRegistry    *registry.PoolRegistry
+	RoutingRegistry *registry.RoutingRegistry
+}
+
 // InfrastructureChangedConsumer handles cache invalidation and materialized view updates when a tenant's infrastructure changes.
 // Each replica process declares an exclusive, auto-delete anonymous queue so cache invalidations are broadcast to ALL live replicas.
 type InfrastructureChangedConsumer struct {
@@ -21,11 +27,11 @@ type InfrastructureChangedConsumer struct {
 	queueName       string
 }
 
-func NewInfrastructureChangedConsumer(client *rabbitmq.Client, poolReg *registry.PoolRegistry, routingReg *registry.RoutingRegistry) (*InfrastructureChangedConsumer, error) {
+func NewInfrastructureChangedConsumer(params InfrastructureChangedConsumerParams) (*InfrastructureChangedConsumer, error) {
 	consumer := &InfrastructureChangedConsumer{
-		client:          client,
-		poolRegistry:    poolReg,
-		routingRegistry: routingReg,
+		client:          params.Client,
+		poolRegistry:    params.PoolRegistry,
+		routingRegistry: params.RoutingRegistry,
 	}
 
 	queueName, err := consumer.setupTopology()
@@ -152,17 +158,22 @@ func (c *InfrastructureChangedConsumer) runConsumerLoop(appCtx, connCtx context.
 				return errors.New("delivery channel closed")
 			}
 
-			var evt domain.InfraChangedEvent
-			if err := json.Unmarshal(d.Body, &evt); err != nil {
-				log.Printf("InfrastructureChangedConsumer: bad payload: %v", err)
-				_ = d.Nack(false, false)
-				continue
-			}
-
-			log.Printf("InfrastructureChangedConsumer: evicting pool & routing metadata for tenant='%s'", evt.TenantID)
-			c.poolRegistry.Evict(evt.TenantID)
-			c.routingRegistry.Delete(evt.TenantID)
-			_ = d.Ack(false)
+			_ = c.handleDelivery(appCtx, d)
 		}
 	}
+}
+
+func (c *InfrastructureChangedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
+	var evt domain.InfraChangedEvent
+	if err := json.Unmarshal(d.Body, &evt); err != nil {
+		log.Printf("InfrastructureChangedConsumer: bad payload: %v", err)
+		_ = d.Nack(false, false)
+		return err
+	}
+
+	log.Printf("InfrastructureChangedConsumer: evicting pool & routing metadata for tenant='%s'", evt.TenantID)
+	c.poolRegistry.Evict(evt.TenantID)
+	c.routingRegistry.Delete(evt.TenantID)
+	_ = d.Ack(false)
+	return nil
 }
