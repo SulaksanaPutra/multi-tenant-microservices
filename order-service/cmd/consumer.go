@@ -43,7 +43,11 @@ func registerConsumers(
 		return nil, fmt.Errorf("failed to initialize InfrastructureProvisionedConsumer: %w", err)
 	}
 
-	icConsumer, err := consumer.NewInfrastructureChangedConsumer(rmqClient, poolReg, routingReg)
+	icConsumer, err := consumer.NewInfrastructureChangedConsumer(consumer.InfrastructureChangedConsumerParams{
+		Client:          rmqClient,
+		PoolRegistry:    poolReg,
+		RoutingRegistry: routingReg,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize InfrastructureChangedConsumer: %w", err)
 	}

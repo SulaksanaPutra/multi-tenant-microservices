@@ -14,6 +14,9 @@ import (
 // Client wraps an AMQP connection with automatic reconnection, a connection-lifetime
 // context for instant disconnect detection, and a closed-channel broadcast for
 // zero-CPU reconnect waiting.
+// Delivery is a type alias for the underlying AMQP delivery frame.
+type Delivery = amqp.Delivery
+
 type Client struct {
 	mu      sync.RWMutex
 	amqpURL string

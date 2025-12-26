@@ -142,12 +142,12 @@ Use existing *sql.DB pool               GET /internal/tenants/:id/infrastructure
     ▼
 [ tenant-service ]
     │  1. Updates tenant infrastructure metadata (host, port, isolation mode)
-    │  2. Emits tenant.infrastructure_changed event to Fanout Exchange
+    │  2. Emits tenant.infrastructure_changed event to Topic Exchange
     ▼
-[ RabbitMQ Fanout Exchange (company.events) ]
+[ RabbitMQ Topic Exchange (company.events) ]
     │
     ├───────────────────────────────┬───────────────────────────────┐
-    ▼ (Broadcast)                   ▼ (Broadcast)                   ▼ (Broadcast)
+    ▼ (Broadcast Key: tenant.infra_changed)                         ▼
 [ Exclusive Queue: amq.gen-1 ]  [ Exclusive Queue: amq.gen-2 ]  [ Exclusive Queue: amq.gen-3 ]
     │                               │                               │
     ▼                               ▼                               ▼
@@ -162,7 +162,7 @@ Use existing *sql.DB pool               GET /internal/tenants/:id/infrastructure
 * **New Tenant Registration:** Every `order-service` replica experiences a natural cache miss on its first request and lazily resolves the routing metadata.
 * **Infrastructure Rebinding & Plan Changes (Upgrades/Downgrades):** 
   * If a dedicated DB container dies and is rescheduled on a new IP/port by Docker/K8s, OR if a tenant undergoes a plan upgrade/downgrade, `order-service` replicas hold stale DSNs in memory.
-  * To prevent routing to dead hosts or split-brain writes, `tenant-service` broadcasts `tenant.infrastructure_changed` over a **Fanout Exchange** to exclusive anonymous queues, forcing **all** `order-service` replicas to purge their local `RoutingRegistry` and `PoolRegistry` caches in real-time.
+  * To prevent routing to dead hosts or split-brain writes, `tenant-service` broadcasts `tenant.infrastructure_changed` over the **`company.events` Topic Exchange** to exclusive anonymous queues, forcing **all** `order-service` replicas to purge their local `RoutingRegistry` and `PoolRegistry` caches in real-time.
 
 ---
 
@@ -186,6 +186,8 @@ This repository contains comprehensive technical design deep-dives located in th
 | 12 | [How Do We Prevent PostgreSQL Transaction Abortion?](docs/12-how-do-we-prevent-postgresql-transaction-abortion-and-maintain-clean-outer-layer-unit-of-work.md) | Outer-Layer Consumer Unit-of-Work, PostgreSQL Aborted Transaction Trap (`23505`) & `ON CONFLICT DO NOTHING` |
 | 13 | [How Do We Prevent Horizontal Split-Brain Cache Invalidation and Socket Sprawl?](docs/13-how-do-we-prevent-horizontal-split-brain-cache-invalidation-and-multi-tenant-connection-sprawl.md) | Fanout Broadcast Topology, Competing Consumer DDL Migration Guardrail, Double-Checked Reaper Sweeps & Connection Pool Tuning |
 | 14 | [How Do We Prevent Transient Network Split-Brain from AMQP Cache Invalidation Loss?](docs/14-how-do-we-prevent-transient-network-split-brain-cache-invalidation-loss.md) | Two-Layer Reconnect Driver, `NotifyReconnect` Signal, `PurgeAll` Cache Barriers & Re-Binding Topology |
+| 15 | [When the Broker Goes Silent, Does Your Service Tell the Truth?](docs/15-when-the-broker-goes-silent-does-your-service-tell-the-truth.md) | Context Lifecycles, Cache Miss Throttling, Singleflight & Load Shedding |
+| 16 | [How Do We Safely Manage Multi-Tenant Database Duality Without Data Leakage or Connection Sprawl?](docs/16-how-do-we-safely-manage-multi-tenant-database-duality-without-cross-tenant-data-leakage-or-connection-sprawl.md) | Constructor Arity, Dynamic DSN Resolution, Bounded LRU Connection Pooling & Clean Architecture Isolation |
 
 ---
 

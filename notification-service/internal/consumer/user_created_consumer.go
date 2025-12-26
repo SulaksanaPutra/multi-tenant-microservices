@@ -21,26 +21,42 @@ type NotificationService interface {
 	ProcessEventAndTrySendWelcome(ctx context.Context, input service.ProcessEventInput) error
 }
 
+type UserCreatedConsumerParams struct {
+	TxManager           TxManager
+	Client              *rabbitmq.Client
+	NotificationService NotificationService
+}
+
 type UserCreatedConsumer struct {
 	txManager           TxManager
 	client              *rabbitmq.Client
 	notificationService NotificationService
 }
 
-func NewUserCreatedConsumer(txManager TxManager, client *rabbitmq.Client, notifSvc NotificationService) (*UserCreatedConsumer, error) {
-	if err := client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
-		return nil, fmt.Errorf("failed to declare exchange: %w", err)
+func NewUserCreatedConsumer(params UserCreatedConsumerParams) (*UserCreatedConsumer, error) {
+	consumer := &UserCreatedConsumer{
+		txManager:           params.TxManager,
+		client:              params.Client,
+		notificationService: params.NotificationService,
 	}
 
-	if err := client.DeclareAndBindQueue(domain.QueueNotificationUserCreated, domain.ExchangeCompanyEvents, domain.RoutingKeyUserCreated); err != nil {
-		return nil, fmt.Errorf("failed to bind queue: %w", err)
+	if err := consumer.setupTopology(); err != nil {
+		return nil, err
 	}
 
-	return &UserCreatedConsumer{
-		txManager:           txManager,
-		client:              client,
-		notificationService: notifSvc,
-	}, nil
+	return consumer, nil
+}
+
+func (c *UserCreatedConsumer) setupTopology() error {
+	if err := c.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
+		return fmt.Errorf("failed to declare exchange: %w", err)
+	}
+
+	if err := c.client.DeclareAndBindQueue(domain.QueueNotificationUserCreated, domain.ExchangeCompanyEvents, domain.RoutingKeyUserCreated); err != nil {
+		return fmt.Errorf("failed to bind queue: %w", err)
+	}
+
+	return nil
 }
 
 func (c *UserCreatedConsumer) Start(ctx context.Context) error {
@@ -68,12 +84,8 @@ func (c *UserCreatedConsumer) Start(ctx context.Context) error {
 }
 
 func (c *UserCreatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
-	if err := c.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
-		return fmt.Errorf("failed to declare exchange: %w", err)
-	}
-
-	if err := c.client.DeclareAndBindQueue(domain.QueueNotificationUserCreated, domain.ExchangeCompanyEvents, domain.RoutingKeyUserCreated); err != nil {
-		return fmt.Errorf("failed to bind queue: %w", err)
+	if err := c.setupTopology(); err != nil {
+		return err
 	}
 
 	if c.client == nil || c.client.Channel == nil {
@@ -109,35 +121,40 @@ func (c *UserCreatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) e
 				return errors.New("delivery channel closed")
 			}
 
-			var evt domain.UserCreatedEvent
-			if err := json.Unmarshal(d.Body, &evt); err != nil {
-				log.Printf("Error unmarshaling UserCreated payload: %v", err)
-				_ = d.Nack(false, false)
-				continue
-			}
-
-			log.Printf("UserCreatedConsumer processing event_id='%s' for user_id='%s' email='%s'", evt.EventID, evt.UserID, evt.Email)
-
-			err := c.txManager.WithTransaction(appCtx, func(txCtx context.Context) error {
-				input := service.ProcessEventInput{
-					EventID:    evt.EventID,
-					UserID:     evt.UserID,
-					TenantID:   evt.TenantID,
-					EventType:  domain.RoutingKeyUserCreated,
-					OwnerEmail: evt.Email,
-					Payload:    d.Body,
-				}
-				return c.notificationService.ProcessEventAndTrySendWelcome(txCtx, input)
-			})
-
-			if err != nil {
-				log.Printf("UserCreatedConsumer Error: Failed to handle UserCreated for event '%s': %v", evt.EventID, err)
-				_ = d.Nack(false, true) // Requeue
-				continue
-			}
-
-			_ = d.Ack(false)
-			log.Printf("UserCreatedConsumer: Successfully processed & ACKed event_id='%s'", evt.EventID)
+			_ = c.handleDelivery(appCtx, d)
 		}
 	}
+}
+
+func (c *UserCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
+	var evt domain.UserCreatedEvent
+	if err := json.Unmarshal(d.Body, &evt); err != nil {
+		log.Printf("Error unmarshaling UserCreated payload: %v", err)
+		_ = d.Nack(false, false)
+		return err
+	}
+
+	log.Printf("UserCreatedConsumer processing event_id='%s' for user_id='%s' email='%s'", evt.EventID, evt.UserID, evt.Email)
+
+	err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		input := service.ProcessEventInput{
+			EventID:    evt.EventID,
+			UserID:     evt.UserID,
+			TenantID:   evt.TenantID,
+			EventType:  domain.RoutingKeyUserCreated,
+			OwnerEmail: evt.Email,
+			Payload:    d.Body,
+		}
+		return c.notificationService.ProcessEventAndTrySendWelcome(txCtx, input)
+	})
+
+	if err != nil {
+		log.Printf("UserCreatedConsumer Error: Failed to handle UserCreated for event '%s': %v", evt.EventID, err)
+		_ = d.Nack(false, true) // Requeue
+		return err
+	}
+
+	_ = d.Ack(false)
+	log.Printf("UserCreatedConsumer: Successfully processed & ACKed event_id='%s'", evt.EventID)
+	return nil
 }
