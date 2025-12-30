@@ -63,10 +63,11 @@ func main() {
 	wRunner.start(workerCtx)
 
 	// Initialize Domain Services
+	inboxService := service.NewInboxService(inboxRepository)
 	userService := service.NewUserService(userRepository, outboxRepository)
 
 	// Register & Start Inbound Queue Consumers Collection
-	cRunner, err := registerConsumers(txManager, rmqClient, inboxRepository, userService)
+	cRunner, err := registerConsumers(txManager, rmqClient, inboxService, userService)
 	if err != nil {
 		log.Fatalf("Failed to register consumers: %v", err)
 	}

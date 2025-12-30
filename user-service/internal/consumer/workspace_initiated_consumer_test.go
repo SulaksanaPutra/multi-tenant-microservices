@@ -33,13 +33,13 @@ func (m *mockUserService) CreateUserFromWorkspace(ctx context.Context, input ser
 	return nil
 }
 
-type mockInboxRepository struct {
-	tryInsertFunc func(ctx context.Context, eventID string) (bool, error)
+type mockInboxService struct {
+	claimEventFunc func(txCtx context.Context, eventID string) (bool, error)
 }
 
-func (m *mockInboxRepository) TryInsert(ctx context.Context, eventID string) (bool, error) {
-	if m.tryInsertFunc != nil {
-		return m.tryInsertFunc(ctx, eventID)
+func (m *mockInboxService) ClaimEvent(txCtx context.Context, eventID string) (bool, error) {
+	if m.claimEventFunc != nil {
+		return m.claimEventFunc(txCtx, eventID)
 	}
 	return false, nil
 }
@@ -79,8 +79,8 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("success_new_event", func(t *testing.T) {
 		txManager := &mockTxManager{}
-		inboxRepo := &mockInboxRepository{
-			tryInsertFunc: func(ctx context.Context, eventID string) (bool, error) {
+		inboxSvc := &mockInboxService{
+			claimEventFunc: func(txCtx context.Context, eventID string) (bool, error) {
 				return false, nil // not duplicate
 			},
 		}
@@ -94,9 +94,9 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 		}
 
 		c := &WorkspaceInitiatedConsumer{
-			txManager:       txManager,
-			inboxRepository: inboxRepo,
-			userService:     userSvc,
+			txManager:    txManager,
+			inboxService: inboxSvc,
+			userService:  userSvc,
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -119,8 +119,8 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("duplicate_event_skips_service", func(t *testing.T) {
 		txManager := &mockTxManager{}
-		inboxRepo := &mockInboxRepository{
-			tryInsertFunc: func(ctx context.Context, eventID string) (bool, error) {
+		inboxSvc := &mockInboxService{
+			claimEventFunc: func(txCtx context.Context, eventID string) (bool, error) {
 				return true, nil // duplicate
 			},
 		}
@@ -134,9 +134,9 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 		}
 
 		c := &WorkspaceInitiatedConsumer{
-			txManager:       txManager,
-			inboxRepository: inboxRepo,
-			userService:     userSvc,
+			txManager:    txManager,
+			inboxService: inboxSvc,
+			userService:  userSvc,
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -180,16 +180,16 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 	t.Run("inbox_error_nacks_with_requeue", func(t *testing.T) {
 		txManager := &mockTxManager{}
 		inboxErr := errors.New("db connection timeout")
-		inboxRepo := &mockInboxRepository{
-			tryInsertFunc: func(ctx context.Context, eventID string) (bool, error) {
+		inboxSvc := &mockInboxService{
+			claimEventFunc: func(txCtx context.Context, eventID string) (bool, error) {
 				return false, inboxErr
 			},
 		}
 
 		c := &WorkspaceInitiatedConsumer{
-			txManager:       txManager,
-			inboxRepository: inboxRepo,
-			userService:     &mockUserService{},
+			txManager:    txManager,
+			inboxService: inboxSvc,
+			userService:  &mockUserService{},
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -212,8 +212,8 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("service_error_nacks_with_requeue", func(t *testing.T) {
 		txManager := &mockTxManager{}
-		inboxRepo := &mockInboxRepository{
-			tryInsertFunc: func(ctx context.Context, eventID string) (bool, error) {
+		inboxSvc := &mockInboxService{
+			claimEventFunc: func(txCtx context.Context, eventID string) (bool, error) {
 				return false, nil
 			},
 		}
@@ -226,9 +226,9 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 		}
 
 		c := &WorkspaceInitiatedConsumer{
-			txManager:       txManager,
-			inboxRepository: inboxRepo,
-			userService:     userSvc,
+			txManager:    txManager,
+			inboxService: inboxSvc,
+			userService:  userSvc,
 		}
 
 		mockAck := &mockAcknowledger{}

@@ -22,13 +22,13 @@ func (m *mockTxManager) WithTransaction(ctx context.Context, fn func(txCtx conte
 	return fn(ctx)
 }
 
-type mockInboxRepository struct {
-	tryInsertFunc func(ctx context.Context, eventID string) (bool, error)
+type mockInboxService struct {
+	claimEventFunc func(txCtx context.Context, eventID string) (bool, error)
 }
 
-func (m *mockInboxRepository) TryInsert(ctx context.Context, eventID string) (bool, error) {
-	if m.tryInsertFunc != nil {
-		return m.tryInsertFunc(ctx, eventID)
+func (m *mockInboxService) ClaimEvent(txCtx context.Context, eventID string) (bool, error) {
+	if m.claimEventFunc != nil {
+		return m.claimEventFunc(txCtx, eventID)
 	}
 	return false, nil
 }
@@ -83,8 +83,8 @@ func TestTenantOrderDBReadyConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("success_with_inbox_check", func(t *testing.T) {
 		txManager := &mockTxManager{}
-		inboxRepo := &mockInboxRepository{
-			tryInsertFunc: func(ctx context.Context, eventID string) (bool, error) {
+		inboxSvc := &mockInboxService{
+			claimEventFunc: func(txCtx context.Context, eventID string) (bool, error) {
 				return false, nil // not duplicate
 			},
 		}
@@ -99,7 +99,7 @@ func TestTenantOrderDBReadyConsumer_HandleDelivery(t *testing.T) {
 
 		c := &TenantOrderDBReadyConsumer{
 			txManager:                   txManager,
-			inboxRepo:                   inboxRepo,
+			inboxService:                inboxSvc,
 			tenantInfrastructureService: infraSvc,
 		}
 
@@ -123,8 +123,8 @@ func TestTenantOrderDBReadyConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("duplicate_event_skips_processing", func(t *testing.T) {
 		txManager := &mockTxManager{}
-		inboxRepo := &mockInboxRepository{
-			tryInsertFunc: func(ctx context.Context, eventID string) (bool, error) {
+		inboxSvc := &mockInboxService{
+			claimEventFunc: func(txCtx context.Context, eventID string) (bool, error) {
 				return true, nil // duplicate
 			},
 		}
@@ -139,7 +139,7 @@ func TestTenantOrderDBReadyConsumer_HandleDelivery(t *testing.T) {
 
 		c := &TenantOrderDBReadyConsumer{
 			txManager:                   txManager,
-			inboxRepo:                   inboxRepo,
+			inboxService:                inboxSvc,
 			tenantInfrastructureService: infraSvc,
 		}
 
@@ -161,14 +161,14 @@ func TestTenantOrderDBReadyConsumer_HandleDelivery(t *testing.T) {
 		}
 	})
 
-	t.Run("nil_inbox_repo_constructor_error", func(t *testing.T) {
+	t.Run("nil_inbox_service_constructor_error", func(t *testing.T) {
 		_, err := NewTenantOrderDBReadyConsumer(TenantOrderDBReadyConsumerParams{
 			TxManager:                   &mockTxManager{},
 			TenantInfrastructureService: &mockTenantInfrastructureService{},
-			InboxRepo:                   nil,
+			InboxService:                nil,
 		})
 		if err == nil {
-			t.Error("expected error when InboxRepo is nil in constructor")
+			t.Error("expected error when InboxService is nil in constructor")
 		}
 	})
 
@@ -203,7 +203,7 @@ func TestTenantOrderDBReadyConsumer_HandleDelivery(t *testing.T) {
 
 		c := &TenantOrderDBReadyConsumer{
 			txManager:                   txManager,
-			inboxRepo:                   &mockInboxRepository{},
+			inboxService:                &mockInboxService{},
 			tenantInfrastructureService: infraSvc,
 		}
 

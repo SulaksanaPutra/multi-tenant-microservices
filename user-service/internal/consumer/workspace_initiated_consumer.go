@@ -22,31 +22,35 @@ type UserService interface {
 	CreateUserFromWorkspace(ctx context.Context, input service.CreateUserFromWorkspaceInput) error
 }
 
-// InboxRepository is the consumer-side interface expected by WorkspaceInitiatedConsumer.
-type InboxRepository interface {
-	TryInsert(ctx context.Context, eventID string) (bool, error)
+// InboxService is the consumer-side interface expected by WorkspaceInitiatedConsumer.
+type InboxService interface {
+	ClaimEvent(txCtx context.Context, eventID string) (bool, error)
 }
 
 type WorkspaceInitiatedConsumerParams struct {
-	TxManager       TxManager
-	Client          *rabbitmq.Client
-	InboxRepository InboxRepository
-	UserService     UserService
+	TxManager    TxManager
+	Client       *rabbitmq.Client
+	InboxService InboxService
+	UserService  UserService
 }
 
 type WorkspaceInitiatedConsumer struct {
-	txManager       TxManager
-	client          *rabbitmq.Client
-	inboxRepository InboxRepository
-	userService     UserService
+	txManager    TxManager
+	client       *rabbitmq.Client
+	inboxService InboxService
+	userService  UserService
 }
 
 func NewWorkspaceInitiatedConsumer(params WorkspaceInitiatedConsumerParams) (*WorkspaceInitiatedConsumer, error) {
+	if params.InboxService == nil {
+		return nil, errors.New("inboxService is required")
+	}
+
 	consumer := &WorkspaceInitiatedConsumer{
-		txManager:       params.TxManager,
-		client:          params.Client,
-		inboxRepository: params.InboxRepository,
-		userService:     params.UserService,
+		txManager:    params.TxManager,
+		client:       params.Client,
+		inboxService: params.InboxService,
+		userService:  params.UserService,
 	}
 
 	if err := consumer.setupTopology(); err != nil {
@@ -147,8 +151,8 @@ func (c *WorkspaceInitiatedConsumer) handleDelivery(ctx context.Context, d rabbi
 
 	// Wrap Consumer execution inside Unit of Work (Transaction boundary)
 	err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-		// 1. Transactional Inbox Guard
-		isDup, err := c.inboxRepository.TryInsert(txCtx, evt.EventID)
+		// 1. Transactional Inbox Guard via InboxService
+		isDup, err := c.inboxService.ClaimEvent(txCtx, evt.EventID)
 		if err != nil {
 			return fmt.Errorf("inbox guard failure: %w", err)
 		}

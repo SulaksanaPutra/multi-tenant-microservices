@@ -15,7 +15,7 @@ import (
 
 // OrderDBReadyPublisher is the consumer-side interface expected by InfrastructureProvisionedConsumer.
 type OrderDBReadyPublisher interface {
-	Publish(ctx context.Context, evt domain.TenantOrderDBReadyEvent) error
+	PublishTenantOrderDBReady(ctx context.Context, evt domain.TenantOrderDBReadyEvent) error
 }
 
 // MigrationService is the consumer-side interface expected by InfrastructureProvisionedConsumer.
@@ -206,7 +206,7 @@ func (c *InfrastructureProvisionedConsumer) handleDelivery(ctx context.Context, 
 		SchemaName:  evt.SchemaName,
 	}
 
-	if err := c.publisher.Publish(ctx, readyEvt); err != nil {
+	if err := c.publisher.PublishTenantOrderDBReady(ctx, readyEvt); err != nil {
 		log.Printf("InfrastructureProvisionedConsumer Error: Failed to publish tenant.order_db.ready: %v", err)
 		_ = d.Nack(false, true)
 		return err
