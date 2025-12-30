@@ -9,12 +9,13 @@ import (
 
 	"order-service/internal/domain"
 	"order-service/internal/infrastructure/tenantdb"
+	"order-service/internal/repository"
 )
 
 var (
 	ErrTenantIDRequired   = errors.New("order service: tenant_id is required")
 	ErrCustomerIDRequired = errors.New("order service: customer_id is required")
-	ErrInvalidAmount      = errors.New("order service: amount must be greater than 0")
+	ErrInvalidAmount       = errors.New("order service: amount must be greater than 0")
 )
 
 type CreateOrderInput struct {
@@ -27,7 +28,7 @@ type CreateOrderInput struct {
 // OrderRepository is the consumer-side interface expected by OrderService.
 type OrderRepository interface {
 	ListOrders(ctx context.Context) ([]domain.Order, error)
-	CreateOrder(ctx context.Context, order domain.Order) error
+	CreateOrder(ctx context.Context, input repository.CreateOrderInput) error
 }
 
 type OrderService struct {
@@ -77,7 +78,15 @@ func (s *OrderService) CreateOrder(ctx context.Context, input CreateOrderInput) 
 		Amount:     input.Amount,
 	}
 
-	if err := s.orderRepository.CreateOrder(ctx, order); err != nil {
+	repoInput := repository.CreateOrderInput{
+		ID:         order.ID,
+		TenantID:   order.TenantID,
+		CustomerID: order.CustomerID,
+		Status:     order.Status,
+		Amount:     order.Amount,
+	}
+
+	if err := s.orderRepository.CreateOrder(ctx, repoInput); err != nil {
 		return nil, fmt.Errorf("order service: failed to create order: %w", err)
 	}
 

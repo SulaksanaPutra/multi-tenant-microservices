@@ -43,7 +43,7 @@ type TenantRepository interface {
 
 // OutboxRepository is the consumer-side interface expected by WorkspaceService.
 type OutboxRepository interface {
-	CreateOutboxMessage(ctx context.Context, msg domain.OutboxMessage) error
+	CreateOutboxMessage(ctx context.Context, input repository.CreateOutboxMessageInput) error
 }
 
 // OutboxWorker is the consumer-side interface expected by WorkspaceService.
@@ -111,15 +111,15 @@ func (s *WorkspaceService) RegisterWorkspace(ctx context.Context, input Register
 		return nil, fmt.Errorf("failed to create tenant record: %w", err)
 	}
 
-	outboxMsg := domain.OutboxMessage{
+	outboxInput := repository.CreateOutboxMessageInput{
 		ID:            outboxID,
-		TenantID:      &tenantID,
+		TenantID:      tenantID,
 		AggregateType: "WORKSPACE",
 		AggregateID:   tenantID,
 		EventType:     "workspace.initiated",
 		Payload:       payloadBytes,
 	}
-	if err := s.outboxRepository.CreateOutboxMessage(ctx, outboxMsg); err != nil {
+	if err := s.outboxRepository.CreateOutboxMessage(ctx, outboxInput); err != nil {
 		return nil, fmt.Errorf("failed to stage workspace.initiated outbox event: %w", err)
 	}
 
@@ -139,7 +139,7 @@ func (s *WorkspaceService) ActivateWorkspace(ctx context.Context, tenantID strin
 
 	tenant, err := s.tenantRepository.GetTenantByID(ctx, tenantID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, domain.ErrNotFound) || strings.Contains(err.Error(), "not found") {
 			return fmt.Errorf("%w: %s", ErrTenantNotFound, tenantID)
 		}
 		return fmt.Errorf("failed to fetch tenant for activation: %w", err)
@@ -163,15 +163,15 @@ func (s *WorkspaceService) ActivateWorkspace(ctx context.Context, tenantID strin
 		return fmt.Errorf("failed to activate tenant: %w", err)
 	}
 
-	outboxMsg := domain.OutboxMessage{
+	outboxInput := repository.CreateOutboxMessageInput{
 		ID:            outboxID,
-		TenantID:      &tenantID,
+		TenantID:      tenantID,
 		AggregateType: "WORKSPACE",
 		AggregateID:   tenantID,
 		EventType:     "workspace.ready",
 		Payload:       payloadBytes,
 	}
-	if err := s.outboxRepository.CreateOutboxMessage(ctx, outboxMsg); err != nil {
+	if err := s.outboxRepository.CreateOutboxMessage(ctx, outboxInput); err != nil {
 		return fmt.Errorf("failed to stage workspace.ready outbox event: %w", err)
 	}
 

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"notification-service/internal/domain"
 	"notification-service/internal/infrastructure/postgres"
 	"notification-service/internal/testutil"
 	"notification-service/internal/txcontext"
@@ -27,7 +26,7 @@ func TestNotificationRepository_CreateNotificationLog_Error(t *testing.T) {
 	repo := NewNotificationRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	logEntry := domain.NotificationLog{
+	input := CreateNotificationLogInput{
 		UserID:         "usr-1",
 		TenantID:       "tenant-1",
 		RecipientEmail: "user@example.com",
@@ -36,7 +35,7 @@ func TestNotificationRepository_CreateNotificationLog_Error(t *testing.T) {
 		Status:         "sent",
 	}
 
-	id, err := repo.CreateNotificationLog(ctx, logEntry)
+	id, err := repo.CreateNotificationLog(ctx, input)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"tenant-service/internal/domain"
 	"tenant-service/internal/infrastructure/postgres"
 	"tenant-service/internal/testutil"
 	"tenant-service/internal/txcontext"
@@ -81,17 +80,16 @@ func TestOutboxRepository_CreateOutboxMessage_Success(t *testing.T) {
 	repo := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	tenantID := "tenant-999"
-	msg := domain.OutboxMessage{
+	input := CreateOutboxMessageInput{
 		ID:            "msg-123",
-		TenantID:      &tenantID,
+		TenantID:      "tenant-999",
 		AggregateType: "Tenant",
 		AggregateID:   "tenant-999",
 		EventType:     "workspace.initiated",
 		Payload:       []byte(`{"name":"Acme Corp"}`),
 	}
 
-	err := repo.CreateOutboxMessage(ctx, msg)
+	err := repo.CreateOutboxMessage(ctx, input)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -103,7 +101,7 @@ func TestOutboxRepository_CreateOutboxMessage_Success(t *testing.T) {
 	if len(capturedArgs) != 6 {
 		t.Fatalf("expected 6 arguments, got %d", len(capturedArgs))
 	}
-	if capturedArgs[0] != msg.ID || capturedArgs[2] != msg.AggregateType || capturedArgs[4] != msg.EventType {
+	if capturedArgs[0] != input.ID || capturedArgs[2] != input.AggregateType || capturedArgs[4] != input.EventType {
 		t.Errorf("unexpected arguments captured: %v", capturedArgs)
 	}
 }
@@ -119,8 +117,8 @@ func TestOutboxRepository_CreateOutboxMessage_Error(t *testing.T) {
 	repo := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	msg := domain.OutboxMessage{ID: "msg-err"}
-	err := repo.CreateOutboxMessage(ctx, msg)
+	input := CreateOutboxMessageInput{ID: "msg-err"}
+	err := repo.CreateOutboxMessage(ctx, input)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

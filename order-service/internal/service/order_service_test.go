@@ -12,12 +12,13 @@ import (
 
 	"order-service/internal/domain"
 	"order-service/internal/infrastructure/tenantdb"
+	"order-service/internal/repository"
 )
 
 type mockOrderRepository struct {
-	createdOrders  []domain.Order
-	listOrdersFunc func(ctx context.Context) ([]domain.Order, error)
-	createOrderFunc func(ctx context.Context, order domain.Order) error
+	createdOrders   []repository.CreateOrderInput
+	listOrdersFunc  func(ctx context.Context) ([]domain.Order, error)
+	createOrderFunc func(ctx context.Context, input repository.CreateOrderInput) error
 }
 
 func (m *mockOrderRepository) ListOrders(ctx context.Context) ([]domain.Order, error) {
@@ -27,11 +28,11 @@ func (m *mockOrderRepository) ListOrders(ctx context.Context) ([]domain.Order, e
 	return nil, nil
 }
 
-func (m *mockOrderRepository) CreateOrder(ctx context.Context, order domain.Order) error {
+func (m *mockOrderRepository) CreateOrder(ctx context.Context, input repository.CreateOrderInput) error {
 	if m.createOrderFunc != nil {
-		return m.createOrderFunc(ctx, order)
+		return m.createOrderFunc(ctx, input)
 	}
-	m.createdOrders = append(m.createdOrders, order)
+	m.createdOrders = append(m.createdOrders, input)
 	return nil
 }
 
@@ -177,7 +178,7 @@ func TestOrderService_CreateOrder_DefaultStatus(t *testing.T) {
 func TestOrderService_CreateOrder_RepoError(t *testing.T) {
 	expectedErr := errors.New("db error")
 	orderRepository := &mockOrderRepository{
-		createOrderFunc: func(ctx context.Context, order domain.Order) error {
+		createOrderFunc: func(ctx context.Context, input repository.CreateOrderInput) error {
 			return expectedErr
 		},
 	}
