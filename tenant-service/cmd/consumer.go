@@ -6,7 +6,6 @@ import (
 
 	"tenant-service/internal/consumer"
 	"tenant-service/internal/infrastructure/rabbitmq"
-	"tenant-service/internal/repository"
 	"tenant-service/internal/service"
 	"tenant-service/internal/txcontext"
 )
@@ -15,12 +14,12 @@ type consumerRunner struct {
 	tenantOrderDBReadyConsumer *consumer.TenantOrderDBReadyConsumer
 }
 
-func registerConsumers(txManager *txcontext.SQLTxManager, rmqClient *rabbitmq.Client, tenantInfrastructureSvc *service.TenantInfrastructureService, inboxRepo *repository.InboxRepository) (*consumerRunner, error) {
+func registerConsumers(txManager *txcontext.SQLTxManager, rmqClient *rabbitmq.Client, tenantInfrastructureSvc *service.TenantInfrastructureService, inboxSvc *service.InboxService) (*consumerRunner, error) {
 	c, err := consumer.NewTenantOrderDBReadyConsumer(consumer.TenantOrderDBReadyConsumerParams{
 		TxManager:                   txManager,
 		Client:                      rmqClient,
 		TenantInfrastructureService: tenantInfrastructureSvc,
-		InboxRepo:                   inboxRepo,
+		InboxService:                inboxSvc,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to register TenantOrderDBReadyConsumer: %w", err)

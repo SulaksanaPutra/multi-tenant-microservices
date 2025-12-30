@@ -17,9 +17,9 @@ type TxManager interface {
 	WithTransaction(ctx context.Context, fn func(txCtx context.Context) error) error
 }
 
-// InboxRepository is the consumer-side interface expected by TenantOrderDBReadyConsumer.
-type InboxRepository interface {
-	TryInsert(ctx context.Context, eventID string) (bool, error)
+// InboxService is the consumer-side interface expected by TenantOrderDBReadyConsumer.
+type InboxService interface {
+	ClaimEvent(txCtx context.Context, eventID string) (bool, error)
 }
 
 // TenantInfrastructureService is the consumer-side interface expected by TenantOrderDBReadyConsumer.
@@ -31,26 +31,26 @@ type TenantOrderDBReadyConsumerParams struct {
 	TxManager                   TxManager
 	Client                      *rabbitmq.Client
 	TenantInfrastructureService TenantInfrastructureService
-	InboxRepo                   InboxRepository
+	InboxService                InboxService
 }
 
 type TenantOrderDBReadyConsumer struct {
 	txManager                   TxManager
 	client                      *rabbitmq.Client
 	tenantInfrastructureService TenantInfrastructureService
-	inboxRepo                   InboxRepository
+	inboxService                InboxService
 }
 
 func NewTenantOrderDBReadyConsumer(params TenantOrderDBReadyConsumerParams) (*TenantOrderDBReadyConsumer, error) {
-	if params.InboxRepo == nil {
-		return nil, errors.New("inboxRepo is required")
+	if params.InboxService == nil {
+		return nil, errors.New("inboxService is required")
 	}
 
 	consumer := &TenantOrderDBReadyConsumer{
 		txManager:                   params.TxManager,
 		client:                      params.Client,
 		tenantInfrastructureService: params.TenantInfrastructureService,
-		inboxRepo:                   params.InboxRepo,
+		inboxService:                params.InboxService,
 	}
 
 	if err := consumer.setupTopology(); err != nil {
@@ -149,15 +149,13 @@ func (c *TenantOrderDBReadyConsumer) handleDelivery(ctx context.Context, d rabbi
 
 	// Wrap update handling inside transaction
 	err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-		if evt.EventID != "" {
-			isDuplicate, err := c.inboxRepo.TryInsert(txCtx, evt.EventID)
-			if err != nil {
-				return fmt.Errorf("failed to insert inbox event: %w", err)
-			}
-			if isDuplicate {
-				log.Printf("TenantOrderDBReadyConsumer: Duplicate event_id='%s' detected for tenant='%s', skipping processing.", evt.EventID, evt.TenantID)
-				return nil
-			}
+		isDuplicate, err := c.inboxService.ClaimEvent(txCtx, evt.EventID)
+		if err != nil {
+			return fmt.Errorf("failed to claim inbox event: %w", err)
+		}
+		if isDuplicate {
+			log.Printf("TenantOrderDBReadyConsumer: Duplicate event_id='%s' detected for tenant='%s', skipping processing.", evt.EventID, evt.TenantID)
+			return nil
 		}
 
 		input := service.InfrastructureUpdateInput{

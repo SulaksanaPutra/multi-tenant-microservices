@@ -15,7 +15,7 @@ type mockOrderDBReadyPublisher struct {
 	publishFunc func(ctx context.Context, evt domain.TenantOrderDBReadyEvent) error
 }
 
-func (m *mockOrderDBReadyPublisher) Publish(ctx context.Context, evt domain.TenantOrderDBReadyEvent) error {
+func (m *mockOrderDBReadyPublisher) PublishTenantOrderDBReady(ctx context.Context, evt domain.TenantOrderDBReadyEvent) error {
 	if m.publishFunc != nil {
 		return m.publishFunc(ctx, evt)
 	}

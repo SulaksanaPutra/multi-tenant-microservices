@@ -22,16 +22,16 @@ func NewTenantPublisher(client *rabbitmq.Client) (*TenantPublisher, error) {
 
 func (p *TenantPublisher) PublishWorkspaceInitiated(ctx context.Context, evt domain.WorkspaceInitiatedEvent) error {
 	if err := p.client.PublishEvent(ctx, domain.ExchangeCompanyEvents, domain.RoutingKeyWorkspaceInitiated, evt); err != nil {
-		return fmt.Errorf("failed to publish WorkspaceInitiated event: %w", err)
+		return fmt.Errorf("tenant_publisher: failed to publish WorkspaceInitiated event: %w", err)
 	}
-	log.Printf("TenantPublisher: Published WorkspaceInitiated for tenant_id='%s'", evt.TenantID)
+	log.Printf("TenantPublisher: Published WorkspaceInitiated event_id='%s' tenant_id='%s'", evt.EventID, evt.TenantID)
 	return nil
 }
 
 func (p *TenantPublisher) PublishWorkspaceReady(ctx context.Context, evt domain.WorkspaceReadyEvent) error {
 	if err := p.client.PublishEvent(ctx, domain.ExchangeCompanyEvents, domain.RoutingKeyWorkspaceReady, evt); err != nil {
-		return fmt.Errorf("failed to publish WorkspaceReady event: %w", err)
+		return fmt.Errorf("tenant_publisher: failed to publish WorkspaceReady event: %w", err)
 	}
-	log.Printf("TenantPublisher: Published WorkspaceReady for tenant_id='%s'", evt.TenantID)
+	log.Printf("TenantPublisher: Published WorkspaceReady event_id='%s' tenant_id='%s'", evt.EventID, evt.TenantID)
 	return nil
 }

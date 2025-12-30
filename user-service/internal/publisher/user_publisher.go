@@ -22,8 +22,8 @@ func NewUserPublisher(client *rabbitmq.Client) (*UserPublisher, error) {
 
 func (p *UserPublisher) PublishUserCreated(ctx context.Context, evt domain.UserCreatedEvent) error {
 	if err := p.client.PublishEvent(ctx, domain.ExchangeCompanyEvents, domain.RoutingKeyUserCreated, evt); err != nil {
-		return fmt.Errorf("failed to publish UserCreated event: %w", err)
+		return fmt.Errorf("user_publisher: failed to publish UserCreated event: %w", err)
 	}
-	log.Printf("UserPublisher: Published UserCreated for user_id='%s' email='%s'", evt.UserID, evt.Email)
+	log.Printf("UserPublisher: Published UserCreated event_id='%s' user_id='%s' tenant_id='%s'", evt.EventID, evt.UserID, evt.TenantID)
 	return nil
 }

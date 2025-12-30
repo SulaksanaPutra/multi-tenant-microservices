@@ -14,12 +14,12 @@ type consumerRunner struct {
 	workspaceInitiatedConsumer *consumer.WorkspaceInitiatedConsumer
 }
 
-func registerConsumers(txManager *txcontext.SQLTxManager, rmqClient *rabbitmq.Client, inboxRepository consumer.InboxRepository, userService *service.UserService) (*consumerRunner, error) {
+func registerConsumers(txManager *txcontext.SQLTxManager, rmqClient *rabbitmq.Client, inboxService *service.InboxService, userService *service.UserService) (*consumerRunner, error) {
 	wiConsumer, err := consumer.NewWorkspaceInitiatedConsumer(consumer.WorkspaceInitiatedConsumerParams{
-		TxManager:       txManager,
-		Client:          rmqClient,
-		InboxRepository: inboxRepository,
-		UserService:     userService,
+		TxManager:    txManager,
+		Client:       rmqClient,
+		InboxService: inboxService,
+		UserService:  userService,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize WorkspaceInitiatedConsumer: %w", err)
