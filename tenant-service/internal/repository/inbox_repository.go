@@ -9,15 +9,15 @@ import (
 )
 
 type InboxRepository struct {
-	client *postgres.Client
+	dbClient *postgres.Client
 }
 
-func NewInboxRepository(client *postgres.Client) *InboxRepository {
-	return &InboxRepository{client: client}
+func NewInboxRepository(dbClient *postgres.Client) *InboxRepository {
+	return &InboxRepository{dbClient: dbClient}
 }
 
 func (r *InboxRepository) TryInsert(ctx context.Context, eventID string) (bool, error) {
-	exec := txcontext.GetExecutor(ctx, r.client)
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	const query = `INSERT INTO public.inbox (event_id) VALUES ($1) ON CONFLICT (event_id) DO NOTHING;`
 	res, err := exec.ExecContext(ctx, query, eventID)
 	if err != nil {

@@ -11,6 +11,14 @@ import (
 	"github.com/lib/pq"
 )
 
+type CreateOrderInput struct {
+	ID         string
+	TenantID   string
+	CustomerID string
+	Status     string
+	Amount     float64
+}
+
 type OrderRepository struct {
 	cfg tenantdb.Config
 }
@@ -52,10 +60,13 @@ func (r *OrderRepository) ListOrders(ctx context.Context) ([]domain.Order, error
 		}
 		orders = append(orders, o)
 	}
+	if orders == nil {
+		orders = []domain.Order{}
+	}
 	return orders, rows.Err()
 }
 
-func (r *OrderRepository) CreateOrder(ctx context.Context, order domain.Order) error {
+func (r *OrderRepository) CreateOrder(ctx context.Context, input CreateOrderInput) error {
 	if r.cfg.DB == nil {
 		return errors.New("order repository: database handle is nil")
 	}
@@ -72,10 +83,9 @@ func (r *OrderRepository) CreateOrder(ctx context.Context, order domain.Order) e
 		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
 	`, pq.QuoteIdentifier(schemaName))
 
-	_, err := exec.ExecContext(ctx, query, order.ID, order.TenantID, order.CustomerID, order.Status, order.Amount)
+	_, err := exec.ExecContext(ctx, query, input.ID, input.TenantID, input.CustomerID, input.Status, input.Amount)
 	if err != nil {
 		return fmt.Errorf("failed to insert order into schema '%s': %w", schemaName, err)
 	}
 	return nil
 }
-

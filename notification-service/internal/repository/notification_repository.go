@@ -9,23 +9,32 @@ import (
 	"notification-service/internal/txcontext"
 )
 
+type CreateNotificationLogInput struct {
+	UserID         string
+	TenantID       string
+	RecipientEmail string
+	Subject        string
+	Body           string
+	Status         string
+}
+
 type NotificationRepository struct {
-	client *postgres.Client
+	dbClient *postgres.Client
 }
 
-func NewNotificationRepository(client *postgres.Client) *NotificationRepository {
-	return &NotificationRepository{client: client}
+func NewNotificationRepository(dbClient *postgres.Client) *NotificationRepository {
+	return &NotificationRepository{dbClient: dbClient}
 }
 
-func (r *NotificationRepository) CreateNotificationLog(ctx context.Context, log domain.NotificationLog) (int, error) {
-	exec := txcontext.GetExecutor(ctx, r.client.DB)
+func (r *NotificationRepository) CreateNotificationLog(ctx context.Context, input CreateNotificationLogInput) (int, error) {
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	query := `
 		INSERT INTO public.notifications (user_id, tenant_id, recipient_email, subject, body, status)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id;
 	`
 	var id int
-	err := exec.QueryRowContext(ctx, query, log.UserID, log.TenantID, log.RecipientEmail, log.Subject, log.Body, log.Status).Scan(&id)
+	err := exec.QueryRowContext(ctx, query, input.UserID, input.TenantID, input.RecipientEmail, input.Subject, input.Body, input.Status).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("failed to insert notification log: %w", err)
 	}
@@ -33,7 +42,7 @@ func (r *NotificationRepository) CreateNotificationLog(ctx context.Context, log 
 }
 
 func (r *NotificationRepository) HasSentNotification(ctx context.Context, tenantID string) (bool, error) {
-	exec := txcontext.GetExecutor(ctx, r.client.DB)
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	const query = `
 		SELECT COUNT(1)
 		FROM public.notifications
@@ -47,7 +56,7 @@ func (r *NotificationRepository) HasSentNotification(ctx context.Context, tenant
 }
 
 func (r *NotificationRepository) ListNotifications(ctx context.Context, tenantID string) ([]domain.NotificationLog, error) {
-	exec := txcontext.GetExecutor(ctx, r.client.DB)
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	var query string
 	var args []interface{}
 

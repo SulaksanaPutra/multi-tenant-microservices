@@ -108,7 +108,7 @@ func (r *TenantInfrastructureRepository) GetServiceInfrastructure(ctx context.Co
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("no infrastructure registered for tenant '%s', service '%s'", tenantID, serviceName)
+			return nil, fmt.Errorf("no infrastructure registered for tenant '%s', service '%s': %w", tenantID, serviceName, domain.ErrNotFound)
 		}
 		return nil, fmt.Errorf("failed to query service infrastructure: %w", err)
 	}

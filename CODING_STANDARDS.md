@@ -180,8 +180,11 @@ To maintain strict Clean Architecture boundaries and avoid transport coupling, e
 | **`internal/service`** | `{UseCase}Input`<br>*(e.g. `RegisterWorkspaceInput`)* | `{UseCase}Output`<br>*(e.g. `RegisterWorkspaceOutput`)* | Transport-agnostic business logic inputs & outputs. Must NOT contain `json` tags. |
 | **`internal/consumer`** | `domain.{EventName}Event`<br>*(e.g. `domain.WorkspaceInitiatedEvent`)* | N/A *(ACK / NACK)* | Unmarshals raw AMQP bytes into Domain Event, maps to Service `{UseCase}Input`. |
 | **`internal/publisher`** | `domain.{EventName}Event`<br>*(e.g. `domain.UserCreatedEvent`)* | Raw AMQP Payload | Serializes Domain Event payload and publishes to AMQP exchange. |
-| **`internal/repository`** | `{Action}{Entity}Input`<br>*(e.g. `CreateTenantInput`)* | `domain.{Entity}`<br>*(e.g. `domain.Tenant`)* | Operation-specific DB write parameters (`Input`) vs. pure Domain Entities (`Output`). |
+| **`internal/repository`** | `{Action}{Entity}Input`<br>*(e.g. `CreateTenantInput`, `CreateUserInput`)* | `domain.{Entity}`<br>*(e.g. `domain.Tenant`)* | Operation-specific DB write parameters (`Input`) vs. pure Domain Entities (`Output`). |
 | **`internal/domain`** | Pure Domain Entities & Integration Events | Pure Domain Entities & Integration Events | Single source of truth for business entities (`Tenant`, `User`, `Order`) and events (`WorkspaceReadyEvent`). |
+
+> [!MANDATORY]
+> **Repository DTO Input Rule:** All repository write/mutation methods (`Create*`, `Update*`, `Upsert*`, `Save*`) MUST accept dedicated operation-specific DTO structs (`{Action}{Entity}Input`) defined inside the repository package. Repository write methods are FORBIDDEN from accepting raw `domain.{Entity}` structs directly.
 
 ### Rule 6.2: DB Table to Domain Entity Singularization Rule
 

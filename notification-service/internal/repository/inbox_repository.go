@@ -9,26 +9,33 @@ import (
 	"notification-service/internal/txcontext"
 )
 
+type CreateInboxMessageInput struct {
+	EventID   string
+	TenantID  string
+	EventType string
+	Payload   []byte
+}
+
 type InboxRepository struct {
-	client *postgres.Client
+	dbClient *postgres.Client
 }
 
-func NewInboxRepository(client *postgres.Client) *InboxRepository {
-	return &InboxRepository{client: client}
+func NewInboxRepository(dbClient *postgres.Client) *InboxRepository {
+	return &InboxRepository{dbClient: dbClient}
 }
 
-func (r *InboxRepository) TryInsert(ctx context.Context, msg domain.InboxMessage) (bool, error) {
-	exec := txcontext.GetExecutor(ctx, r.client.DB)
+func (r *InboxRepository) TryInsert(ctx context.Context, input CreateInboxMessageInput) (bool, error) {
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	const query = `
 		INSERT INTO public.inbox (event_id, tenant_id, event_type, payload)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (event_id) DO NOTHING;
 	`
-	payloadStr := string(msg.Payload)
+	payloadStr := string(input.Payload)
 	if payloadStr == "" {
 		payloadStr = "{}"
 	}
-	res, err := exec.ExecContext(ctx, query, msg.EventID, msg.TenantID, msg.EventType, payloadStr)
+	res, err := exec.ExecContext(ctx, query, input.EventID, input.TenantID, input.EventType, payloadStr)
 	if err != nil {
 		return false, fmt.Errorf("failed to insert inbox record: %w", err)
 	}
@@ -43,7 +50,7 @@ func (r *InboxRepository) TryInsert(ctx context.Context, msg domain.InboxMessage
 }
 
 func (r *InboxRepository) GetEventsByTenantID(ctx context.Context, tenantID string) ([]domain.InboxMessage, error) {
-	exec := txcontext.GetExecutor(ctx, r.client.DB)
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	const query = `
 		SELECT event_id, tenant_id, event_type, payload
 		FROM public.inbox
@@ -54,7 +61,7 @@ func (r *InboxRepository) GetEventsByTenantID(ctx context.Context, tenantID stri
 		return nil, fmt.Errorf("failed to query inbox events for tenant_id='%s': %w", tenantID, err)
 	}
 	if rows == nil {
-		return nil, nil
+		return []domain.InboxMessage{}, nil
 	}
 	defer rows.Close()
 
@@ -71,6 +78,10 @@ func (r *InboxRepository) GetEventsByTenantID(ctx context.Context, tenantID stri
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("row iteration error reading inbox events: %w", err)
+	}
+
+	if list == nil {
+		list = []domain.InboxMessage{}
 	}
 
 	return list, nil

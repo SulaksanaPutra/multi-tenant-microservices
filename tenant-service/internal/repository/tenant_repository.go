@@ -68,7 +68,7 @@ func (r *TenantRepository) GetTenantByID(ctx context.Context, tenantID string) (
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("tenant '%s' not found", tenantID)
+			return nil, fmt.Errorf("tenant '%s': %w", tenantID, domain.ErrNotFound)
 		}
 		return nil, fmt.Errorf("failed to query tenant by ID: %w", err)
 	}

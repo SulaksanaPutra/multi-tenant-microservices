@@ -10,26 +10,27 @@ import (
 	"testing"
 
 	"user-service/internal/domain"
+	"user-service/internal/repository"
 )
 
 type mockUserRepository struct {
-	createUserFunc func(ctx context.Context, user domain.User) error
+	createUserFunc func(ctx context.Context, input repository.CreateUserInput) error
 }
 
-func (m *mockUserRepository) CreateUser(ctx context.Context, user domain.User) error {
+func (m *mockUserRepository) CreateUser(ctx context.Context, input repository.CreateUserInput) error {
 	if m.createUserFunc != nil {
-		return m.createUserFunc(ctx, user)
+		return m.createUserFunc(ctx, input)
 	}
 	return nil
 }
 
 type mockOutboxRepository struct {
-	createOutboxMessageFunc func(ctx context.Context, msg domain.OutboxMessage) error
+	createOutboxMessageFunc func(ctx context.Context, input repository.CreateOutboxMessageInput) error
 }
 
-func (m *mockOutboxRepository) CreateOutboxMessage(ctx context.Context, msg domain.OutboxMessage) error {
+func (m *mockOutboxRepository) CreateOutboxMessage(ctx context.Context, input repository.CreateOutboxMessageInput) error {
 	if m.createOutboxMessageFunc != nil {
-		return m.createOutboxMessageFunc(ctx, msg)
+		return m.createOutboxMessageFunc(ctx, input)
 	}
 	return nil
 }
@@ -73,19 +74,19 @@ func TestUserService_CreateUserFromWorkspace_Validation(t *testing.T) {
 }
 
 func TestUserService_CreateUserFromWorkspace_Success(t *testing.T) {
-	var createdUser domain.User
-	var createdOutbox domain.OutboxMessage
+	var createdUser repository.CreateUserInput
+	var createdOutbox repository.CreateOutboxMessageInput
 
 	userRepo := &mockUserRepository{
-		createUserFunc: func(ctx context.Context, user domain.User) error {
-			createdUser = user
+		createUserFunc: func(ctx context.Context, input repository.CreateUserInput) error {
+			createdUser = input
 			return nil
 		},
 	}
 
 	outboxRepo := &mockOutboxRepository{
-		createOutboxMessageFunc: func(ctx context.Context, msg domain.OutboxMessage) error {
-			createdOutbox = msg
+		createOutboxMessageFunc: func(ctx context.Context, input repository.CreateOutboxMessageInput) error {
+			createdOutbox = input
 			return nil
 		},
 	}
@@ -114,10 +115,10 @@ func TestUserService_CreateUserFromWorkspace_Success(t *testing.T) {
 }
 
 func TestUserService_CreateUserFromWorkspace_NilOutboxRepo(t *testing.T) {
-	var createdUser domain.User
+	var createdUser repository.CreateUserInput
 	userRepo := &mockUserRepository{
-		createUserFunc: func(ctx context.Context, user domain.User) error {
-			createdUser = user
+		createUserFunc: func(ctx context.Context, input repository.CreateUserInput) error {
+			createdUser = input
 			return nil
 		},
 	}
@@ -145,7 +146,7 @@ func TestUserService_CreateUserFromWorkspace_NilOutboxRepo(t *testing.T) {
 func TestUserService_CreateUserFromWorkspace_UserRepoError(t *testing.T) {
 	expectedErr := errors.New("db error")
 	userRepo := &mockUserRepository{
-		createUserFunc: func(ctx context.Context, user domain.User) error {
+		createUserFunc: func(ctx context.Context, input repository.CreateUserInput) error {
 			return expectedErr
 		},
 	}
@@ -167,7 +168,7 @@ func TestUserService_CreateUserFromWorkspace_OutboxRepoError(t *testing.T) {
 	userRepo := &mockUserRepository{}
 	expectedErr := errors.New("outbox write failure")
 	outboxRepo := &mockOutboxRepository{
-		createOutboxMessageFunc: func(ctx context.Context, msg domain.OutboxMessage) error {
+		createOutboxMessageFunc: func(ctx context.Context, input repository.CreateOutboxMessageInput) error {
 			return expectedErr
 		},
 	}

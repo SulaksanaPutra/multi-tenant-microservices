@@ -41,12 +41,12 @@ func (m *mockTenantRepository) ActivateTenant(ctx context.Context, tenantID stri
 }
 
 type mockOutboxRepository struct {
-	createOutboxMessageFunc func(ctx context.Context, msg domain.OutboxMessage) error
+	createOutboxMessageFunc func(ctx context.Context, input repository.CreateOutboxMessageInput) error
 }
 
-func (m *mockOutboxRepository) CreateOutboxMessage(ctx context.Context, msg domain.OutboxMessage) error {
+func (m *mockOutboxRepository) CreateOutboxMessage(ctx context.Context, input repository.CreateOutboxMessageInput) error {
 	if m.createOutboxMessageFunc != nil {
-		return m.createOutboxMessageFunc(ctx, msg)
+		return m.createOutboxMessageFunc(ctx, input)
 	}
 	return nil
 }
@@ -115,7 +115,7 @@ func TestWorkspaceService_RegisterWorkspace_Validation(t *testing.T) {
 
 func TestWorkspaceService_RegisterWorkspace_Success(t *testing.T) {
 	var capturedTenant repository.CreateTenantInput
-	var capturedOutbox domain.OutboxMessage
+	var capturedOutbox repository.CreateOutboxMessageInput
 
 	tenantRepo := &mockTenantRepository{
 		createTenantFunc: func(ctx context.Context, input repository.CreateTenantInput) error {
@@ -125,8 +125,8 @@ func TestWorkspaceService_RegisterWorkspace_Success(t *testing.T) {
 	}
 
 	outboxRepo := &mockOutboxRepository{
-		createOutboxMessageFunc: func(ctx context.Context, msg domain.OutboxMessage) error {
-			capturedOutbox = msg
+		createOutboxMessageFunc: func(ctx context.Context, input repository.CreateOutboxMessageInput) error {
+			capturedOutbox = input
 			return nil
 		},
 	}
@@ -168,7 +168,7 @@ func TestWorkspaceService_RegisterWorkspace_OutboxRepoError(t *testing.T) {
 	expectedErr := errors.New("outbox failed")
 	tenantRepo := &mockTenantRepository{}
 	outboxRepo := &mockOutboxRepository{
-		createOutboxMessageFunc: func(ctx context.Context, msg domain.OutboxMessage) error {
+		createOutboxMessageFunc: func(ctx context.Context, input repository.CreateOutboxMessageInput) error {
 			return expectedErr
 		},
 	}
@@ -216,7 +216,7 @@ func TestWorkspaceService_ActivateWorkspace_ValidationAndNotFound(t *testing.T) 
 
 func TestWorkspaceService_ActivateWorkspace_Success(t *testing.T) {
 	var activatedTenantID string
-	var capturedOutbox domain.OutboxMessage
+	var capturedOutbox repository.CreateOutboxMessageInput
 	worker := &mockOutboxWorker{}
 
 	tenantRepo := &mockTenantRepository{
@@ -230,8 +230,8 @@ func TestWorkspaceService_ActivateWorkspace_Success(t *testing.T) {
 	}
 
 	outboxRepo := &mockOutboxRepository{
-		createOutboxMessageFunc: func(ctx context.Context, msg domain.OutboxMessage) error {
-			capturedOutbox = msg
+		createOutboxMessageFunc: func(ctx context.Context, input repository.CreateOutboxMessageInput) error {
+			capturedOutbox = input
 			return nil
 		},
 	}

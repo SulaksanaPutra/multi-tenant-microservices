@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"user-service/internal/domain"
+	"user-service/internal/repository"
 )
 
 var (
@@ -27,12 +28,12 @@ type CreateUserFromWorkspaceInput struct {
 
 // UserRepository is the consumer-side interface expected by UserService.
 type UserRepository interface {
-	CreateUser(ctx context.Context, user domain.User) error
+	CreateUser(ctx context.Context, input repository.CreateUserInput) error
 }
 
 // OutboxRepository is the consumer-side interface expected by UserService.
 type OutboxRepository interface {
-	CreateOutboxMessage(ctx context.Context, msg domain.OutboxMessage) error
+	CreateOutboxMessage(ctx context.Context, input repository.CreateOutboxMessageInput) error
 }
 
 type UserService struct {
@@ -59,13 +60,13 @@ func (s *UserService) CreateUserFromWorkspace(ctx context.Context, input CreateU
 	}
 
 	userID := domain.GenerateUserID()
-	userObj := domain.User{
+	userInput := repository.CreateUserInput{
 		ID:    userID,
 		Email: input.OwnerEmail,
 		Name:  input.OwnerName,
 	}
 
-	if err := s.userRepository.CreateUser(ctx, userObj); err != nil {
+	if err := s.userRepository.CreateUser(ctx, userInput); err != nil {
 		return fmt.Errorf("failed to create user: %w", err)
 	}
 
@@ -84,16 +85,16 @@ func (s *UserService) CreateUserFromWorkspace(ctx context.Context, input CreateU
 			return fmt.Errorf("failed to marshal UserCreated event: %w", err)
 		}
 
-		outboxMsg := domain.OutboxMessage{
+		outboxInput := repository.CreateOutboxMessageInput{
 			ID:            outboxEventID,
-			TenantID:      &input.TenantID,
+			TenantID:      input.TenantID,
 			AggregateType: "User",
 			AggregateID:   userID,
 			EventType:     domain.RoutingKeyUserCreated,
 			Payload:       payloadBytes,
 		}
 
-		if err := s.outboxRepository.CreateOutboxMessage(ctx, outboxMsg); err != nil {
+		if err := s.outboxRepository.CreateOutboxMessage(ctx, outboxInput); err != nil {
 			return fmt.Errorf("failed to create user outbox message: %w", err)
 		}
 	}

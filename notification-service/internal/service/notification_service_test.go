@@ -12,17 +12,18 @@ import (
 	"testing"
 
 	"notification-service/internal/domain"
+	"notification-service/internal/repository"
 )
 
 type mockNotificationRepo struct {
-	createNotificationLogFunc func(ctx context.Context, log domain.NotificationLog) (int, error)
+	createNotificationLogFunc func(ctx context.Context, input repository.CreateNotificationLogInput) (int, error)
 	hasSentNotificationFunc   func(ctx context.Context, tenantID string) (bool, error)
 	listNotificationsFunc     func(ctx context.Context, tenantID string) ([]domain.NotificationLog, error)
 }
 
-func (m *mockNotificationRepo) CreateNotificationLog(ctx context.Context, log domain.NotificationLog) (int, error) {
+func (m *mockNotificationRepo) CreateNotificationLog(ctx context.Context, input repository.CreateNotificationLogInput) (int, error) {
 	if m.createNotificationLogFunc != nil {
-		return m.createNotificationLogFunc(ctx, log)
+		return m.createNotificationLogFunc(ctx, input)
 	}
 	return 1, nil
 }
@@ -42,13 +43,13 @@ func (m *mockNotificationRepo) ListNotifications(ctx context.Context, tenantID s
 }
 
 type mockInboxRepo struct {
-	tryInsertFunc           func(ctx context.Context, msg domain.InboxMessage) (bool, error)
+	tryInsertFunc           func(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error)
 	getEventsByTenantIDFunc func(ctx context.Context, tenantID string) ([]domain.InboxMessage, error)
 }
 
-func (m *mockInboxRepo) TryInsert(ctx context.Context, msg domain.InboxMessage) (bool, error) {
+func (m *mockInboxRepo) TryInsert(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
 	if m.tryInsertFunc != nil {
-		return m.tryInsertFunc(ctx, msg)
+		return m.tryInsertFunc(ctx, input)
 	}
 	return false, nil
 }
@@ -95,7 +96,7 @@ func TestProcessEventAndTrySendWelcome_Validation(t *testing.T) {
 
 func TestProcessEventAndTrySendWelcome_DuplicateInbox(t *testing.T) {
 	inboxRepo := &mockInboxRepo{
-		tryInsertFunc: func(ctx context.Context, msg domain.InboxMessage) (bool, error) {
+		tryInsertFunc: func(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
 			return true, nil // duplicate event
 		},
 	}
@@ -232,7 +233,7 @@ func TestProcessEventAndTrySendWelcome_Errors(t *testing.T) {
 
 	t.Run("TryInsert error", func(t *testing.T) {
 		inboxRepo := &mockInboxRepo{
-			tryInsertFunc: func(ctx context.Context, msg domain.InboxMessage) (bool, error) {
+			tryInsertFunc: func(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
 				return false, expectedErr
 			},
 		}
@@ -287,7 +288,7 @@ func TestProcessEventAndTrySendWelcome_Errors(t *testing.T) {
 			},
 		}
 		notifRepo := &mockNotificationRepo{
-			createNotificationLogFunc: func(ctx context.Context, log domain.NotificationLog) (int, error) {
+			createNotificationLogFunc: func(ctx context.Context, input repository.CreateNotificationLogInput) (int, error) {
 				return 0, expectedErr
 			},
 		}
@@ -331,10 +332,10 @@ func TestProcessEventAndTrySendWelcome_PayloadFallback(t *testing.T) {
 		},
 	}
 
-	var capturedLog domain.NotificationLog
+	var capturedLog repository.CreateNotificationLogInput
 	notifRepo := &mockNotificationRepo{
-		createNotificationLogFunc: func(ctx context.Context, log domain.NotificationLog) (int, error) {
-			capturedLog = log
+		createNotificationLogFunc: func(ctx context.Context, input repository.CreateNotificationLogInput) (int, error) {
+			capturedLog = input
 			return 1, nil
 		},
 	}

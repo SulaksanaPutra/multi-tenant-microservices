@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"user-service/internal/domain"
 	"user-service/internal/infrastructure/postgres"
 	"user-service/internal/testutil"
 	"user-service/internal/txcontext"
@@ -36,13 +35,13 @@ func TestUserRepository_CreateUser_Success(t *testing.T) {
 	repo := NewUserRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	user := domain.User{
+	userInput := CreateUserInput{
 		ID:    "user-123",
 		Email: "test@example.com",
 		Name:  "Test User",
 	}
 
-	err := repo.CreateUser(ctx, user)
+	err := repo.CreateUser(ctx, userInput)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -55,9 +54,9 @@ func TestUserRepository_CreateUser_Success(t *testing.T) {
 		t.Fatalf("expected 3 query arguments, got %d", len(capturedArgs))
 	}
 
-	if capturedArgs[0] != user.ID || capturedArgs[1] != user.Email || capturedArgs[2] != user.Name {
+	if capturedArgs[0] != userInput.ID || capturedArgs[1] != userInput.Email || capturedArgs[2] != userInput.Name {
 		t.Errorf("unexpected query arguments: got %v, expected [%s, %s, %s]",
-			capturedArgs, user.ID, user.Email, user.Name)
+			capturedArgs, userInput.ID, userInput.Email, userInput.Name)
 	}
 }
 
@@ -72,13 +71,13 @@ func TestUserRepository_CreateUser_Error(t *testing.T) {
 	repo := NewUserRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	user := domain.User{
+	userInput := CreateUserInput{
 		ID:    "user-456",
 		Email: "fail@example.com",
 		Name:  "Fail User",
 	}
 
-	err := repo.CreateUser(ctx, user)
+	err := repo.CreateUser(ctx, userInput)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

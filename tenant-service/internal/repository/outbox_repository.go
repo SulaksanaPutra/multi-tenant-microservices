@@ -38,6 +38,15 @@ func sanitizeError(err error) string {
 	return msg
 }
 
+type CreateOutboxMessageInput struct {
+	ID            string
+	TenantID      string
+	AggregateType string
+	AggregateID   string
+	EventType     string
+	Payload       []byte
+}
+
 type OutboxRepository struct {
 	dbClient *postgres.Client
 }
@@ -46,7 +55,7 @@ func NewOutboxRepository(dbClient *postgres.Client) *OutboxRepository {
 	return &OutboxRepository{dbClient: dbClient}
 }
 
-func (r *OutboxRepository) CreateOutboxMessage(ctx context.Context, msg domain.OutboxMessage) error {
+func (r *OutboxRepository) CreateOutboxMessage(ctx context.Context, input CreateOutboxMessageInput) error {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	const query = `
 		INSERT INTO public.outbox (
@@ -54,7 +63,7 @@ func (r *OutboxRepository) CreateOutboxMessage(ctx context.Context, msg domain.O
 		) VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', 0);
 	`
 	if _, err := exec.ExecContext(ctx, query,
-		msg.ID, msg.TenantID, msg.AggregateType, msg.AggregateID, msg.EventType, string(msg.Payload),
+		input.ID, input.TenantID, input.AggregateType, input.AggregateID, input.EventType, string(input.Payload),
 	); err != nil {
 		return fmt.Errorf("failed to insert outbox message: %w", err)
 	}
@@ -89,7 +98,7 @@ func (r *OutboxRepository) FetchAndClaimBatch(ctx context.Context, eventType str
 		return nil, fmt.Errorf("failed to fetch and claim outbox batch: %w", err)
 	}
 	if rows == nil {
-		return nil, nil
+		return []domain.OutboxMessage{}, nil
 	}
 	defer func(r *sql.Rows) {
 		if r != nil {
@@ -109,6 +118,9 @@ func (r *OutboxRepository) FetchAndClaimBatch(ctx context.Context, eventType str
 		}
 		msg.Payload = []byte(payloadStr)
 		list = append(list, msg)
+	}
+	if list == nil {
+		list = []domain.OutboxMessage{}
 	}
 	return list, rows.Err()
 }

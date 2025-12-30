@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"notification-service/internal/domain"
+	"notification-service/internal/repository"
 )
 
 var (
@@ -27,14 +28,14 @@ type ProcessEventInput struct {
 
 // NotificationRepository is the consumer-side interface expected by NotificationService.
 type NotificationRepository interface {
-	CreateNotificationLog(ctx context.Context, log domain.NotificationLog) (int, error)
+	CreateNotificationLog(ctx context.Context, input repository.CreateNotificationLogInput) (int, error)
 	HasSentNotification(ctx context.Context, tenantID string) (bool, error)
 	ListNotifications(ctx context.Context, tenantID string) ([]domain.NotificationLog, error)
 }
 
 // InboxRepository is the consumer-side interface expected by NotificationService.
 type InboxRepository interface {
-	TryInsert(ctx context.Context, msg domain.InboxMessage) (bool, error)
+	TryInsert(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error)
 	GetEventsByTenantID(ctx context.Context, tenantID string) ([]domain.InboxMessage, error)
 }
 
@@ -51,8 +52,8 @@ type NotificationService struct {
 
 func NewNotificationService(
 	notificationRepository NotificationRepository,
-	inboxRepository InboxRepository,
-	mailer Mailer,
+	inboxRepository        InboxRepository,
+	mailer                 Mailer,
 ) *NotificationService {
 	return &NotificationService{
 		notificationRepository: notificationRepository,
@@ -76,14 +77,14 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(ctx context.Context,
 		return ErrTenantIDRequired
 	}
 
-	inboxMsg := domain.InboxMessage{
+	inboxInput := repository.CreateInboxMessageInput{
 		EventID:   input.EventID,
 		TenantID:  input.TenantID,
 		EventType: input.EventType,
 		Payload:   input.Payload,
 	}
 
-	isDup, err := s.inboxRepository.TryInsert(ctx, inboxMsg)
+	isDup, err := s.inboxRepository.TryInsert(ctx, inboxInput)
 	if err != nil {
 		return fmt.Errorf("inbox guard failed: %w", err)
 	}
@@ -159,7 +160,7 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(ctx context.Context,
 		input.TenantID,
 	)
 
-	auditLog := domain.NotificationLog{
+	auditLogInput := repository.CreateNotificationLogInput{
 		UserID:         userID,
 		TenantID:       input.TenantID,
 		RecipientEmail: recipientEmail,
@@ -167,7 +168,7 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(ctx context.Context,
 		Body:           bodyText,
 		Status:         "sent",
 	}
-	logID, dbErr := s.notificationRepository.CreateNotificationLog(ctx, auditLog)
+	logID, dbErr := s.notificationRepository.CreateNotificationLog(ctx, auditLogInput)
 	if dbErr != nil {
 		return fmt.Errorf("failed to persist notification audit log: %w", dbErr)
 	}
