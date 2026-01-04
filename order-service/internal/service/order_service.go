@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/google/uuid"
-
 	"order-service/internal/domain"
 	"order-service/internal/infrastructure/tenantdb"
 	"order-service/internal/repository"
@@ -71,7 +69,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, input CreateOrderInput) 
 	}
 
 	order := domain.Order{
-		ID:         uuid.New().String(),
+		ID:         domain.GenerateOrderID(),
 		TenantID:   tenantID,
 		CustomerID: input.CustomerID,
 		Status:     status,
