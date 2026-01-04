@@ -13,9 +13,6 @@ const (
 	defaultDebounceDelay = 10 * time.Millisecond
 	defaultPollInterval  = 1 * time.Second
 	defaultBatchSize     = 50
-
-	EventTypeWorkspaceInitiated = "workspace.initiated"
-	EventTypeWorkspaceReady     = "workspace.ready"
 )
 
 // OutboxRepository is the consumer-side interface expected by OutboxWorker.
@@ -72,8 +69,6 @@ func (w *OutboxWorker) Start(ctx context.Context) {
 	ticker := time.NewTicker(w.pollInterval)
 	defer ticker.Stop()
 
-	var debounceTimer *time.Timer
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -81,12 +76,7 @@ func (w *OutboxWorker) Start(ctx context.Context) {
 			return
 
 		case <-w.wakeUpChan:
-			if debounceTimer != nil {
-				debounceTimer.Stop()
-			}
-			debounceTimer = time.AfterFunc(w.debounceDelay, func() {
-				w.recoverAndProcess(ctx)
-			})
+			w.debounceAndProcess(ctx)
 
 		case <-ticker.C:
 			w.recoverAndProcess(ctx)
@@ -94,14 +84,26 @@ func (w *OutboxWorker) Start(ctx context.Context) {
 	}
 }
 
-func (w *OutboxWorker) processAllBatches(ctx context.Context) {
+func (w *OutboxWorker) debounceAndProcess(ctx context.Context) {
+	timer := time.NewTimer(w.debounceDelay)
+	defer timer.Stop()
 
-	w.processBatch(ctx, EventTypeWorkspaceInitiated)
-	w.processBatch(ctx, EventTypeWorkspaceReady)
+drainLoop:
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-w.wakeUpChan:
+		case <-timer.C:
+			break drainLoop
+		}
+	}
+
+	w.recoverAndProcess(ctx)
 }
 
 func (w *OutboxWorker) recoverAndProcess(ctx context.Context) {
-	for _, eventType := range []string{EventTypeWorkspaceInitiated, EventTypeWorkspaceReady} {
+	for _, eventType := range []string{domain.RoutingKeyWorkspaceInitiated, domain.RoutingKeyWorkspaceReady} {
 		if err := w.outboxRepository.RecoverStuckClaims(ctx, eventType); err != nil {
 			log.Printf("OutboxWorker Warning: Stuck-claim recovery failed for '%s': %v", eventType, err)
 		}

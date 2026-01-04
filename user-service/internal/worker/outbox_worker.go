@@ -13,8 +13,6 @@ const (
 	defaultDebounceDelay = 10 * time.Millisecond
 	defaultPollInterval  = 5 * time.Second
 	defaultBatchSize     = 50
-
-	EventTypeUserCreated = "user.created"
 )
 
 // OutboxRepository is the consumer-side interface expected by OutboxWorker.
@@ -95,11 +93,11 @@ drainLoop:
 		}
 	}
 
-	w.processBatch(ctx, EventTypeUserCreated)
+	w.processBatch(ctx, domain.RoutingKeyUserCreated)
 }
 
 func (w *OutboxWorker) recoverAndProcess(ctx context.Context) {
-	for _, eventType := range []string{EventTypeUserCreated} {
+	for _, eventType := range []string{domain.RoutingKeyUserCreated} {
 		if err := w.outboxRepository.RecoverStuckClaims(ctx, eventType); err != nil {
 			log.Printf("OutboxWorker Warning: Stuck-claim recovery failed for '%s': %v", eventType, err)
 		}
