@@ -11,12 +11,12 @@ type InboxRepository interface {
 }
 
 type InboxService struct {
-	inboxRepo InboxRepository
+	inboxRepository InboxRepository
 }
 
-func NewInboxService(inboxRepo InboxRepository) *InboxService {
+func NewInboxService(inboxRepository InboxRepository) *InboxService {
 	return &InboxService{
-		inboxRepo: inboxRepo,
+		inboxRepository: inboxRepository,
 	}
 }
 
@@ -26,7 +26,7 @@ func (s *InboxService) ClaimEvent(txCtx context.Context, eventID string) (bool, 
 	if eventID == "" {
 		return false, nil
 	}
-	isDuplicate, err := s.inboxRepo.TryInsert(txCtx, eventID)
+	isDuplicate, err := s.inboxRepository.TryInsert(txCtx, eventID)
 	if err != nil {
 		return false, fmt.Errorf("inbox service: failed to claim event_id='%s': %w", eventID, err)
 	}
