@@ -26,6 +26,12 @@ type ProcessEventInput struct {
 	Payload    []byte
 }
 
+type ProcessEventOutput struct {
+	LogID          int
+	RecipientEmail string
+	TenantID       string
+}
+
 // NotificationRepository is the consumer-side interface expected by NotificationService.
 type NotificationRepository interface {
 	CreateNotificationLog(ctx context.Context, input repository.CreateNotificationLogInput) (int, error)
@@ -33,32 +39,15 @@ type NotificationRepository interface {
 	ListNotifications(ctx context.Context, tenantID string) ([]domain.NotificationLog, error)
 }
 
-// InboxRepository is the consumer-side interface expected by NotificationService.
-type InboxRepository interface {
-	TryInsert(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error)
-	GetEventsByTenantID(ctx context.Context, tenantID string) ([]domain.InboxMessage, error)
-}
-
-// Mailer is the consumer-side interface expected by NotificationService.
-type Mailer interface {
-	SendWelcomeEmail(recipientEmail, tenantID string) (string, string, error)
-}
-
 type NotificationService struct {
 	notificationRepository NotificationRepository
-	inboxRepository        InboxRepository
-	mailer                 Mailer
 }
 
 func NewNotificationService(
 	notificationRepository NotificationRepository,
-	inboxRepository        InboxRepository,
-	mailer                 Mailer,
 ) *NotificationService {
 	return &NotificationService{
 		notificationRepository: notificationRepository,
-		inboxRepository:        inboxRepository,
-		mailer:                 mailer,
 	}
 }
 
@@ -69,34 +58,18 @@ func (s *NotificationService) ListNotifications(ctx context.Context, tenantID st
 	return s.notificationRepository.ListNotifications(ctx, tenantID)
 }
 
-func (s *NotificationService) ProcessEventAndTrySendWelcome(ctx context.Context, input ProcessEventInput) error {
+func (s *NotificationService) ProcessEventAndTrySendWelcome(
+	ctx context.Context,
+	input ProcessEventInput,
+	events []domain.InboxMessage,
+) (*ProcessEventOutput, error) {
 	if strings.TrimSpace(input.EventID) == "" {
-		return ErrEventIDRequired
+		return nil, ErrEventIDRequired
 	}
 	if strings.TrimSpace(input.TenantID) == "" {
-		return ErrTenantIDRequired
+		return nil, ErrTenantIDRequired
 	}
 
-	inboxInput := repository.CreateInboxMessageInput{
-		EventID:   input.EventID,
-		TenantID:  input.TenantID,
-		EventType: input.EventType,
-		Payload:   input.Payload,
-	}
-
-	isDup, err := s.inboxRepository.TryInsert(ctx, inboxInput)
-	if err != nil {
-		return fmt.Errorf("inbox guard failed: %w", err)
-	}
-	if isDup {
-		log.Printf("NotificationService: Duplicate event_id='%s' detected by Inbox guard. Skipping.", input.EventID)
-		return nil
-	}
-
-	events, err := s.inboxRepository.GetEventsByTenantID(ctx, input.TenantID)
-	if err != nil {
-		return fmt.Errorf("failed to fetch inbox events for tenant_id='%s': %w", input.TenantID, err)
-	}
 	var hasUserCreated, hasWorkspaceReady bool
 	var userID, recipientEmail string
 
@@ -142,16 +115,16 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(ctx context.Context,
 	if !hasUserCreated || !hasWorkspaceReady {
 		log.Printf("NotificationService: Tenant_id='%s' recorded '%s' event, but barrier condition not met yet (user_created=%v, workspace_ready=%v). Waiting...",
 			input.TenantID, input.EventType, hasUserCreated, hasWorkspaceReady)
-		return nil
+		return nil, nil
 	}
 
 	alreadySent, err := s.notificationRepository.HasSentNotification(ctx, input.TenantID)
 	if err != nil {
-		return fmt.Errorf("failed checking welcome email sent status for tenant_id='%s': %w", input.TenantID, err)
+		return nil, fmt.Errorf("failed checking welcome email sent status for tenant_id='%s': %w", input.TenantID, err)
 	}
 	if alreadySent {
 		log.Printf("NotificationService: Both barrier events present for tenant_id='%s', but welcome email was already dispatched. Skipping.", input.TenantID)
-		return nil
+		return nil, nil
 	}
 
 	subject := "Welcome! Your Tenant Workspace is Ready"
@@ -160,27 +133,26 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(ctx context.Context,
 		input.TenantID,
 	)
 
+	// Write an audit log with the status "pending" inside the caller's transaction.
+	// The consumer updates this to "sent" after the SMTP call succeeds post-commit.
 	auditLogInput := repository.CreateNotificationLogInput{
 		UserID:         userID,
 		TenantID:       input.TenantID,
 		RecipientEmail: recipientEmail,
 		Subject:        subject,
 		Body:           bodyText,
-		Status:         "sent",
+		Status:         "pending",
 	}
 	logID, dbErr := s.notificationRepository.CreateNotificationLog(ctx, auditLogInput)
 	if dbErr != nil {
-		return fmt.Errorf("failed to persist notification audit log: %w", dbErr)
+		return nil, fmt.Errorf("failed to persist notification audit log: %w", dbErr)
 	}
 
-	log.Printf("NotificationService: Barrier condition met! Prepared notification for event_id='%s', audit log id=%d", input.EventID, logID)
+	log.Printf("NotificationService: Barrier metdomain — persisted pending notification log id=%d for event_id='%s'", logID, input.EventID)
 
-	_, _, mailErr := s.mailer.SendWelcomeEmail(recipientEmail, input.TenantID)
-	if mailErr != nil {
-		log.Printf("NotificationService: Failed to send welcome email to '%s': %v", recipientEmail, mailErr)
-		return mailErr
-	}
-
-	log.Printf("NotificationService: Welcome email successfully dispatched to '%s' for tenant='%s'", recipientEmail, input.TenantID)
-	return nil
+	return &ProcessEventOutput{
+		LogID:          logID,
+		RecipientEmail: recipientEmail,
+		TenantID:       input.TenantID,
+	}, nil
 }

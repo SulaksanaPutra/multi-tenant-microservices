@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -139,7 +138,7 @@ func (s *WorkspaceService) ActivateWorkspace(ctx context.Context, tenantID strin
 
 	tenant, err := s.tenantRepository.GetTenantByID(ctx, tenantID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, domain.ErrNotFound) || strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, domain.ErrNotFound) {
 			return fmt.Errorf("%w: %s", ErrTenantNotFound, tenantID)
 		}
 		return fmt.Errorf("failed to fetch tenant for activation: %w", err)

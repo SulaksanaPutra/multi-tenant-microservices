@@ -15,11 +15,19 @@ type consumerRunner struct {
 	userCreatedConsumer    *consumer.UserCreatedConsumer
 }
 
-func registerConsumers(txManager *txcontext.SQLTxManager, rmqClient *rabbitmq.Client, notifService *service.NotificationService) (*consumerRunner, error) {
+func registerConsumers(
+	txManager *txcontext.SQLTxManager,
+	rmqClient *rabbitmq.Client,
+	inboxService *service.InboxService,
+	notifService *service.NotificationService,
+	mailer consumer.Mailer,
+) (*consumerRunner, error) {
 	workspaceReadyConsumer, err := consumer.NewWorkspaceReadyConsumer(consumer.WorkspaceReadyConsumerParams{
 		TxManager:           txManager,
 		Client:              rmqClient,
+		InboxService:        inboxService,
 		NotificationService: notifService,
+		Mailer:              mailer,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize WorkspaceReadyConsumer: %w", err)
@@ -28,7 +36,9 @@ func registerConsumers(txManager *txcontext.SQLTxManager, rmqClient *rabbitmq.Cl
 	userCreatedConsumer, err := consumer.NewUserCreatedConsumer(consumer.UserCreatedConsumerParams{
 		TxManager:           txManager,
 		Client:              rmqClient,
+		InboxService:        inboxService,
 		NotificationService: notifService,
+		Mailer:              mailer,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize UserCreatedConsumer: %w", err)

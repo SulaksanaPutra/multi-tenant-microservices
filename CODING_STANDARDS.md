@@ -150,6 +150,25 @@ Standardize error message prefixes: `<package>: <action>: %w`
 return fmt.Errorf("user service: failed to create user: %w", err)
 ```
 
+### Rule 4.4: Repository Error Translation Responsibility
+Layer 3 repositories MUST translate all database-driver-specific errors into domain sentinel errors before returning to the caller. Layer 2 services MUST NOT import `database/sql` or check for `sql.ErrNoRows` directly.
+
+```go
+// CORRECT — in repository (Layer 3)
+if errors.Is(err, sql.ErrNoRows) {
+    return nil, fmt.Errorf("tenant '%s': %w", id, domain.ErrNotFound)
+}
+
+// CORRECT — in service (Layer 2)
+if errors.Is(err, domain.ErrNotFound) {
+    return fmt.Errorf("%w: %s", ErrTenantNotFound, id)
+}
+
+// PROHIBITED — in service (Layer 2)
+import "database/sql"
+if errors.Is(err, sql.ErrNoRows) { ... } // ← VIOLATION: driver primitive in Layer 2
+```
+
 ---
 
 ## 5. Event-Driven Messaging Standards (AMQP & RabbitMQ)
@@ -165,6 +184,49 @@ return fmt.Errorf("user service: failed to create user: %w", err)
 ### Rule 5.3: AMQP Topology Alignment (Competing Consumer vs. Fanout Broadcast)
 * **Named Competing Consumer Queues:** Used for single-worker task execution (e.g., DDL migrations, user profile creation) where an event must be processed **exactly once** by a single microservice replica.
 * **Exclusive Anonymous Fanout Queues:** Used for real-time state synchronization and cache invalidation (`tenant.infrastructure_changed`) where an event must be broadcast to **all live microservice replicas simultaneously**.
+
+### Rule 5.4: No External I/O Inside Transaction Boundaries
+`txManager.WithTransaction` closures MUST contain **only DB operations**. SMTP, HTTP, gRPC, and any other external network calls are **prohibited** inside a `WithTransaction` closure.
+
+**Rationale:** While the closure executes, a DB connection and potentially row-level locks are held open. A 30-second SMTP timeout translates directly into a 30-second held DB connection. If the external call fails inside the transaction, the rollback also undoes the DB writes — the consumer NACK causes a retry, which may produce duplicate side effects.
+
+**Correct Pattern:** Execute DB work inside the transaction, capture the result, then perform external I/O after the transaction commits:
+```go
+// CORRECT — DB inside tx, I/O after commit
+var details *DispatchDetails
+txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+    var err error
+    details, err = service.DoDBWork(txCtx, ...)
+    return err
+})
+mailer.Send(details.Email) // outside tx
+
+// PROHIBITED — network I/O inside the transaction closure
+txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+    service.DoDBWork(txCtx, ...)
+    mailer.Send(...) // ← VIOLATION
+    return nil
+})
+```
+
+### Rule 5.5: Barrier Sync Consumer Pattern
+When a consumer must wait for **N independent events** before triggering an action (barrier sync), both the inbox guard and the barrier state read are **Layer 1 consumer responsibilities**. The business service receives the collected events as a plain data argument — it must NOT hold an `InboxRepository` dependency.
+
+Canonical structure:
+```go
+// Layer 1 Consumer (handleDelivery)
+txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+    isDup, _ := inboxService.ClaimEvent(txCtx, inboxInput)   // 1. Guard
+    if isDup { return nil }
+    events, _ := inboxService.GetBarrierEvents(txCtx, tenantID) // 2. Barrier read
+    details, err = businessService.Process(txCtx, input, events) // 3. DB write only
+    return err
+})
+// Phase 2: External I/O after commit
+if details != nil {
+    mailer.SendWelcomeEmail(details.RecipientEmail, details.TenantID)
+}
+```
 
 ---
 
