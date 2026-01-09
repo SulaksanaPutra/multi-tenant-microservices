@@ -166,6 +166,19 @@ Use existing *sql.DB pool               GET /internal/tenants/:id/infrastructure
 
 ---
 
+### 2.4 AMQP Event Contract Matrix
+
+| Event Name | Exchange / Routing Key | Publishing Service | Consuming Service(s) | Payload Purpose & Invariants |
+| :--- | :--- | :--- | :--- | :--- |
+| `workspace.initiated` | `company.events` / `workspace.initiated` | `tenant-service` | `infra-provisioner`, `user-service` | Triggers container provisioning for dedicated plans & user identity creation. |
+| `user.created` | `company.events` / `user.created` | `user-service` | `notification-service` | Tracks user creation for barrier sync prior to dispatching welcome email. |
+| `infrastructure.provisioned` | `company.events` / `infrastructure.provisioned` | `infra-provisioner` | `order-service` | Signals container readiness; triggers `order-service` SQL migrations. |
+| `tenant.order_db.ready` | `company.events` / `tenant.order_db.ready` | `order-service` | `tenant-service` | Confirms migration success; `tenant-service` activates workspace (`ACTIVE`). |
+| `workspace.ready` | `company.events` / `workspace.ready` | `tenant-service` | `notification-service` | Signals complete workspace setup; completes barrier sync for welcome email dispatch. |
+| `tenant.infrastructure_changed` | `company.events` / `tenant.infrastructure_changed` | `tenant-service` | `order-service` (all replicas) | Broadcast cache invalidation key to clear stale DB routing/connection pools. |
+
+---
+
 ## 3. Microservice Layer Hierarchy & Mental Model
 
 Each microservice follows Clean Architecture boundaries with a predictable, 3-layer mental model:
