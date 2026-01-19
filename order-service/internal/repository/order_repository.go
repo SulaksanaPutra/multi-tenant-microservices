@@ -50,7 +50,7 @@ func (r *OrderRepository) ListOrders(ctx context.Context) ([]domain.Order, error
 	if err != nil {
 		return nil, fmt.Errorf("failed to query orders from schema '%s': %w", schemaName, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var orders []domain.Order
 	for rows.Next() {
