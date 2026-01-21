@@ -11,12 +11,12 @@ import (
 	"github.com/go-playground/validator/v10"
 )
 
-type sampleNotificationData struct {
-	Subject string `json:"subject"`
+type sampleData struct {
+	Name string `json:"name"`
 }
 
-type sampleNotificationPayload struct {
-	Recipient string `validate:"required,email"`
+type dummyPayload struct {
+	Email string `validate:"required,email"`
 }
 
 func init() {
@@ -27,19 +27,19 @@ func TestWriteSuccess(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
-	WriteSuccess(c, http.StatusOK, "notification queued", sampleNotificationData{Subject: "Welcome"})
+	WriteSuccess(c, http.StatusOK, "operation successful", sampleData{Name: "OrderService"})
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, w.Code)
 	}
 
-	var resp StandardResponse[sampleNotificationData]
+	var resp StandardResponse[sampleData]
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to unmarshal response: %v", err)
 	}
 
-	if resp.Status != "success" || resp.Message != "notification queued" || resp.Data.Subject != "Welcome" {
-		t.Errorf("unexpected response payload: %+v", resp)
+	if resp.Status != "success" || resp.Message != "operation successful" || resp.Data.Name != "OrderService" {
+		t.Errorf("unexpected response content: %+v", resp)
 	}
 }
 
@@ -47,7 +47,7 @@ func TestWriteError(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
-	WriteError(c, http.StatusBadRequest, "bad request notification")
+	WriteError(c, http.StatusBadRequest, "invalid request")
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, w.Code)
@@ -58,8 +58,8 @@ func TestWriteError(t *testing.T) {
 		t.Fatalf("failed to unmarshal response: %v", err)
 	}
 
-	if resp.Error != "bad request notification" {
-		t.Errorf("expected error 'bad request notification', got '%s'", resp.Error)
+	if resp.Error != "invalid request" {
+		t.Errorf("expected error message 'invalid request', got '%s'", resp.Error)
 	}
 }
 
@@ -68,7 +68,7 @@ func TestWriteValidationError(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 
-		WriteValidationError(c, errors.New("parse error"))
+		WriteValidationError(c, errors.New("syntax error"))
 
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected status %d, got %d", http.StatusBadRequest, w.Code)
@@ -76,7 +76,7 @@ func TestWriteValidationError(t *testing.T) {
 
 		var resp ErrorResponse
 		_ = json.Unmarshal(w.Body.Bytes(), &resp)
-		expected := "invalid request payload: parse error"
+		expected := "invalid request payload: syntax error"
 		if resp.Error != expected {
 			t.Errorf("expected '%s', got '%s'", expected, resp.Error)
 		}
@@ -87,7 +87,7 @@ func TestWriteValidationError(t *testing.T) {
 		c, _ := gin.CreateTestContext(w)
 
 		validate := validator.New()
-		err := validate.Struct(sampleNotificationPayload{Recipient: "not-an-email"})
+		err := validate.Struct(dummyPayload{Email: "invalid-email"})
 
 		WriteValidationError(c, err)
 

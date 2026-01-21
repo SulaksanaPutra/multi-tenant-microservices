@@ -11,12 +11,12 @@ import (
 	"github.com/go-playground/validator/v10"
 )
 
-type sampleNotificationData struct {
-	Subject string `json:"subject"`
+type sampleTenantData struct {
+	TenantName string `json:"tenant_name"`
 }
 
-type sampleNotificationPayload struct {
-	Recipient string `validate:"required,email"`
+type sampleTenantPayload struct {
+	Domain string `validate:"required,fqdn"`
 }
 
 func init() {
@@ -27,18 +27,18 @@ func TestWriteSuccess(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
-	WriteSuccess(c, http.StatusOK, "notification queued", sampleNotificationData{Subject: "Welcome"})
+	WriteSuccess(c, http.StatusOK, "tenant created", sampleTenantData{TenantName: "Acme Corp"})
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, w.Code)
 	}
 
-	var resp StandardResponse[sampleNotificationData]
+	var resp StandardResponse[sampleTenantData]
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to unmarshal response: %v", err)
 	}
 
-	if resp.Status != "success" || resp.Message != "notification queued" || resp.Data.Subject != "Welcome" {
+	if resp.Status != "success" || resp.Message != "tenant created" || resp.Data.TenantName != "Acme Corp" {
 		t.Errorf("unexpected response payload: %+v", resp)
 	}
 }
@@ -47,10 +47,10 @@ func TestWriteError(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
-	WriteError(c, http.StatusBadRequest, "bad request notification")
+	WriteError(c, http.StatusNotFound, "tenant not found")
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, w.Code)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected status %d, got %d", http.StatusNotFound, w.Code)
 	}
 
 	var resp ErrorResponse
@@ -58,8 +58,8 @@ func TestWriteError(t *testing.T) {
 		t.Fatalf("failed to unmarshal response: %v", err)
 	}
 
-	if resp.Error != "bad request notification" {
-		t.Errorf("expected error 'bad request notification', got '%s'", resp.Error)
+	if resp.Error != "tenant not found" {
+		t.Errorf("expected error 'tenant not found', got '%s'", resp.Error)
 	}
 }
 
@@ -68,7 +68,7 @@ func TestWriteValidationError(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 
-		WriteValidationError(c, errors.New("parse error"))
+		WriteValidationError(c, errors.New("invalid JSON"))
 
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected status %d, got %d", http.StatusBadRequest, w.Code)
@@ -76,7 +76,7 @@ func TestWriteValidationError(t *testing.T) {
 
 		var resp ErrorResponse
 		_ = json.Unmarshal(w.Body.Bytes(), &resp)
-		expected := "invalid request payload: parse error"
+		expected := "invalid request payload: invalid JSON"
 		if resp.Error != expected {
 			t.Errorf("expected '%s', got '%s'", expected, resp.Error)
 		}
@@ -87,7 +87,7 @@ func TestWriteValidationError(t *testing.T) {
 		c, _ := gin.CreateTestContext(w)
 
 		validate := validator.New()
-		err := validate.Struct(sampleNotificationPayload{Recipient: "not-an-email"})
+		err := validate.Struct(sampleTenantPayload{Domain: "invalid_domain!"})
 
 		WriteValidationError(c, err)
 
