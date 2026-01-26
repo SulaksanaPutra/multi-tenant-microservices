@@ -194,7 +194,7 @@ func TestWorkspaceService_ActivateWorkspace_ValidationAndNotFound(t *testing.T) 
 	svc := NewWorkspaceService(WorkspaceServiceParams{
 		TenantRepository: &mockTenantRepository{
 			getTenantByIDFunc: func(ctx context.Context, tenantID string) (*domain.Tenant, error) {
-				return nil, errors.New("tenant not found")
+				return nil, domain.ErrNotFound
 			},
 		},
 	})
