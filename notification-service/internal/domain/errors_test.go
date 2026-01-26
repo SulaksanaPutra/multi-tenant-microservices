@@ -3,7 +3,7 @@ package domain_test
 import (
 	"testing"
 
-	"order-service/internal/domain"
+	"notification-service/internal/domain"
 )
 
 func TestErrNotFound(t *testing.T) {
