@@ -29,12 +29,12 @@ type UserEventPublisher interface {
 }
 
 type OutboxWorker struct {
-	outboxRepository OutboxRepository
-	publisher        UserEventPublisher
-	wakeUpChan       chan struct{}
-	debounceDelay    time.Duration
-	pollInterval     time.Duration
-	batchSize        int
+	outboxRepository   OutboxRepository
+	userEventPublisher UserEventPublisher
+	wakeUpChan         chan struct{}
+	debounceDelay      time.Duration
+	pollInterval       time.Duration
+	batchSize          int
 }
 
 func NewOutboxWorker(
@@ -42,12 +42,12 @@ func NewOutboxWorker(
 	publisher UserEventPublisher,
 ) *OutboxWorker {
 	return &OutboxWorker{
-		outboxRepository: outboxRepository,
-		publisher:        publisher,
-		wakeUpChan:       make(chan struct{}, 1),
-		debounceDelay:    defaultDebounceDelay,
-		pollInterval:     defaultPollInterval,
-		batchSize:        defaultBatchSize,
+		outboxRepository:   outboxRepository,
+		userEventPublisher: publisher,
+		wakeUpChan:         make(chan struct{}, 1),
+		debounceDelay:      defaultDebounceDelay,
+		pollInterval:       defaultPollInterval,
+		batchSize:          defaultBatchSize,
 	}
 }
 
@@ -128,7 +128,7 @@ func (w *OutboxWorker) processBatch(ctx context.Context, eventType string) {
 				_ = w.outboxRepository.MarkFailed(ctx, msg.ID, err)
 				continue
 			}
-			pubErr = w.publisher.PublishUserCreated(ctx, evt)
+			pubErr = w.userEventPublisher.PublishUserCreated(ctx, evt)
 
 		default:
 			log.Printf("OutboxWorker Warning: Unknown event_type='%s' for id='%s'. Skipping.", eventType, msg.ID)
