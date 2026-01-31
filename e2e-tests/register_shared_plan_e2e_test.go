@@ -221,7 +221,9 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 	}
 
 	// 6. Check Notifications API via Gateway
-	nResp, err := http.Get(gatewayNotifsURL)
+	nReq, _ := http.NewRequest("GET", gatewayNotifsURL, nil)
+	nReq.Header.Set("X-Tenant-ID", tenantID)
+	nResp, err := http.DefaultClient.Do(nReq)
 	if err != nil || nResp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /api/notifications failed or returned status %v", nResp)
 	}

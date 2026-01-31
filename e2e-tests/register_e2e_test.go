@@ -280,15 +280,16 @@ func TestTenantRegistration_ValidationError(t *testing.T) {
 }
 
 func TestNotificationAPI_E2E(t *testing.T) {
-	resp, err := http.Get("http://localhost:8000/api/notifications")
+	req, _ := http.NewRequest("GET", "http://localhost:8000/api/notifications", nil)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("HTTP request to GET /api/notifications failed: %v", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("Expected HTTP status 200 OK from notification API, got: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("Expected HTTP status 401 Unauthorized when X-Tenant-ID header is missing, got: %d", resp.StatusCode)
 	}
 
-	t.Logf("Verified GET /api/notifications returned HTTP 200 OK via Gateway")
+	t.Logf("Verified GET /api/notifications without X-Tenant-ID header returns HTTP 401 Unauthorized via Gateway")
 }
