@@ -5,6 +5,7 @@ import (
 
 	"notification-service/internal/handler"
 	"notification-service/internal/httputil"
+	"notification-service/internal/middleware"
 
 	"github.com/gin-gonic/gin"
 )
@@ -19,7 +20,8 @@ func newRouter(notifHandler *handler.NotificationHandler) http.Handler {
 		httputil.WriteSuccess[any](c, http.StatusOK, "OK", nil)
 	})
 
-	r.GET("/api/notifications", notifHandler.ListNotifications)
+	r.GET("/api/notifications", middleware.RequireTenantHeader(), notifHandler.ListNotifications)
 
 	return r
 }
+

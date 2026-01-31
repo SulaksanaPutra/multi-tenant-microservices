@@ -67,8 +67,8 @@ func TestCreateOrder_MissingTenantHeader(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400 Bad Request, got %d", w.Code)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected status 401 Unauthorized, got %d", w.Code)
 	}
 }
 

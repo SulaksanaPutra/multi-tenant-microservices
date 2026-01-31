@@ -36,7 +36,10 @@ func NewNotificationHandler(notificationService NotificationService) *Notificati
 }
 
 func (h *NotificationHandler) ListNotifications(c *gin.Context) {
-	tenantID := c.GetHeader("X-Tenant-ID")
+	tenantID := c.GetString("tenantID")
+	if tenantID == "" {
+		tenantID = c.GetHeader("X-Tenant-ID")
+	}
 	if tenantID == "" {
 		tenantID = c.Query("tenant_id")
 	}

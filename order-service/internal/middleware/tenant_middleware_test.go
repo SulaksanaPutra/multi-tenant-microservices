@@ -26,7 +26,7 @@ func (m *mockResolver) GetTenantDB(ctx context.Context, tenantID string) (tenant
 func TestRequireTenantHeader(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	t.Run("missing X-Tenant-ID header returns 400", func(t *testing.T) {
+	t.Run("missing X-Tenant-ID header returns 401", func(t *testing.T) {
 		r := gin.New()
 		resolver := &mockResolver{}
 		r.Use(RequireTenantHeader(resolver))
@@ -38,8 +38,8 @@ func TestRequireTenantHeader(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/test", nil)
 		r.ServeHTTP(w, req)
 
-		if w.Code != http.StatusBadRequest {
-			t.Errorf("expected status 400, got %d", w.Code)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("expected status 401, got %d", w.Code)
 		}
 	})
 

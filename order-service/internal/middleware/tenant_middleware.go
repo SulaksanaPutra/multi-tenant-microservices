@@ -22,7 +22,7 @@ func RequireTenantHeader(resolver Resolver) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tenantID := c.GetHeader("X-Tenant-ID")
 		if tenantID == "" {
-			httputil.WriteError(c, http.StatusBadRequest, "X-Tenant-ID header is required")
+			httputil.WriteError(c, http.StatusUnauthorized, "X-Tenant-ID header is required")
 			c.Abort()
 			return
 		}
