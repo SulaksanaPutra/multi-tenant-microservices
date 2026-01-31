@@ -131,12 +131,12 @@ func TestInfrastructureProvisionedConsumer_HandleDelivery(t *testing.T) {
 		routingReg := registry.NewRoutingRegistry()
 
 		c := &InfrastructureProvisionedConsumer{
-			publisher:        pub,
-			migrationService: migSvc,
-			poolRegistry:     poolReg,
-			routingRegistry:  routingReg,
-			sharedSecret:     "secret123",
-			sharedDBPass:     "sharedpass",
+			orderDBReadyPublisher: pub,
+			migrationService:      migSvc,
+			poolRegistry:          poolReg,
+			routingRegistry:       routingReg,
+			sharedSecret:          "secret123",
+			sharedDBPass:          "sharedpass",
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -174,12 +174,12 @@ func TestInfrastructureProvisionedConsumer_HandleDelivery(t *testing.T) {
 		routingReg := registry.NewRoutingRegistry()
 
 		c := &InfrastructureProvisionedConsumer{
-			publisher:        pub,
-			migrationService: migSvc,
-			poolRegistry:     poolReg,
-			routingRegistry:  routingReg,
-			sharedSecret:     "master_secret_key",
-			sharedDBPass:     "postgres",
+			orderDBReadyPublisher: pub,
+			migrationService:      migSvc,
+			poolRegistry:          poolReg,
+			routingRegistry:       routingReg,
+			sharedSecret:          "master_secret_key",
+			sharedDBPass:          "postgres",
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -280,10 +280,10 @@ func TestInfrastructureProvisionedConsumer_HandleDelivery(t *testing.T) {
 		routingReg := registry.NewRoutingRegistry()
 
 		c := &InfrastructureProvisionedConsumer{
-			publisher:        pub,
-			migrationService: migSvc,
-			poolRegistry:     poolReg,
-			routingRegistry:  routingReg,
+			orderDBReadyPublisher: pub,
+			migrationService:      migSvc,
+			poolRegistry:          poolReg,
+			routingRegistry:       routingReg,
 		}
 
 		mockAck := &mockAcknowledger{}

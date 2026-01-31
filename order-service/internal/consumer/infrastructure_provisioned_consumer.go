@@ -24,13 +24,13 @@ type MigrationService interface {
 }
 
 type InfrastructureProvisionedConsumer struct {
-	client           *rabbitmq.Client
-	publisher        OrderDBReadyPublisher
-	migrationService MigrationService
-	poolRegistry     *registry.PoolRegistry
-	routingRegistry  *registry.RoutingRegistry
-	sharedSecret     string
-	sharedDBPass     string
+	client                *rabbitmq.Client
+	orderDBReadyPublisher OrderDBReadyPublisher
+	migrationService      MigrationService
+	poolRegistry          *registry.PoolRegistry
+	routingRegistry       *registry.RoutingRegistry
+	sharedSecret          string
+	sharedDBPass          string
 }
 
 type InfrastructureProvisionedConsumerParams struct {
@@ -50,13 +50,13 @@ func NewInfrastructureProvisionedConsumer(params InfrastructureProvisionedConsum
 	}
 
 	consumer := &InfrastructureProvisionedConsumer{
-		client:           params.Client,
-		publisher:        params.Publisher,
-		migrationService: params.MigrationService,
-		poolRegistry:     params.PoolRegistry,
-		routingRegistry:  params.RoutingRegistry,
-		sharedSecret:     params.SharedSecret,
-		sharedDBPass:     pass,
+		client:                params.Client,
+		orderDBReadyPublisher: params.Publisher,
+		migrationService:      params.MigrationService,
+		poolRegistry:          params.PoolRegistry,
+		routingRegistry:       params.RoutingRegistry,
+		sharedSecret:          params.SharedSecret,
+		sharedDBPass:          pass,
 	}
 
 	if err := consumer.setupTopology(); err != nil {
@@ -191,7 +191,7 @@ func (c *InfrastructureProvisionedConsumer) handleDelivery(ctx context.Context, 
 		SchemaName: evt.SchemaName,
 	})
 
-	// 3. Evict any cached pool in order-service pool registry so fresh connection parameters are used
+	// 3. Evict any cached pool in order-service pool registry, so fresh connection parameters are used
 	c.poolRegistry.Evict(evt.TenantID)
 
 	// 4. Emit tenant.order_db.ready event via dedicated Publisher Adapter
@@ -206,7 +206,7 @@ func (c *InfrastructureProvisionedConsumer) handleDelivery(ctx context.Context, 
 		SchemaName:  evt.SchemaName,
 	}
 
-	if err := c.publisher.PublishTenantOrderDBReady(ctx, readyEvt); err != nil {
+	if err := c.orderDBReadyPublisher.PublishTenantOrderDBReady(ctx, readyEvt); err != nil {
 		log.Printf("InfrastructureProvisionedConsumer Error: Failed to publish tenant.order_db.ready: %v", err)
 		_ = d.Nack(false, true)
 		return err
