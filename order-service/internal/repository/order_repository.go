@@ -20,24 +20,24 @@ type CreateOrderInput struct {
 }
 
 type OrderRepository struct {
-	cfg tenantdb.Config
+	config tenantdb.Config
 }
 
-func NewOrderRepository(cfg tenantdb.Config) *OrderRepository {
-	return &OrderRepository{cfg: cfg}
+func NewOrderRepository(config tenantdb.Config) *OrderRepository {
+	return &OrderRepository{config: config}
 }
 
 func (r *OrderRepository) ListOrders(ctx context.Context) ([]domain.Order, error) {
-	if r.cfg.DB == nil {
+	if r.config.DB == nil {
 		return nil, errors.New("order repository: database handle is nil")
 	}
 
-	schemaName := r.cfg.SchemaName
+	schemaName := r.config.SchemaName
 	if schemaName == "" {
 		schemaName = "public"
 	}
 
-	exec := txcontext.GetExecutor(ctx, r.cfg.DB)
+	exec := txcontext.GetExecutor(ctx, r.config.DB)
 
 	query := fmt.Sprintf(`
 		SELECT id, tenant_id, customer_id, status, amount
@@ -67,16 +67,16 @@ func (r *OrderRepository) ListOrders(ctx context.Context) ([]domain.Order, error
 }
 
 func (r *OrderRepository) CreateOrder(ctx context.Context, input CreateOrderInput) error {
-	if r.cfg.DB == nil {
+	if r.config.DB == nil {
 		return errors.New("order repository: database handle is nil")
 	}
 
-	schemaName := r.cfg.SchemaName
+	schemaName := r.config.SchemaName
 	if schemaName == "" {
 		schemaName = "public"
 	}
 
-	exec := txcontext.GetExecutor(ctx, r.cfg.DB)
+	exec := txcontext.GetExecutor(ctx, r.config.DB)
 
 	query := fmt.Sprintf(`
 		INSERT INTO %s.orders (id, tenant_id, customer_id, status, amount, created_at, updated_at)

@@ -37,7 +37,7 @@ func NewClient(host, port, user, password, dbname string) (*Client, error) {
 }
 
 func (c *Client) Close() {
-	if c.DB != nil {
+	if c != nil && c.DB != nil {
 		c.DB.Close()
 	}
 }
