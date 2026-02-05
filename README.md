@@ -418,6 +418,14 @@ microservice-api/
 │   ├── cmd/main.go               # Port 8081 - User Profile & Event Consumer
 │   └── Dockerfile
 │
+├── auth-service/                 # Authentication & Token Issuance Service
+│   ├── cmd/main.go               # Port 8085 - RS256 JWT & Opaque Refresh Token Provider
+│   ├── internal/
+│   │   ├── crypto/               # RS256 signing, verification & JWKS builder
+│   │   ├── repository/           # Bcrypt credential & refresh token store
+│   │   └── service/              # Login, Refresh rotation & Logout business logic
+│   └── Dockerfile
+│
 ├── order-service/                # Dynamic Multi-Tenant Data-Plane Service
 │   ├── cmd/main.go               # Port 8084 - Orders API & Migration Consumer
 │   ├── internal/
@@ -453,6 +461,7 @@ microservice-api/
 | **tenant-service** | `8082` | `tenant-service:8082` | Control plane registry & registration API |
 | **order-service** | `8084` | `order-service:8084` | Orders data plane & migration consumer |
 | **user-service** | `8081` | `user-service:8081` | User profile service |
+| **auth-service** | `8085` | `http://localhost:8085` | RS256 JWT token issuer & authentication service |
 | **notification-service** | `8083` | `notification-service:8083` | Email notification worker |
 | **infra-provisioner** | *None* | *Internal Worker* | Docker container provisioner (QoS=1, isolated socket) |
 | **RabbitMQ Management**| `15672` | `http://localhost:15672` | Queue dashboard (`guest` / `guest`) |
@@ -469,6 +478,7 @@ microservice-api/
 (cd infrastructure && docker compose up -d)
 
 # 2. Start Microservices
+(cd auth-service && docker compose up -d --build) && \
 (cd tenant-service && docker compose up -d --build) && \
 (cd user-service && docker compose up -d --build) && \
 (cd order-service && docker compose up -d --build) && \

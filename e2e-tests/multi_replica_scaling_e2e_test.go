@@ -65,6 +65,13 @@ func TestE2E_MultiReplica_ScalingAndRouting(t *testing.T) {
 	}
 	t.Logf("2. Tenant tenant_id='%s' activated across replicas!", tenantID)
 
+	// Add auth: set credentials and login
+	// TEMPORARY: setCredentials uses Stage 1 scaffolding endpoint.
+	userID := regResp.Data.UserID
+	const e2ePassword = "e2e-test-password-123"
+	setCredentials(t, userID, tenantID, ownerEmail, e2ePassword)
+	accessToken := loginAndGetToken(t, ownerEmail, e2ePassword)
+
 	// 4. Send 5 concurrent order requests through Traefik Gateway load balancer
 	successCount := 0
 	for i := 0; i < 5; i++ {
@@ -73,7 +80,7 @@ func TestE2E_MultiReplica_ScalingAndRouting(t *testing.T) {
 
 		orderReq, _ := http.NewRequest("POST", gatewayOrdersURL, bytes.NewBuffer(orderBody))
 		orderReq.Header.Set("Content-Type", "application/json")
-		orderReq.Header.Set("X-Tenant-ID", tenantID)
+		orderReq.Header.Set("Authorization", bearerHeader(accessToken))
 
 		oResp, err := http.DefaultClient.Do(orderReq)
 		if err == nil && oResp.StatusCode == http.StatusCreated {

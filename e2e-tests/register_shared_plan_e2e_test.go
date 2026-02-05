@@ -220,15 +220,23 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 		t.Logf("5. Verified welcome email delivered to Mailpit for %s!", ownerEmail)
 	}
 
-	// 6. Check Notifications API via Gateway
+	// 6. Set credentials and login to obtain a JWT access token.
+	// TEMPORARY: setCredentials uses the Stage 1 scaffolding endpoint.
+	// Replace with email-invite flow in the OAuth 2.0 stage.
+	userID := regResp.Data.UserID
+	const e2ePassword = "e2e-test-password-123"
+	setCredentials(t, userID, tenantID, ownerEmail, e2ePassword)
+	accessToken := loginAndGetToken(t, ownerEmail, e2ePassword)
+
+	// 6b. Check Notifications API via Gateway using JWT Bearer token
 	nReq, _ := http.NewRequest("GET", gatewayNotifsURL, nil)
-	nReq.Header.Set("X-Tenant-ID", tenantID)
+	nReq.Header.Set("Authorization", bearerHeader(accessToken))
 	nResp, err := http.DefaultClient.Do(nReq)
 	if err != nil || nResp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /api/notifications failed or returned status %v", nResp)
 	}
 	nResp.Body.Close()
-	t.Logf("6. Verified GET /api/notifications API returning 200 OK")
+	t.Logf("6. Verified GET /api/notifications API returning 200 OK (JWT Bearer auth)")
 
 	// 7. Create Order via Gateway on Shared Tenant DB
 	custID := gofakeit.UUID()
@@ -239,7 +247,7 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 
 	orderReq, _ := http.NewRequest("POST", gatewayOrdersURL, bytes.NewBuffer(orderBody))
 	orderReq.Header.Set("Content-Type", "application/json")
-	orderReq.Header.Set("X-Tenant-ID", tenantID)
+	orderReq.Header.Set("Authorization", bearerHeader(accessToken))
 
 	oResp, err := http.DefaultClient.Do(orderReq)
 	if err != nil {
@@ -261,7 +269,7 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 
 	// 8. Fetch Orders via Gateway on Shared Tenant DB
 	getOrdersReq, _ := http.NewRequest("GET", gatewayOrdersURL, nil)
-	getOrdersReq.Header.Set("X-Tenant-ID", tenantID)
+	getOrdersReq.Header.Set("Authorization", bearerHeader(accessToken))
 
 	getResp, err := http.DefaultClient.Do(getOrdersReq)
 	if err != nil || getResp.StatusCode != http.StatusOK {

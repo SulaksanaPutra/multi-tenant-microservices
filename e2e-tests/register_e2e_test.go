@@ -288,8 +288,8 @@ func TestNotificationAPI_E2E(t *testing.T) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("Expected HTTP status 401 Unauthorized when X-Tenant-ID header is missing, got: %d", resp.StatusCode)
+		t.Fatalf("Expected HTTP status 401 Unauthorized when Authorization header is missing, got: %d", resp.StatusCode)
 	}
 
-	t.Logf("Verified GET /api/notifications without X-Tenant-ID header returns HTTP 401 Unauthorized via Gateway")
+	t.Logf("Verified GET /api/notifications without Authorization header returns HTTP 401 Unauthorized via Gateway")
 }

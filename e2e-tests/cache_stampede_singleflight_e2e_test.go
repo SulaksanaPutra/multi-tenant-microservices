@@ -56,6 +56,13 @@ func TestE2E_CacheStampede_SingleflightCoalescing(t *testing.T) {
 	}
 	t.Logf("1. Tenant tenant_id='%s' activated! Cold cache ready for stampede test.", tenantID)
 
+	// Add auth: set credentials and login
+	// TEMPORARY: setCredentials uses Stage 1 scaffolding endpoint.
+	userID := regResp.Data.UserID
+	const e2ePassword = "e2e-test-password-123"
+	setCredentials(t, userID, tenantID, ownerEmail, e2ePassword)
+	accessToken := loginAndGetToken(t, ownerEmail, e2ePassword)
+
 	// 3. Fire 50 concurrent HTTP requests simultaneously to hit empty cache
 	const concurrentReqs = 50
 	var wg sync.WaitGroup
@@ -68,7 +75,7 @@ func TestE2E_CacheStampede_SingleflightCoalescing(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			req, _ := http.NewRequest("GET", gatewayOrdersURL, nil)
-			req.Header.Set("X-Tenant-ID", tenantID)
+			req.Header.Set("Authorization", bearerHeader(accessToken))
 
 			r, err := http.DefaultClient.Do(req)
 			if err == nil && r.StatusCode == http.StatusOK {

@@ -1,6 +1,7 @@
 const CURRENT_SESSION_ID = "{{SERVER_SESSION_ID}}";
 const STORAGE_KEY_TENANTS = "broker_demo_tenants";
 const STORAGE_KEY_SESSION = "broker_demo_session_id";
+const STORAGE_KEY_JWT = "broker_demo_jwt_token";
 
 function initSessionState() {
     const savedSession = localStorage.getItem(STORAGE_KEY_SESSION);
@@ -8,7 +9,20 @@ function initSessionState() {
         localStorage.clear();
         localStorage.setItem(STORAGE_KEY_SESSION, CURRENT_SESSION_ID);
         localStorage.setItem(STORAGE_KEY_TENANTS, JSON.stringify([]));
+        localStorage.removeItem(STORAGE_KEY_JWT);
         console.log("Fresh server session detected. Local state purged cleanly.");
+    }
+}
+
+function getJWTToken() {
+    return localStorage.getItem(STORAGE_KEY_JWT) || "";
+}
+
+function saveJWTToken(token) {
+    if (token) {
+        localStorage.setItem(STORAGE_KEY_JWT, token);
+    } else {
+        localStorage.removeItem(STORAGE_KEY_JWT);
     }
 }
 
@@ -44,15 +58,16 @@ function renderNavHeader(activeTabId) {
     initSessionState();
     const tenants = getSavedTenants();
     const count = tenants.length;
+    const hasToken = !!getJWTToken();
 
     const navHtml = `
         <h1>Multi-Tenant Microservices Flow Demonstration</h1>
-        <p>Routed through Traefik Gateway (port 8000).</p>
+        <p>Routed through Traefik Gateway (port 8000). Authenticated via RS256 JWT.</p>
         <hr>
         <nav style="margin-bottom: 20px;">
-            <a href="/index.html" style="${activeTabId==='register'?'font-weight:bold;':''}">1. Register Tenant (Control Plane)</a> | 
+            <a href="/index.html" style="${activeTabId==='register'?'font-weight:bold;':''}">1. Register & Auth (Control Plane)</a> | 
             <a href="/mailbox.html" style="${activeTabId==='mailbox'?'font-weight:bold;':''}">2. Dev Mailpit Inbox</a> | 
-            <a href="/orders.html" style="${activeTabId==='orders'?'font-weight:bold;':''}">3. Orders (Data Plane)</a> | 
+            <a href="/orders.html" style="${activeTabId==='orders'?'font-weight:bold;':''}">3. Orders (Data Plane) ${hasToken ? '🔒 [JWT Active]' : '⚠️ [No JWT]'}</a> | 
             <a href="/registry.html" style="${activeTabId==='registry'?'font-weight:bold;':''}">4. Session Registry (${count})</a>
         </nav>
         <hr>
