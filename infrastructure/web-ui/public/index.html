@@ -39,6 +39,67 @@
     <h3>Response Output:</h3>
     <pre id="register-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
 
+    <hr style="margin: 30px 0;">
+
+    <!-- AUTHENTICATION SECTION -->
+    <h2>Step 1b: Auth Credential Setup & Login</h2>
+    <p>Set a password for a user identity and log in to obtain an RS256 JWT access token.</p>
+    <blockquote style="background:#fffbe6; padding:10px; border-left:4px solid #ffe58f;">
+        <strong>Note:</strong> <code>POST /auth/credentials/set</code> is temporary Stage 1 scaffolding for demo purposes.
+    </blockquote>
+
+    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+        <!-- SET PASSWORD FORM -->
+        <div style="flex: 1; min-width: 300px; border: 1px solid #ccc; padding: 15px;">
+            <h3>1. Set User Password</h3>
+            <form id="set-cred-form">
+                <div>
+                    <label for="cred-tenant-id">Tenant ID:</label><br>
+                    <input type="text" id="cred-tenant-id" placeholder="tnt_..." required style="width:90%;">
+                </div>
+                <br>
+                <div>
+                    <label for="cred-user-id">User ID:</label><br>
+                    <input type="text" id="cred-user-id" placeholder="usr_..." required style="width:90%;">
+                </div>
+                <br>
+                <div>
+                    <label for="cred-email">Email:</label><br>
+                    <input type="email" id="cred-email" placeholder="owner@example.com" required style="width:90%;">
+                </div>
+                <br>
+                <div>
+                    <label for="cred-password">Password:</label><br>
+                    <input type="password" id="cred-password" value="password123" required style="width:90%;">
+                </div>
+                <br>
+                <button type="submit">Set Password</button>
+            </form>
+            <h4>Result:</h4>
+            <pre id="set-cred-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
+        </div>
+
+        <!-- LOGIN FORM -->
+        <div style="flex: 1; min-width: 300px; border: 1px solid #ccc; padding: 15px;">
+            <h3>2. Login (Get JWT Token)</h3>
+            <form id="login-form">
+                <div>
+                    <label for="login-email">Email:</label><br>
+                    <input type="email" id="login-email" placeholder="owner@example.com" required style="width:90%;">
+                </div>
+                <br>
+                <div>
+                    <label for="login-password">Password:</label><br>
+                    <input type="password" id="login-password" value="password123" required style="width:90%;">
+                </div>
+                <br>
+                <button type="submit">Login & Save Token</button>
+            </form>
+            <h4>Result:</h4>
+            <pre id="login-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
+        </div>
+    </div>
+
     <script src="/nav.js"></script>
     <script>
         renderNavHeader("register");
@@ -67,13 +128,75 @@
                 if (response.ok && data.data && data.data.tenant_id) {
                     saveTenant({
                         tenant_id: data.data.tenant_id,
+                        user_id: data.data.user_id,
                         tenant_name: data.data.tenant_name || payload.tenant_name,
                         plan: data.data.plan || payload.plan,
                         owner_email: payload.owner_email,
                         status: data.data.status || "PROVISIONING",
                         registered_at: new Date().toLocaleTimeString()
                     });
+
+                    // Auto-fill credential form
+                    document.getElementById("cred-tenant-id").value = data.data.tenant_id;
+                    document.getElementById("cred-user-id").value = data.data.user_id || "";
+                    document.getElementById("cred-email").value = payload.owner_email;
+                    document.getElementById("login-email").value = payload.owner_email;
+
                     renderNavHeader("register");
+                }
+            } catch (err) {
+                outputEl.textContent = "Network Error: " + err.message;
+            }
+        });
+
+        document.getElementById("set-cred-form").addEventListener("submit", async function(e) {
+            e.preventDefault();
+            const outputEl = document.getElementById("set-cred-output");
+            outputEl.textContent = "Setting password...";
+
+            const payload = {
+                tenant_id: document.getElementById("cred-tenant-id").value.trim(),
+                user_id: document.getElementById("cred-user-id").value.trim(),
+                email: document.getElementById("cred-email").value.trim(),
+                password: document.getElementById("cred-password").value
+            };
+
+            try {
+                const response = await fetch("/auth/credentials/set", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                outputEl.textContent = JSON.stringify(data, null, 2);
+            } catch (err) {
+                outputEl.textContent = "Network Error: " + err.message;
+            }
+        });
+
+        document.getElementById("login-form").addEventListener("submit", async function(e) {
+            e.preventDefault();
+            const outputEl = document.getElementById("login-output");
+            outputEl.textContent = "Logging in...";
+
+            const payload = {
+                email: document.getElementById("login-email").value.trim(),
+                password: document.getElementById("login-password").value
+            };
+
+            try {
+                const response = await fetch("/auth/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                outputEl.textContent = JSON.stringify(data, null, 2);
+
+                if (response.ok && data.data && data.data.access_token) {
+                    saveJWTToken(data.data.access_token);
+                    renderNavHeader("register");
+                    outputEl.textContent += "\n\n✅ JWT Access Token saved to session!";
                 }
             } catch (err) {
                 outputEl.textContent = "Network Error: " + err.message;

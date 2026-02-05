@@ -68,11 +68,18 @@ func TestE2E_InfrastructureFanout_BroadcastPurge(t *testing.T) {
 		t.Fatalf("Tenant %s failed to reach 'active' status. Final status: '%s'", tenantID, tenantStatus)
 	}
 
+	// Add auth: set credentials and login
+	// TEMPORARY: setCredentials uses Stage 1 scaffolding endpoint.
+	userID := regResp.Data.UserID
+	const e2ePassword = "e2e-test-password-123"
+	setCredentials(t, userID, tenantID, ownerEmail, e2ePassword)
+	accessToken := loginAndGetToken(t, ownerEmail, e2ePassword)
+
 	// Place order to populate cache
 	orderBody, _ := json.Marshal(OrderReq{CustomerID: "cust_fanout", Amount: 99.00})
 	orderReq, _ := http.NewRequest("POST", gatewayOrdersURL, bytes.NewBuffer(orderBody))
 	orderReq.Header.Set("Content-Type", "application/json")
-	orderReq.Header.Set("X-Tenant-ID", tenantID)
+	orderReq.Header.Set("Authorization", bearerHeader(accessToken))
 
 	oResp, err := http.DefaultClient.Do(orderReq)
 	if err == nil {
@@ -104,7 +111,7 @@ func TestE2E_InfrastructureFanout_BroadcastPurge(t *testing.T) {
 
 	// 4. Send follow-up request to verify order-service handles cache purge & re-fetches cleanly
 	followUpReq, _ := http.NewRequest("GET", gatewayOrdersURL, nil)
-	followUpReq.Header.Set("X-Tenant-ID", tenantID)
+	followUpReq.Header.Set("Authorization", bearerHeader(accessToken))
 
 	fResp, err := http.DefaultClient.Do(followUpReq)
 	if err != nil {

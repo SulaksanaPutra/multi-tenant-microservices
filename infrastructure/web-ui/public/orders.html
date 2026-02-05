@@ -102,12 +102,18 @@
                 status: document.getElementById("order-status").value.trim()
             };
 
+            const token = getJWTToken();
+            if (!token) {
+                outputEl.textContent = "Error: No JWT Access Token found in session. Please log in on Step 1 first.";
+                return;
+            }
+
             try {
                 const response = await fetch("/api/orders", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
-                        "X-Tenant-ID": tenantId
+                        "Authorization": "Bearer " + token
                     },
                     body: JSON.stringify(payload)
                 });
@@ -130,11 +136,17 @@
 
             outputEl.textContent = "Fetching tenant orders...";
 
+            const token = getJWTToken();
+            if (!token) {
+                outputEl.textContent = "Error: No JWT Access Token found in session. Please log in on Step 1 first.";
+                return;
+            }
+
             try {
                 const response = await fetch("/api/orders", {
                     method: "GET",
                     headers: {
-                        "X-Tenant-ID": tenantId
+                        "Authorization": "Bearer " + token
                     }
                 });
                 const data = await response.json();

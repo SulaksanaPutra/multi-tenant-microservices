@@ -89,6 +89,35 @@ services:
       postgres:
         condition: service_healthy
 
+  auth-service:
+    build:
+      context: ../auth-service
+      dockerfile: Dockerfile
+    container_name: auth-service
+    restart: always
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: auth_db
+      PORT: 8085
+      AUTH_JWT_PRIVATE_KEY_PEM: ${AUTH_JWT_PRIVATE_KEY_PEM}
+    ports:
+      - "${AUTH_SERVICE_PORT:-8085}:8085"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=microservice-network"
+      - "traefik.http.routers.auth-service.rule=PathPrefix(`/auth`) || PathPrefix(`/.well-known`)"
+      - "traefik.http.routers.auth-service.entrypoints=web"
+      - "traefik.http.routers.auth-service.priority=10"
+      - "traefik.http.services.auth-service.loadbalancer.server.port=8085"
+    networks:
+      - microservice-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   web-ui:
     build:
       context: ./web-ui

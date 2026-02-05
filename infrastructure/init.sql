@@ -1,12 +1,41 @@
 -- Master Initialization Script for PostgreSQL Container (postgres)
--- Provisions core microservice databases: user_db, tenant_manager_db, and notification_db
+-- Provisions core microservice databases: user_db, auth_db, tenant_manager_db, and notification_db
 -- Note: shared_db is created automatically by Postgres container initialization (POSTGRES_DB=shared_db)
 
 CREATE DATABASE user_db;
+CREATE DATABASE auth_db;
 CREATE DATABASE tenant_manager_db;
 CREATE DATABASE notification_db;
 
--- 1. Setup user_db schema (user-service)
+-- 1. Setup auth_db schema (auth-service)
+\c auth_db;
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+CREATE TABLE IF NOT EXISTS public.user_credentials (
+    user_id       VARCHAR(255) PRIMARY KEY,
+    tenant_id     VARCHAR(255) NOT NULL DEFAULT '',
+    email         VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.refresh_tokens (
+    id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id    VARCHAR(255) NOT NULL,
+    token_hash VARCHAR(255) UNIQUE NOT NULL,
+    expires_at TIMESTAMPTZ  NOT NULL,
+    revoked_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id    ON public.refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token_hash ON public.refresh_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_user_credentials_email    ON public.user_credentials(email);
+CREATE INDEX IF NOT EXISTS idx_user_credentials_user_id  ON public.user_credentials(user_id);
+
+-- 2. Setup user_db schema (user-service)
 \c user_db;
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

@@ -86,9 +86,16 @@ func TestE2E_DedicatedPlan_FullWorkflow(t *testing.T) {
 		Amount:     499.99,
 	})
 
+	// Add auth: set credentials and login
+	// TEMPORARY: setCredentials uses Stage 1 scaffolding endpoint.
+	userID := regResp.Data.UserID
+	const e2ePassword = "e2e-test-password-123"
+	setCredentials(t, userID, tenantID, ownerEmail, e2ePassword)
+	accessToken := loginAndGetToken(t, ownerEmail, e2ePassword)
+
 	orderReq, _ := http.NewRequest("POST", gatewayOrdersURL, bytes.NewBuffer(orderBody))
 	orderReq.Header.Set("Content-Type", "application/json")
-	orderReq.Header.Set("X-Tenant-ID", tenantID)
+	orderReq.Header.Set("Authorization", bearerHeader(accessToken))
 
 	oResp, err := http.DefaultClient.Do(orderReq)
 	if err != nil {
@@ -110,7 +117,7 @@ func TestE2E_DedicatedPlan_FullWorkflow(t *testing.T) {
 
 	// 5. Fetch Orders via Gateway on Dedicated Tenant DB Container
 	getOrdersReq, _ := http.NewRequest("GET", gatewayOrdersURL, nil)
-	getOrdersReq.Header.Set("X-Tenant-ID", tenantID)
+	getOrdersReq.Header.Set("Authorization", bearerHeader(accessToken))
 
 	getResp, err := http.DefaultClient.Do(getOrdersReq)
 	if err != nil || getResp.StatusCode != http.StatusOK {

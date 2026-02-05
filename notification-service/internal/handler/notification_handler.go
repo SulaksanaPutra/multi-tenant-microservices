@@ -36,13 +36,8 @@ func NewNotificationHandler(notificationService NotificationService) *Notificati
 }
 
 func (h *NotificationHandler) ListNotifications(c *gin.Context) {
+	// tenantID is guaranteed to be set by RequireJWT middleware.
 	tenantID := c.GetString("tenantID")
-	if tenantID == "" {
-		tenantID = c.GetHeader("X-Tenant-ID")
-	}
-	if tenantID == "" {
-		tenantID = c.Query("tenant_id")
-	}
 	logs, err := h.notificationService.ListNotifications(c.Request.Context(), tenantID)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, "Failed to retrieve notifications: "+err.Error())
