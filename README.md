@@ -12,11 +12,16 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
 +-----------------------------------------------------------------------------------+
 
 [ Client App ]
-      │  HTTP Requests (POST /api/register, POST /api/orders, GET /api/orders)
+      │  HTTP Requests (POST /auth/login, POST /api/register, POST/GET /api/orders)
       ▼
 [ Traefik Gateway :8000 ]
       │
-      ├─────► POST /api/register  ────────► [ tenant-service :8082 ]
+      ├─────► POST /auth/login ───────────► [ auth-service :8085 ]
+      │       POST /auth/refresh                    │
+      │                                             ▼
+      │                                        [ authDB ] (Bcrypt & Refresh Tokens)
+      │
+      ├─────► POST /api/register ─────────► [ tenant-service :8082 ]
       │                                             │ (Outbox Write)
       │                                             ▼
       │                                     [ tenantManagerDB ]
@@ -27,10 +32,12 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
       │         ┌───────────────────────────────────┼─────────────────────────┬─────────────────────────┐
       │         ▼                                   ▼                         ▼                         ▼
       └─────► POST / GET /api/orders   [ infra-provisioner ]      [ user-service :8081 ]   [ notification-service :8083 ]
-                     │                 (Docker Worker, QoS=1)                 │                         │
-                     ▼                         │                              ▼                         ▼
-            [ order-service :8084 ]            ▼ Publish:               [ userDB ]            [ notificationDB ]
-                     │               infrastructure.provisioned                                [ Mailpit SMTP ]
+               (Bearer <JWT>)          (Docker Worker, QoS=1)                 │               (Bearer <JWT>)
+                     │                         │                              ▼                         │
+                     ▼                         │                          [ userDB ]                    ▼
+            [ order-service :8084 ]            ▼ Publish:                                         [ notificationDB ]
+              (RS256 JWT Verification) infrastructure.provisioned                                  [ Mailpit SMTP ]
+                     │                         │
                      ▼ (Runs SQL Migrations)   │
            [ Tenant Database ] ◄───────────────┘
           (Shared or Dedicated)
@@ -76,7 +83,7 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
     │   Declaratively bootstrap domain DBs & roles    │
     │   Poll pg_isready health check                  │
     ▼                                                 │
-  Publish: infrastructure.provisioned (No Passwords) │
+  Publish: infrastructure.provisioned (No Passwords)  │
     ▼                                                 │
 [ order-service ]                                     │
     │  Derive DB password via ORDER_SERVICE_SECRET    │
@@ -98,6 +105,9 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
                              │ Dispatch Welcome Email via Mailpit
 ```
 
+> [!NOTE]
+> **Registration to Auth Lifecycle:** After `POST /api/register` returns `202 Accepted` with `tenant_id` and `user_id`, the user identity exists in `user-service`. In Stage 1, password credentials are provisioned via `POST /auth/credentials/set` (scaffolding), enabling the user to execute `POST /auth/login` to obtain their RS256 JWT access token for subsequent data-plane calls.
+
 ---
 
 ### 2.2 Orders Workflow (`POST /api/orders` & `GET /api/orders`)
@@ -108,10 +118,12 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
 +-----------------------------------------------------------------------------------+
 
 [ Client ]
-    │  POST /api/orders or GET /api/orders (Header: tenant-x-id)
+    │  POST /api/orders or GET /api/orders (Header: Authorization: Bearer <JWT>)
     ▼
 [ order-service ]
-    │  Check PoolRegistry (sync.RWMutex with 3-min TTL & Bounded LRU)
+    │  1. RequireJWT Middleware verifies RS256 signature via in-memory RSA Public Key
+    │  2. Extract tenantID claim from verified JWT payload
+    │  3. Check PoolRegistry (sync.RWMutex with 3-min TTL & Bounded LRU)
     ├─────────────────────────────────────────┐
     ▼ (Cache Hit)                             ▼ (Cache Miss)
 Use existing *sql.DB pool               GET /internal/tenants/:id/infrastructure/order-service
@@ -130,7 +142,40 @@ Use existing *sql.DB pool               GET /internal/tenants/:id/infrastructure
 
 ---
 
-### 2.3 Infrastructure Availability, Container Rebinding & Routing Invalidation (`tenant.infrastructure_changed`)
+### 2.4 Authentication & RS256 JWT Access Token Flow (`POST /auth/login` & Bearer Verification)
+
+```text
++-----------------------------------------------------------------------------------+
+|               Authentication & RS256 Bearer Token Verification                    |
++-----------------------------------------------------------------------------------+
+
+[ Client ] ─────► POST /auth/login { "email": "...", "password": "..." }
+                        │
+                        ▼
+                [ auth-service :8085 ]
+                        │  1. Verify bcrypt password in auth_db.user_credentials
+                        │  2. Sign RS256 Access Token (Claims: userID, tenantID, email, 15m TTL)
+                        │  3. Save SHA-256(raw_refresh_token) to auth_db.refresh_tokens (7d TTL)
+                        │
+                        ▼
+[ Client ] ◄───── Return { "access_token": "<JWT>", "refresh_token": "<raw>" }
+
+[ Client ] ─────► GET /api/orders (Header: Authorization: Bearer <JWT>)
+                        │
+                        ▼
+                [ order-service :8084 ]
+                        │  1. RequireJWT Middleware parses Bearer token
+                        │  2. In-memory signature check via AUTH_JWT_PUBLIC_KEY_PEM (0 network calls)
+                        │  3. Extract tenantID claim from verified payload
+                        │  4. Resolve dynamic Tenant DB connection pool
+                        │
+                        ▼
+[ Client ] ◄───── Return Tenant Orders JSON (200 OK)
+```
+
+---
+
+### 2.5 Infrastructure Availability, Container Rebinding & Routing Invalidation (`tenant.infrastructure_changed`)
 
 ```text
 +-----------------------------------------------------------------------------------+
@@ -390,6 +435,7 @@ This repository contains comprehensive technical design deep-dives located in th
 | 14 | [How Do We Prevent Transient Network Split-Brain from AMQP Cache Invalidation Loss?](docs/14-how-do-we-prevent-transient-network-split-brain-cache-invalidation-loss.md) | Two-Layer Reconnect Driver, `NotifyReconnect` Signal, `PurgeAll` Cache Barriers & Re-Binding Topology |
 | 15 | [When the Broker Goes Silent, Does Your Service Tell the Truth?](docs/15-when-the-broker-goes-silent-does-your-service-tell-the-truth.md) | Context Lifecycles, Cache Miss Throttling, Singleflight & Load Shedding |
 | 16 | [How Do We Safely Manage Multi-Tenant Database Duality Without Data Leakage or Connection Sprawl?](docs/16-how-do-we-safely-manage-multi-tenant-database-duality-without-cross-tenant-data-leakage-or-connection-sprawl.md) | Constructor Arity, Dynamic DSN Resolution, Bounded LRU Connection Pooling & Clean Architecture Isolation |
+| 17 | [How Do We Isolate Authentication and Token Issuance in a Standalone Microservice?](docs/17-how-do-we-isolate-authentication-and-jwt-token-issuance-standalone-auth-service.md) | RS256 Asymmetric Key Verification, Opaque Refresh Token Rotation & Stage 1 Scaffolding Scope |
 
 ---
 
