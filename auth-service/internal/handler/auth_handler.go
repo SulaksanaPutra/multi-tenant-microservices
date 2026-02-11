@@ -8,74 +8,64 @@ import (
 	"auth-service/internal/crypto"
 	"auth-service/internal/domain"
 	"auth-service/internal/httputil"
-	"auth-service/internal/middleware"
 	"auth-service/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
-// AuthServiceIface is the consumer-side interface expected by AuthHandler.
-type AuthServiceIface interface {
+type AuthService interface {
 	SetCredentials(ctx context.Context, input service.SetCredentialsInput) error
 	Login(ctx context.Context, input service.LoginInput) (*service.TokenPair, error)
-	RefreshToken(ctx context.Context, rawRefreshToken string) (*service.TokenPair, error)
-	Logout(ctx context.Context, rawRefreshToken string) error
+	RefreshToken(ctx context.Context, input service.RefreshTokenInput) (*service.TokenPair, error)
+	Logout(ctx context.Context, input service.LogoutInput) error
 }
 
-// AuthHandler handles HTTP requests for authentication endpoints.
-type AuthHandler struct {
-	authService AuthServiceIface
-	jwtManager  *crypto.JWTManager
-}
-
-// NewAuthHandler constructs an AuthHandler with required dependencies.
-func NewAuthHandler(authService AuthServiceIface, jwtManager *crypto.JWTManager) *AuthHandler {
-	return &AuthHandler{
-		authService: authService,
-		jwtManager:  jwtManager,
-	}
-}
-
-// --- Request / Response types ---
-
-type setCredentialsRequest struct {
+type SetCredentialsRequest struct {
 	UserID   string `json:"user_id"   binding:"required"`
 	TenantID string `json:"tenant_id" binding:"required"`
 	Email    string `json:"email"     binding:"required,email"`
 	Password string `json:"password"  binding:"required,min=8"`
 }
 
-type loginRequest struct {
+type LoginRequest struct {
 	Email    string `json:"email"    binding:"required,email"`
 	Password string `json:"password" binding:"required"`
 }
 
-type tokenResponse struct {
+type LoginResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 	ExpiresIn    int    `json:"expires_in"`
 }
 
-type refreshRequest struct {
+type RefreshTokenRequest struct {
 	RefreshToken string `json:"refresh_token" binding:"required"`
 }
 
-type logoutRequest struct {
+type RefreshTokenResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresIn    int    `json:"expires_in"`
+}
+
+type LogoutRequest struct {
 	RefreshToken string `json:"refresh_token" binding:"required"`
 }
 
-// --- Handlers ---
+type AuthHandler struct {
+	authService AuthService
+	jwtManager  *crypto.JWTManager
+}
 
-// SetCredentials establishes or replaces a user's password credential.
-//
-// POST /auth/credentials/set
-//
-// TEMPORARY — NON-PRODUCTION SCAFFOLDING (Stage 1 only)
-// This endpoint has no identity verification beyond the provided fields.
-// It MUST be replaced by an email-invite / token-gated flow before production
-// or before the OAuth 2.0 stage implementation.
+func NewAuthHandler(authService AuthService, jwtManager *crypto.JWTManager) *AuthHandler {
+	return &AuthHandler{
+		authService: authService,
+		jwtManager:  jwtManager,
+	}
+}
+
 func (h *AuthHandler) SetCredentials(c *gin.Context) {
-	var req setCredentialsRequest
+	var req SetCredentialsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httputil.WriteValidationError(c, err)
 		return
@@ -87,18 +77,15 @@ func (h *AuthHandler) SetCredentials(c *gin.Context) {
 		Email:    req.Email,
 		Password: req.Password,
 	}); err != nil {
-		httputil.WriteError(c, http.StatusInternalServerError, "failed to set credentials: "+err.Error())
+		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	httputil.WriteSuccess[any](c, http.StatusOK, "Credentials set successfully", nil)
 }
 
-// Login authenticates a user and issues a JWT access token + opaque refresh token.
-//
-// POST /auth/login
 func (h *AuthHandler) Login(c *gin.Context) {
-	var req loginRequest
+	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httputil.WriteValidationError(c, err)
 		return
@@ -113,28 +100,27 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			httputil.WriteError(c, http.StatusUnauthorized, "invalid email or password")
 			return
 		}
-		httputil.WriteError(c, http.StatusInternalServerError, "login failed: "+err.Error())
+		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	httputil.WriteSuccess(c, http.StatusOK, "Login successful", tokenResponse{
+	httputil.WriteSuccess(c, http.StatusOK, "Login successful", LoginResponse{
 		AccessToken:  pair.AccessToken,
 		RefreshToken: pair.RefreshToken,
 		ExpiresIn:    pair.ExpiresIn,
 	})
 }
 
-// Refresh validates an opaque refresh token and issues a new JWT + rotated refresh token.
-//
-// POST /auth/refresh
 func (h *AuthHandler) Refresh(c *gin.Context) {
-	var req refreshRequest
+	var req RefreshTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httputil.WriteValidationError(c, err)
 		return
 	}
 
-	pair, err := h.authService.RefreshToken(c.Request.Context(), req.RefreshToken)
+	pair, err := h.authService.RefreshToken(c.Request.Context(), service.RefreshTokenInput{
+		RefreshToken: req.RefreshToken,
+	})
 	if err != nil {
 		if errors.Is(err, domain.ErrTokenNotFound) ||
 			errors.Is(err, domain.ErrTokenRevoked) ||
@@ -142,38 +128,34 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 			httputil.WriteError(c, http.StatusUnauthorized, "refresh token is invalid, expired, or revoked")
 			return
 		}
-		httputil.WriteError(c, http.StatusInternalServerError, "token refresh failed: "+err.Error())
+		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	httputil.WriteSuccess(c, http.StatusOK, "Token refreshed", tokenResponse{
+	httputil.WriteSuccess(c, http.StatusOK, "Token refreshed", RefreshTokenResponse{
 		AccessToken:  pair.AccessToken,
 		RefreshToken: pair.RefreshToken,
 		ExpiresIn:    pair.ExpiresIn,
 	})
 }
 
-// Logout revokes the caller's refresh token. Requires a valid JWT Bearer token.
-//
-// POST /auth/logout
 func (h *AuthHandler) Logout(c *gin.Context) {
-	var req logoutRequest
+	var req LogoutRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httputil.WriteValidationError(c, err)
 		return
 	}
 
-	if err := h.authService.Logout(c.Request.Context(), req.RefreshToken); err != nil {
-		httputil.WriteError(c, http.StatusInternalServerError, "logout failed: "+err.Error())
+	if err := h.authService.Logout(c.Request.Context(), service.LogoutInput{
+		RefreshToken: req.RefreshToken,
+	}); err != nil {
+		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	httputil.WriteSuccess[any](c, http.StatusOK, "Logged out successfully", nil)
 }
 
-// JWKS serves the RSA public key set for JWT verification by downstream services.
-//
-// GET /.well-known/jwks.json
 func (h *AuthHandler) JWKS(c *gin.Context) {
 	jwksBytes, err := h.jwtManager.BuildJWKS()
 	if err != nil {
@@ -181,6 +163,5 @@ func (h *AuthHandler) JWKS(c *gin.Context) {
 		return
 	}
 
-	_ = middleware.ContextKeyUserID // ensure import is used
 	c.Data(http.StatusOK, "application/json", jwksBytes)
 }

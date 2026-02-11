@@ -11,27 +11,22 @@ import (
 	"auth-service/internal/txcontext"
 )
 
-// CreateCredentialInput holds the data needed to create or update a credential record.
-type CreateCredentialInput struct {
+type UpsertCredentialInput struct {
 	UserID       string
 	TenantID     string
 	Email        string
 	PasswordHash string
 }
 
-// CredentialRepository performs SQL operations on the user_credentials table.
 type CredentialRepository struct {
 	dbClient *infrastructure.Client
 }
 
-// NewCredentialRepository constructs a CredentialRepository backed by the auth DB.
 func NewCredentialRepository(dbClient *infrastructure.Client) *CredentialRepository {
 	return &CredentialRepository{dbClient: dbClient}
 }
 
-// UpsertCredential inserts or updates a credential record for the given email.
-// The upsert ensures that calling SET PASSWORD is idempotent for an existing user.
-func (r *CredentialRepository) UpsertCredential(ctx context.Context, input CreateCredentialInput) error {
+func (r *CredentialRepository) UpsertCredential(ctx context.Context, input UpsertCredentialInput) error {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	query := `
 		INSERT INTO public.user_credentials (user_id, tenant_id, email, password_hash, updated_at)
@@ -43,13 +38,11 @@ func (r *CredentialRepository) UpsertCredential(ctx context.Context, input Creat
 		    updated_at    = NOW();
 	`
 	if _, err := exec.ExecContext(ctx, query, input.UserID, input.TenantID, input.Email, input.PasswordHash); err != nil {
-		return fmt.Errorf("failed to upsert credential for email='%s': %w", input.Email, err)
+		return fmt.Errorf("credential repository: failed to upsert credential for email='%s': %w", input.Email, err)
 	}
 	return nil
 }
 
-// FindByEmail retrieves the credential record for the given email address.
-// Returns domain.ErrCredentialNotFound if no record exists.
 func (r *CredentialRepository) FindByEmail(ctx context.Context, email string) (*domain.Credential, error) {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	query := `
@@ -61,9 +54,6 @@ func (r *CredentialRepository) FindByEmail(ctx context.Context, email string) (*
 	return scanCredential(row)
 }
 
-// FindByUserID retrieves the credential record for the given user_id.
-// Used on the refresh token path where only user_id is available from the token store.
-// Returns domain.ErrCredentialNotFound if no record exists.
 func (r *CredentialRepository) FindByUserID(ctx context.Context, userID string) (*domain.Credential, error) {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	query := `
@@ -88,7 +78,7 @@ func scanCredential(row *sql.Row) (*domain.Credential, error) {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, domain.ErrCredentialNotFound
 		}
-		return nil, fmt.Errorf("failed to scan credential row: %w", err)
+		return nil, fmt.Errorf("credential repository: failed to scan credential row: %w", err)
 	}
 	return &cred, nil
 }
