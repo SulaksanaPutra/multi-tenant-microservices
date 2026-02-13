@@ -42,38 +42,23 @@
     <hr style="margin: 30px 0;">
 
     <!-- AUTHENTICATION SECTION -->
-    <h2>Step 1b: Auth Credential Setup & Login</h2>
-    <p>Set a password for a user identity and log in to obtain an RS256 JWT access token.</p>
-    <blockquote style="background:#fffbe6; padding:10px; border-left:4px solid #ffe58f;">
-        <strong>Note:</strong> <code>POST /auth/credentials/set</code> is temporary Stage 1 scaffolding for demo purposes.
-    </blockquote>
+    <h2>Step 1b: Auth Password Setup & Login</h2>
+    <p>Complete single-use setup token activation (received via welcome email) to set password and log in.</p>
 
     <div style="display: flex; gap: 20px; flex-wrap: wrap;">
         <!-- SET PASSWORD FORM -->
         <div style="flex: 1; min-width: 300px; border: 1px solid #ccc; padding: 15px;">
-            <h3>1. Set User Password</h3>
+            <h3>1. Complete Password Setup</h3>
             <form id="set-cred-form">
-                <div>
-                    <label for="cred-tenant-id">Tenant ID:</label><br>
-                    <input type="text" id="cred-tenant-id" placeholder="tnt_..." required style="width:90%;">
+                <div style="margin-bottom: 10px;">
+                    <label>Setup Token (from email link):</label><br>
+                    <input type="text" id="cred-token" placeholder="Raw token string" style="width: 100%;" required>
                 </div>
-                <br>
-                <div>
-                    <label for="cred-user-id">User ID:</label><br>
-                    <input type="text" id="cred-user-id" placeholder="usr_..." required style="width:90%;">
+                <div style="margin-bottom: 10px;">
+                    <label>New Password:</label><br>
+                    <input type="password" id="cred-password" placeholder="Min 8 characters" style="width: 90%;" required>
                 </div>
-                <br>
-                <div>
-                    <label for="cred-email">Email:</label><br>
-                    <input type="email" id="cred-email" placeholder="owner@example.com" required style="width:90%;">
-                </div>
-                <br>
-                <div>
-                    <label for="cred-password">Password:</label><br>
-                    <input type="password" id="cred-password" value="password123" required style="width:90%;">
-                </div>
-                <br>
-                <button type="submit">Set Password</button>
+                <button type="submit">Activate Account & Set Password</button>
             </form>
             <h4>Result:</h4>
             <pre id="set-cred-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
@@ -152,17 +137,15 @@
         document.getElementById("set-cred-form").addEventListener("submit", async function(e) {
             e.preventDefault();
             const outputEl = document.getElementById("set-cred-output");
-            outputEl.textContent = "Setting password...";
+            outputEl.textContent = "Activating account and setting password...";
 
             const payload = {
-                tenant_id: document.getElementById("cred-tenant-id").value.trim(),
-                user_id: document.getElementById("cred-user-id").value.trim(),
-                email: document.getElementById("cred-email").value.trim(),
+                token: document.getElementById("cred-token").value.trim(),
                 password: document.getElementById("cred-password").value
             };
 
             try {
-                const response = await fetch("/auth/credentials/set", {
+                const response = await fetch("/auth/credentials/setup", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(payload)

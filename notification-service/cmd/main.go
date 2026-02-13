@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"notification-service/internal/handler"
+	"notification-service/internal/infrastructure/authclient"
 	"notification-service/internal/infrastructure/postgres"
 	"notification-service/internal/infrastructure/rabbitmq"
 	"notification-service/internal/mailer"
@@ -34,6 +35,8 @@ func main() {
 	smtpHost := getEnv("SMTP_HOST", "mailpit")
 	smtpPort := getEnv("SMTP_PORT", "1025")
 	httpPort := getEnv("PORT", "8083")
+	authServiceURL := getEnv("AUTH_SERVICE_URL", "http://auth-service:8085")
+	internalServiceToken := getEnv("INTERNAL_SERVICE_TOKEN", "default_internal_service_token")
 
 	// 1. Connect Infrastructure Drivers
 	dbClient, err := postgres.NewClient(dbHost, dbPort, dbUser, dbPassword, dbName)
@@ -48,8 +51,9 @@ func main() {
 	}
 	defer rmqClient.Close()
 
-	// 2. Initialize Infrastructure Mailer
+	// 2. Initialize Infrastructure Mailer & Auth Client
 	m := mailer.NewMailer(smtpHost, smtpPort, "no-reply@company.com")
+	authClient := authclient.NewAuthClient(authServiceURL, internalServiceToken)
 
 	// 3. Initialize Repositories (Data Access Layer & Inbox Pattern) & TxManager
 	txManager := txcontext.NewTxManager(dbClient.DB)
@@ -61,7 +65,7 @@ func main() {
 	notifService := service.NewNotificationService(notifRepository)
 
 	// 5. Register & Start Inbound Queue Consumers Collection
-	cRunner, err := registerConsumers(txManager, rmqClient, inboxService, notifService, m)
+	cRunner, err := registerConsumers(txManager, rmqClient, inboxService, notifService, authClient, m)
 	if err != nil {
 		log.Fatalf("Failed to register consumers: %v", err)
 	}

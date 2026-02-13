@@ -53,13 +53,24 @@ func (m *mockInboxService) GetBarrierEvents(txCtx context.Context, tenantID stri
 	return []domain.InboxMessage{}, nil
 }
 
-type mockMailer struct {
-	sendWelcomeEmailFunc func(recipientEmail, tenantID string) (string, string, error)
+type mockAuthClient struct {
+	fetchSetupTokenFunc func(ctx context.Context, userID, tenantID, email string) (string, error)
 }
 
-func (m *mockMailer) SendWelcomeEmail(recipientEmail, tenantID string) (string, string, error) {
+func (m *mockAuthClient) FetchSetupToken(ctx context.Context, userID, tenantID, email string) (string, error) {
+	if m.fetchSetupTokenFunc != nil {
+		return m.fetchSetupTokenFunc(ctx, userID, tenantID, email)
+	}
+	return "mock_setup_token", nil
+}
+
+type mockMailer struct {
+	sendWelcomeEmailFunc func(recipientEmail, tenantID, setupToken string) (string, string, error)
+}
+
+func (m *mockMailer) SendWelcomeEmail(recipientEmail, tenantID, setupToken string) (string, string, error) {
 	if m.sendWelcomeEmailFunc != nil {
-		return m.sendWelcomeEmailFunc(recipientEmail, tenantID)
+		return m.sendWelcomeEmailFunc(recipientEmail, tenantID, setupToken)
 	}
 	return "Welcome", "Body", nil
 }
@@ -88,11 +99,15 @@ func (m *mockAcknowledger) Reject(tag uint64, requeue bool) error {
 	return nil
 }
 
-func newUserCreatedConsumer(txm TxManager, inbox InboxService, notif NotificationService, mailer Mailer) *UserCreatedConsumer {
+func newUserCreatedConsumer(txm TxManager, inbox InboxService, notif NotificationService, authClient AuthClient, mailer Mailer) *UserCreatedConsumer {
+	if authClient == nil {
+		authClient = &mockAuthClient{}
+	}
 	return &UserCreatedConsumer{
 		txManager:           txm,
 		inboxService:        inbox,
 		notificationService: notif,
+		authClient:          authClient,
 		mailer:              mailer,
 	}
 }
@@ -116,19 +131,19 @@ func TestUserCreatedConsumer_HandleDelivery_Success(t *testing.T) {
 	notifSvc := &mockNotificationService{
 		processEventAndTrySendWelcomeFunc: func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
 			capturedInput = input
-			return &service.ProcessEventOutput{LogID: 1, RecipientEmail: "john@example.com", TenantID: "tenant-99"}, nil
+			return &service.ProcessEventOutput{LogID: 1, UserID: "usr_100", RecipientEmail: "john@example.com", TenantID: "tenant-99"}, nil
 		},
 	}
 
 	emailSent := false
 	mailer := &mockMailer{
-		sendWelcomeEmailFunc: func(recipientEmail, tenantID string) (string, string, error) {
+		sendWelcomeEmailFunc: func(recipientEmail, tenantID, setupToken string) (string, string, error) {
 			emailSent = true
 			return "subj", "body", nil
 		},
 	}
 
-	c := newUserCreatedConsumer(&mockTxManager{}, &mockInboxService{}, notifSvc, mailer)
+	c := newUserCreatedConsumer(&mockTxManager{}, &mockInboxService{}, notifSvc, nil, mailer)
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 
@@ -148,7 +163,7 @@ func TestUserCreatedConsumer_HandleDelivery_Success(t *testing.T) {
 }
 
 func TestUserCreatedConsumer_HandleDelivery_InvalidJSON(t *testing.T) {
-	c := newUserCreatedConsumer(nil, nil, nil, nil)
+	c := newUserCreatedConsumer(nil, nil, nil, nil, nil)
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: []byte("invalid-json")}
 
@@ -170,7 +185,7 @@ func TestUserCreatedConsumer_HandleDelivery_DuplicateInbox_Acks(t *testing.T) {
 		},
 	}
 
-	c := newUserCreatedConsumer(&mockTxManager{}, inbox, &mockNotificationService{}, &mockMailer{})
+	c := newUserCreatedConsumer(&mockTxManager{}, inbox, &mockNotificationService{}, nil, &mockMailer{})
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 
@@ -193,7 +208,7 @@ func TestUserCreatedConsumer_HandleDelivery_InboxClaimError_Nacks(t *testing.T) 
 		},
 	}
 
-	c := newUserCreatedConsumer(&mockTxManager{}, inbox, &mockNotificationService{}, &mockMailer{})
+	c := newUserCreatedConsumer(&mockTxManager{}, inbox, &mockNotificationService{}, nil, &mockMailer{})
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 
@@ -212,16 +227,16 @@ func TestUserCreatedConsumer_HandleDelivery_SMTPError_Nacks(t *testing.T) {
 
 	notifSvc := &mockNotificationService{
 		processEventAndTrySendWelcomeFunc: func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
-			return &service.ProcessEventOutput{LogID: 1, RecipientEmail: "john@example.com", TenantID: "tenant-99"}, nil
+			return &service.ProcessEventOutput{LogID: 1, UserID: "usr_100", RecipientEmail: "john@example.com", TenantID: "tenant-99"}, nil
 		},
 	}
 	mailer := &mockMailer{
-		sendWelcomeEmailFunc: func(recipientEmail, tenantID string) (string, string, error) {
+		sendWelcomeEmailFunc: func(recipientEmail, tenantID, setupToken string) (string, string, error) {
 			return "", "", smtpErr
 		},
 	}
 
-	c := newUserCreatedConsumer(&mockTxManager{}, &mockInboxService{}, notifSvc, mailer)
+	c := newUserCreatedConsumer(&mockTxManager{}, &mockInboxService{}, notifSvc, nil, mailer)
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 
@@ -244,7 +259,7 @@ func TestUserCreatedConsumer_HandleDelivery_ServiceError_Nacks(t *testing.T) {
 		},
 	}
 
-	c := newUserCreatedConsumer(&mockTxManager{}, &mockInboxService{}, notifSvc, &mockMailer{})
+	c := newUserCreatedConsumer(&mockTxManager{}, &mockInboxService{}, notifSvc, nil, &mockMailer{})
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 
@@ -268,13 +283,13 @@ func TestUserCreatedConsumer_HandleDelivery_NoEmailWhenBarrierNotMet(t *testing.
 
 	emailSent := false
 	mailer := &mockMailer{
-		sendWelcomeEmailFunc: func(recipientEmail, tenantID string) (string, string, error) {
+		sendWelcomeEmailFunc: func(recipientEmail, tenantID, setupToken string) (string, string, error) {
 			emailSent = true
 			return "", "", nil
 		},
 	}
 
-	c := newUserCreatedConsumer(&mockTxManager{}, &mockInboxService{}, notifSvc, mailer)
+	c := newUserCreatedConsumer(&mockTxManager{}, &mockInboxService{}, notifSvc, nil, mailer)
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 

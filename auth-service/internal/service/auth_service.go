@@ -30,10 +30,21 @@ type TokenRepository interface {
 	DeleteRefreshToken(ctx context.Context, input repository.DeleteRefreshTokenInput) error
 }
 
-type SetCredentialsInput struct {
+// SetupTokenRepository is the consumer-side interface expected by AuthService.
+type SetupTokenRepository interface {
+	CreateSetupToken(ctx context.Context, input repository.CreateSetupTokenInput) error
+	FindByTokenHash(ctx context.Context, tokenHash string) (*domain.PasswordSetupToken, error)
+	MarkTokenUsed(ctx context.Context, tokenHash string) error
+}
+
+type CreateSetupTokenInput struct {
 	UserID   string
 	TenantID string
 	Email    string
+}
+
+type SetupPasswordInput struct {
+	Token    string
 	Password string
 }
 
@@ -59,48 +70,22 @@ type TokenPair struct {
 type AuthService struct {
 	credentialRepository CredentialRepository
 	tokenRepository      TokenRepository
+	setupTokenRepository SetupTokenRepository
 	jwtManager           *crypto.JWTManager
 }
 
 func NewAuthService(
 	credentialRepository CredentialRepository,
 	tokenRepository TokenRepository,
+	setupTokenRepository SetupTokenRepository,
 	jwtManager *crypto.JWTManager,
 ) *AuthService {
 	return &AuthService{
 		credentialRepository: credentialRepository,
 		tokenRepository:      tokenRepository,
+		setupTokenRepository: setupTokenRepository,
 		jwtManager:           jwtManager,
 	}
-}
-
-func (s *AuthService) SetCredentials(ctx context.Context, input SetCredentialsInput) error {
-	if input.Email == "" {
-		return domain.ErrEmailRequired
-	}
-	if input.Password == "" {
-		return domain.ErrPasswordRequired
-	}
-	if input.UserID == "" {
-		return domain.ErrUserIDRequired
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return fmt.Errorf("auth service: failed to hash password: %w", err)
-	}
-
-	if err := s.credentialRepository.UpsertCredential(ctx, repository.UpsertCredentialInput{
-		UserID:       input.UserID,
-		TenantID:     input.TenantID,
-		Email:        input.Email,
-		PasswordHash: string(hash),
-	}); err != nil {
-		return fmt.Errorf("auth service: failed to store credential: %w", err)
-	}
-
-	log.Printf("AuthService: Successfully set credentials for user_id='%s' (email='%s')", input.UserID, input.Email)
-	return nil
 }
 
 func (s *AuthService) Login(ctx context.Context, input LoginInput) (*TokenPair, error) {
@@ -168,6 +153,83 @@ func (s *AuthService) Logout(ctx context.Context, input LogoutInput) error {
 		return fmt.Errorf("auth service: failed to revoke refresh token: %w", err)
 	}
 	return nil
+}
+
+func (s *AuthService) CreatePasswordSetupToken(ctx context.Context, input CreateSetupTokenInput) (string, error) {
+	if input.UserID == "" {
+		return "", domain.ErrUserIDRequired
+	}
+	if input.Email == "" {
+		return "", domain.ErrEmailRequired
+	}
+
+	rawToken, tokenHash, err := crypto.GenerateRefreshToken()
+	if err != nil {
+		return "", fmt.Errorf("auth service: failed to generate setup token: %w", err)
+	}
+
+	expiresAt := time.Now().UTC().Add(24 * time.Hour)
+	if err := s.setupTokenRepository.CreateSetupToken(ctx, repository.CreateSetupTokenInput{
+		UserID:    input.UserID,
+		TenantID:  input.TenantID,
+		Email:     input.Email,
+		TokenHash: tokenHash,
+		ExpiresAt: expiresAt,
+	}); err != nil {
+		return "", fmt.Errorf("auth service: failed to persist setup token: %w", err)
+	}
+
+	log.Printf("AuthService: Created password setup token for user_id='%s' email='%s'", input.UserID, input.Email)
+	return rawToken, nil
+}
+
+func (s *AuthService) SetupPassword(ctx context.Context, input SetupPasswordInput) (*TokenPair, error) {
+	if input.Token == "" {
+		return nil, domain.ErrTokenNotFound
+	}
+	if input.Password == "" {
+		return nil, domain.ErrPasswordRequired
+	}
+
+	tokenHash := crypto.HashRefreshToken(input.Token)
+	st, err := s.setupTokenRepository.FindByTokenHash(ctx, tokenHash)
+	if err != nil {
+		return nil, err
+	}
+
+	if st.UsedAt != nil {
+		return nil, domain.ErrTokenAlreadyUsed
+	}
+	if time.Now().UTC().After(st.ExpiresAt) {
+		return nil, domain.ErrTokenExpired
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("auth service: failed to hash password: %w", err)
+	}
+
+	if err := s.credentialRepository.UpsertCredential(ctx, repository.UpsertCredentialInput{
+		UserID:       st.UserID,
+		TenantID:     st.TenantID,
+		Email:        st.Email,
+		PasswordHash: string(hash),
+	}); err != nil {
+		return nil, fmt.Errorf("auth service: failed to store credential: %w", err)
+	}
+
+	if err := s.setupTokenRepository.MarkTokenUsed(ctx, tokenHash); err != nil {
+		return nil, fmt.Errorf("auth service: failed to mark setup token used: %w", err)
+	}
+
+	log.Printf("AuthService: Successfully set password via setup token for user_id='%s'", st.UserID)
+
+	cred := &domain.Credential{
+		UserID:   st.UserID,
+		TenantID: st.TenantID,
+		Email:    st.Email,
+	}
+	return s.issuePair(ctx, cred)
 }
 
 func (s *AuthService) issuePair(ctx context.Context, cred *domain.Credential) (*TokenPair, error) {

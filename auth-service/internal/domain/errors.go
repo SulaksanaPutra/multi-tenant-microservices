@@ -7,6 +7,7 @@ var (
 	ErrCredentialNotFound = errors.New("auth service: credential not found")
 	ErrTokenExpired       = errors.New("auth service: token has expired")
 	ErrTokenRevoked       = errors.New("auth service: token has been revoked")
+	ErrTokenAlreadyUsed   = errors.New("auth service: setup token has already been used")
 	ErrTokenNotFound      = errors.New("auth service: token not found")
 	ErrEmailRequired      = errors.New("auth service: email is required")
 	ErrPasswordRequired   = errors.New("auth service: password is required")

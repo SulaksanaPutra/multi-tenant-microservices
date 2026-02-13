@@ -31,6 +31,7 @@ func main() {
 	dbName := getEnv("DB_NAME", "auth_db")
 	httpPort := getEnv("PORT", "8085")
 	privateKeyPEM := getEnv("AUTH_JWT_PRIVATE_KEY_PEM", "")
+	internalServiceToken := getEnv("INTERNAL_SERVICE_TOKEN", "default_internal_service_token")
 
 	if privateKeyPEM == "" {
 		log.Fatal("AUTH_JWT_PRIVATE_KEY_PEM environment variable is required")
@@ -58,15 +59,17 @@ func main() {
 	_ = txcontext.NewTxManager(dbClient.DB) // available for future transactional handlers
 	credentialRepository := repository.NewCredentialRepository(dbClient)
 	tokenRepository := repository.NewTokenRepository(dbClient)
+	setupTokenRepository := repository.NewSetupTokenRepository(dbClient)
 
 	// Initialize service
-	authService := service.NewAuthService(credentialRepository, tokenRepository, jwtManager)
+	authService := service.NewAuthService(credentialRepository, tokenRepository, setupTokenRepository, jwtManager)
 
-	// Initialize handler
+	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authService, jwtManager)
+	internalAuthHandler := handler.NewInternalAuthHandler(authService)
 
 	// Start HTTP server
-	httpRouter := newRouter(authHandler, jwtManager)
+	httpRouter := newRouter(authHandler, internalAuthHandler, jwtManager, internalServiceToken)
 	httpServer := &http.Server{
 		Addr:    ":" + httpPort,
 		Handler: httpRouter,

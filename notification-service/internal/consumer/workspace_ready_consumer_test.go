@@ -11,11 +11,15 @@ import (
 	"notification-service/internal/service"
 )
 
-func newWorkspaceReadyConsumer(txm TxManager, inbox InboxService, notif NotificationService, mailer Mailer) *WorkspaceReadyConsumer {
+func newWorkspaceReadyConsumer(txm TxManager, inbox InboxService, notif NotificationService, authClient AuthClient, mailer Mailer) *WorkspaceReadyConsumer {
+	if authClient == nil {
+		authClient = &mockAuthClient{}
+	}
 	return &WorkspaceReadyConsumer{
 		txManager:           txm,
 		inboxService:        inbox,
 		notificationService: notif,
+		authClient:          authClient,
 		mailer:              mailer,
 	}
 }
@@ -43,13 +47,13 @@ func TestWorkspaceReadyConsumer_HandleDelivery_Success(t *testing.T) {
 
 	emailSent := false
 	mailer := &mockMailer{
-		sendWelcomeEmailFunc: func(recipientEmail, tenantID string) (string, string, error) {
+		sendWelcomeEmailFunc: func(recipientEmail, tenantID, setupToken string) (string, string, error) {
 			emailSent = true
 			return "subj", "body", nil
 		},
 	}
 
-	c := newWorkspaceReadyConsumer(&mockTxManager{}, &mockInboxService{}, notifSvc, mailer)
+	c := newWorkspaceReadyConsumer(&mockTxManager{}, &mockInboxService{}, notifSvc, nil, mailer)
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 
@@ -69,7 +73,7 @@ func TestWorkspaceReadyConsumer_HandleDelivery_Success(t *testing.T) {
 }
 
 func TestWorkspaceReadyConsumer_HandleDelivery_InvalidJSON(t *testing.T) {
-	c := newWorkspaceReadyConsumer(nil, nil, nil, nil)
+	c := newWorkspaceReadyConsumer(nil, nil, nil, nil, nil)
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: []byte("invalid-json")}
 
@@ -92,7 +96,7 @@ func TestWorkspaceReadyConsumer_HandleDelivery_ServiceError_Nacks(t *testing.T) 
 		},
 	}
 
-	c := newWorkspaceReadyConsumer(&mockTxManager{}, &mockInboxService{}, notifSvc, &mockMailer{})
+	c := newWorkspaceReadyConsumer(&mockTxManager{}, &mockInboxService{}, notifSvc, nil, &mockMailer{})
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 
@@ -111,16 +115,16 @@ func TestWorkspaceReadyConsumer_HandleDelivery_SMTPError_Nacks(t *testing.T) {
 
 	notifSvc := &mockNotificationService{
 		processEventAndTrySendWelcomeFunc: func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
-			return &service.ProcessEventOutput{LogID: 2, RecipientEmail: "owner@company.com", TenantID: "tenant-88"}, nil
+			return &service.ProcessEventOutput{LogID: 2, UserID: "usr_200", RecipientEmail: "owner@company.com", TenantID: "tenant-88"}, nil
 		},
 	}
 	mailer := &mockMailer{
-		sendWelcomeEmailFunc: func(recipientEmail, tenantID string) (string, string, error) {
+		sendWelcomeEmailFunc: func(recipientEmail, tenantID, setupToken string) (string, string, error) {
 			return "", "", smtpErr
 		},
 	}
 
-	c := newWorkspaceReadyConsumer(&mockTxManager{}, &mockInboxService{}, notifSvc, mailer)
+	c := newWorkspaceReadyConsumer(&mockTxManager{}, &mockInboxService{}, notifSvc, nil, mailer)
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 
@@ -144,13 +148,13 @@ func TestWorkspaceReadyConsumer_HandleDelivery_NoEmailWhenBarrierNotMet(t *testi
 
 	emailSent := false
 	mailer := &mockMailer{
-		sendWelcomeEmailFunc: func(recipientEmail, tenantID string) (string, string, error) {
+		sendWelcomeEmailFunc: func(recipientEmail, tenantID, setupToken string) (string, string, error) {
 			emailSent = true
 			return "", "", nil
 		},
 	}
 
-	c := newWorkspaceReadyConsumer(&mockTxManager{}, &mockInboxService{}, notifSvc, mailer)
+	c := newWorkspaceReadyConsumer(&mockTxManager{}, &mockInboxService{}, notifSvc, nil, mailer)
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 

@@ -222,9 +222,11 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 
 	t.Logf("6. [Tenant Service] Verified tenant_id='%s' record in public.tenants (status='%s')!", regResp.Data.TenantID, tenantStatus)
 
-	// 8. Verify Welcome Email in Mailpit via REST API
+	// 8. Verify Welcome Email in Mailpit, extract setup token, and setup password
 	var mailpitFound bool
-	for i := 0; i < 10; i++ {
+	var messageID string
+
+	for i := 0; i < 20; i++ {
 		mailResp, err := http.Get(mailpitAPI)
 		if err == nil && mailResp.StatusCode == http.StatusOK {
 			bodyBytes, _ := io.ReadAll(mailResp.Body)
@@ -236,6 +238,7 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 					for _, to := range msg.To {
 						if to.Address == testEmail {
 							mailpitFound = true
+							messageID = msg.ID
 							break
 						}
 					}
@@ -248,13 +251,81 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 		if mailpitFound {
 			break
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(1 * time.Second)
 	}
 
 	if !mailpitFound {
-		t.Logf("Mailpit email check completed (or skipped if optional)")
+		t.Logf("Mailpit email check skipped/not found within timeout")
 	} else {
-		t.Logf("7. [Notification Service] Verified welcome email delivered to Mailpit for recipient %s!", testEmail)
+		t.Logf("7. [Notification Service] Verified welcome email delivered to Mailpit (Message ID '%s') for recipient %s!", messageID, testEmail)
+
+		// Fetch message body to extract setup token
+		msgURL := fmt.Sprintf("http://localhost:8025/api/v1/message/%s", messageID)
+		msgResp, err := http.Get(msgURL)
+		if err != nil || msgResp.StatusCode != http.StatusOK {
+			t.Fatalf("Failed to fetch message body from Mailpit: %v", err)
+		}
+		msgBytes, _ := io.ReadAll(msgResp.Body)
+		msgResp.Body.Close()
+
+		var msgDetail struct {
+			Text string `json:"Text"`
+		}
+		_ = json.Unmarshal(msgBytes, &msgDetail)
+
+		tokenRegexp := regexp.MustCompile(`token=([a-zA-Z0-9_\-]+)`)
+		matches := tokenRegexp.FindStringSubmatch(msgDetail.Text)
+		if len(matches) < 2 {
+			t.Fatalf("Failed to find setup token in welcome email text: %s", msgDetail.Text)
+		}
+		rawSetupToken := matches[1]
+		t.Logf("8. [Auth Service] Extracted raw password setup token from welcome email: '%s'", rawSetupToken)
+
+		// Submit password setup request to auth-service
+		setupReqBody, _ := json.Marshal(map[string]string{
+			"token":    rawSetupToken,
+			"password": "SuperSecretPassword123!",
+		})
+
+		setupResp, err := http.Post("http://localhost:8085/auth/credentials/setup", "application/json", bytes.NewBuffer(setupReqBody))
+		if err != nil {
+			t.Fatalf("Failed to post credentials setup: %v", err)
+		}
+		defer setupResp.Body.Close()
+
+		if setupResp.StatusCode != http.StatusOK {
+			bodyErr, _ := io.ReadAll(setupResp.Body)
+			t.Fatalf("Credentials setup failed with status %d: %s", setupResp.StatusCode, string(bodyErr))
+		}
+
+		var setupResult struct {
+			Data struct {
+				AccessToken  string `json:"access_token"`
+				RefreshToken string `json:"refresh_token"`
+			} `json:"data"`
+		}
+		_ = json.NewDecoder(setupResp.Body).Decode(&setupResult)
+
+		if setupResult.Data.AccessToken == "" {
+			t.Fatalf("Expected access_token returned from setup password endpoint")
+		}
+
+		t.Logf("9. [Auth Service] Password setup successful! Received RS256 Access Token.")
+
+		// Verify authenticated orders call using JWT Access Token
+		orderReq, _ := http.NewRequest("GET", "http://localhost:8000/api/orders", nil)
+		orderReq.Header.Set("Authorization", "Bearer "+setupResult.Data.AccessToken)
+		orderResp, err := http.DefaultClient.Do(orderReq)
+		if err != nil {
+			t.Fatalf("Failed to make authenticated orders request: %v", err)
+		}
+		defer orderResp.Body.Close()
+
+		if orderResp.StatusCode != http.StatusOK {
+			t.Fatalf("Expected HTTP 200 OK for authenticated orders endpoint, got %d", orderResp.StatusCode)
+		}
+
+		t.Logf("10. [Order Service] Verified authenticated RS256 Bearer JWT data-plane access! Status 200 OK.")
 	}
 }
 

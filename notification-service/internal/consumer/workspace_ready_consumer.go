@@ -18,6 +18,7 @@ type WorkspaceReadyConsumerParams struct {
 	Client              *rabbitmq.Client
 	InboxService        InboxService
 	NotificationService NotificationService
+	AuthClient          AuthClient
 	Mailer              Mailer
 }
 
@@ -26,6 +27,7 @@ type WorkspaceReadyConsumer struct {
 	client              *rabbitmq.Client
 	inboxService        InboxService
 	notificationService NotificationService
+	authClient          AuthClient
 	mailer              Mailer
 }
 
@@ -35,6 +37,7 @@ func NewWorkspaceReadyConsumer(params WorkspaceReadyConsumerParams) (*WorkspaceR
 		client:              params.Client,
 		inboxService:        params.InboxService,
 		notificationService: params.NotificationService,
+		authClient:          params.AuthClient,
 		mailer:              params.Mailer,
 	}
 
@@ -188,7 +191,14 @@ func (c *WorkspaceReadyConsumer) handleDelivery(ctx context.Context, d rabbitmq.
 	// Phase 2: Dispatch email AFTER the transaction commits.
 	// DB connection is released; SMTP timeout cannot hold DB locks or cause rollback.
 	if sendDetails != nil {
-		if _, _, mailErr := c.mailer.SendWelcomeEmail(sendDetails.RecipientEmail, sendDetails.TenantID); mailErr != nil {
+		setupToken, fetchErr := c.authClient.FetchSetupToken(ctx, sendDetails.UserID, sendDetails.TenantID, sendDetails.RecipientEmail)
+		if fetchErr != nil {
+			log.Printf("WorkspaceReadyConsumer: Failed to fetch setup token from auth-service for tenant='%s': %v — NACKing for retry.", sendDetails.TenantID, fetchErr)
+			_ = d.Nack(false, true)
+			return fetchErr
+		}
+
+		if _, _, mailErr := c.mailer.SendWelcomeEmail(sendDetails.RecipientEmail, sendDetails.TenantID, setupToken); mailErr != nil {
 			log.Printf("WorkspaceReadyConsumer: SMTP dispatch failed for event_id='%s' recipient='%s': %v — NACKing for retry.",
 				evt.EventID, sendDetails.RecipientEmail, mailErr)
 			_ = d.Nack(false, true) // Requeue — inbox ON CONFLICT ensures idempotent retry

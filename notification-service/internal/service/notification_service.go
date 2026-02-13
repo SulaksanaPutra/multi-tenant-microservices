@@ -28,6 +28,7 @@ type ProcessEventInput struct {
 
 type ProcessEventOutput struct {
 	LogID          int
+	UserID         string
 	RecipientEmail string
 	TenantID       string
 }
@@ -152,6 +153,7 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(
 
 	return &ProcessEventOutput{
 		LogID:          logID,
+		UserID:         userID,
 		RecipientEmail: recipientEmail,
 		TenantID:       input.TenantID,
 	}, nil

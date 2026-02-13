@@ -29,9 +29,14 @@ type InboxService interface {
 	GetBarrierEvents(txCtx context.Context, tenantID string) ([]domain.InboxMessage, error)
 }
 
+// AuthClient is the consumer-side interface expected by UserCreatedConsumer.
+type AuthClient interface {
+	FetchSetupToken(ctx context.Context, userID, tenantID, email string) (string, error)
+}
+
 // Mailer is the consumer-side interface expected by UserCreatedConsumer.
 type Mailer interface {
-	SendWelcomeEmail(recipientEmail, tenantID string) (string, string, error)
+	SendWelcomeEmail(recipientEmail, tenantID, setupToken string) (string, string, error)
 }
 
 type UserCreatedConsumerParams struct {
@@ -39,6 +44,7 @@ type UserCreatedConsumerParams struct {
 	Client              *rabbitmq.Client
 	InboxService        InboxService
 	NotificationService NotificationService
+	AuthClient          AuthClient
 	Mailer              Mailer
 }
 
@@ -47,6 +53,7 @@ type UserCreatedConsumer struct {
 	client              *rabbitmq.Client
 	inboxService        InboxService
 	notificationService NotificationService
+	authClient          AuthClient
 	mailer              Mailer
 }
 
@@ -56,6 +63,7 @@ func NewUserCreatedConsumer(params UserCreatedConsumerParams) (*UserCreatedConsu
 		client:              params.Client,
 		inboxService:        params.InboxService,
 		notificationService: params.NotificationService,
+		authClient:          params.AuthClient,
 		mailer:              params.Mailer,
 	}
 
@@ -210,7 +218,14 @@ func (c *UserCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Del
 	// Phase 2: Dispatch email AFTER the transaction commits.
 	// DB connection is released; SMTP timeout cannot hold DB locks or cause rollback.
 	if sendDetails != nil {
-		if _, _, mailErr := c.mailer.SendWelcomeEmail(sendDetails.RecipientEmail, sendDetails.TenantID); mailErr != nil {
+		setupToken, fetchErr := c.authClient.FetchSetupToken(ctx, sendDetails.UserID, sendDetails.TenantID, sendDetails.RecipientEmail)
+		if fetchErr != nil {
+			log.Printf("UserCreatedConsumer: Failed to fetch setup token from auth-service for tenant='%s': %v — NACKing for retry.", sendDetails.TenantID, fetchErr)
+			_ = d.Nack(false, true)
+			return fetchErr
+		}
+
+		if _, _, mailErr := c.mailer.SendWelcomeEmail(sendDetails.RecipientEmail, sendDetails.TenantID, setupToken); mailErr != nil {
 			log.Printf("UserCreatedConsumer: SMTP dispatch failed for event_id='%s' recipient='%s': %v — NACKing for retry.",
 				evt.EventID, sendDetails.RecipientEmail, mailErr)
 			_ = d.Nack(false, true) // Requeue — inbox ON CONFLICT ensures idempotent retry

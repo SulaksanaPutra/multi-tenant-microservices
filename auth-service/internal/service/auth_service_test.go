@@ -80,7 +80,42 @@ func (m *mockTokenRepo) DeleteRefreshToken(_ context.Context, input repository.D
 	return nil
 }
 
-func setupAuthService(t *testing.T) (*service.AuthService, *mockCredentialRepo, *mockTokenRepo) {
+type mockSetupTokenRepo struct {
+	tokens map[string]*domain.PasswordSetupToken
+}
+
+func (m *mockSetupTokenRepo) CreateSetupToken(_ context.Context, input repository.CreateSetupTokenInput) error {
+	m.tokens[input.TokenHash] = &domain.PasswordSetupToken{
+		ID:        "st_id",
+		UserID:    input.UserID,
+		TenantID:  input.TenantID,
+		Email:     input.Email,
+		TokenHash: input.TokenHash,
+		ExpiresAt: input.ExpiresAt,
+	}
+	return nil
+}
+
+func (m *mockSetupTokenRepo) FindByTokenHash(_ context.Context, tokenHash string) (*domain.PasswordSetupToken, error) {
+	if st, ok := m.tokens[tokenHash]; ok {
+		return st, nil
+	}
+	return nil, domain.ErrTokenNotFound
+}
+
+func (m *mockSetupTokenRepo) MarkTokenUsed(_ context.Context, tokenHash string) error {
+	if st, ok := m.tokens[tokenHash]; ok {
+		if st.UsedAt != nil {
+			return domain.ErrTokenAlreadyUsed
+		}
+		now := time.Now()
+		st.UsedAt = &now
+		return nil
+	}
+	return domain.ErrTokenNotFound
+}
+
+func setupAuthService(t *testing.T) (*service.AuthService, *mockCredentialRepo, *mockTokenRepo, *mockSetupTokenRepo) {
 	t.Helper()
 	privateKey, _ := rsa.GenerateKey(rand.Reader, 2048)
 	der := x509.MarshalPKCS1PrivateKey(privateKey)
@@ -93,33 +128,41 @@ func setupAuthService(t *testing.T) (*service.AuthService, *mockCredentialRepo, 
 
 	credRepo := &mockCredentialRepo{creds: make(map[string]*domain.Credential)}
 	tokenRepo := &mockTokenRepo{tokens: make(map[string]*domain.RefreshToken)}
-	svc := service.NewAuthService(credRepo, tokenRepo, jwtMgr)
-	return svc, credRepo, tokenRepo
+	setupRepo := &mockSetupTokenRepo{tokens: make(map[string]*domain.PasswordSetupToken)}
+	svc := service.NewAuthService(credRepo, tokenRepo, setupRepo, jwtMgr)
+	return svc, credRepo, tokenRepo, setupRepo
 }
 
-func TestAuthService_SetCredentialsAndLogin(t *testing.T) {
-	svc, _, _ := setupAuthService(t)
+func TestAuthService_SetupPasswordAndLogin(t *testing.T) {
+	svc, _, _, _ := setupAuthService(t)
 	ctx := context.Background()
 
-	err := svc.SetCredentials(ctx, service.SetCredentialsInput{
+	rawToken, err := svc.CreatePasswordSetupToken(ctx, service.CreateSetupTokenInput{
 		UserID:   "usr_100",
 		TenantID: "tnt_200",
 		Email:    "user@example.com",
+	})
+	if err != nil {
+		t.Fatalf("CreatePasswordSetupToken failed: %v", err)
+	}
+
+	pair, err := svc.SetupPassword(ctx, service.SetupPasswordInput{
+		Token:    rawToken,
 		Password: "secretpassword",
 	})
 	if err != nil {
-		t.Fatalf("SetCredentials failed: %v", err)
+		t.Fatalf("SetupPassword failed: %v", err)
 	}
 
 	// Test Login Success
-	pair, err := svc.Login(ctx, service.LoginInput{
+	loginPair, err := svc.Login(ctx, service.LoginInput{
 		Email:    "user@example.com",
 		Password: "secretpassword",
 	})
 	if err != nil {
 		t.Fatalf("Login failed: %v", err)
 	}
-	if pair.AccessToken == "" || pair.RefreshToken == "" {
+	if loginPair.AccessToken == "" || loginPair.RefreshToken == "" {
 		t.Errorf("expected tokens in response pair")
 	}
 
@@ -149,5 +192,55 @@ func TestAuthService_SetCredentialsAndLogin(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("Logout failed: %v", err)
+	}
+}
+
+func TestAuthService_CreatePasswordSetupTokenAndSetupPassword(t *testing.T) {
+	svc, _, _, _ := setupAuthService(t)
+	ctx := context.Background()
+
+	rawToken, err := svc.CreatePasswordSetupToken(ctx, service.CreateSetupTokenInput{
+		UserID:   "usr_setup_100",
+		TenantID: "tnt_setup_200",
+		Email:    "setup@example.com",
+	})
+	if err != nil {
+		t.Fatalf("CreatePasswordSetupToken failed: %v", err)
+	}
+	if rawToken == "" {
+		t.Fatalf("expected non-empty raw setup token")
+	}
+
+	// Submit setup password using token
+	pair, err := svc.SetupPassword(ctx, service.SetupPasswordInput{
+		Token:    rawToken,
+		Password: "newpassword123",
+	})
+	if err != nil {
+		t.Fatalf("SetupPassword failed: %v", err)
+	}
+	if pair.AccessToken == "" || pair.RefreshToken == "" {
+		t.Errorf("expected tokens in setup password response pair")
+	}
+
+	// Attempting to reuse the token should fail
+	_, err = svc.SetupPassword(ctx, service.SetupPasswordInput{
+		Token:    rawToken,
+		Password: "newpassword123",
+	})
+	if err == nil {
+		t.Errorf("expected error when reusing setup token")
+	}
+
+	// Login with newly setup password should succeed
+	loginPair, err := svc.Login(ctx, service.LoginInput{
+		Email:    "setup@example.com",
+		Password: "newpassword123",
+	})
+	if err != nil {
+		t.Fatalf("Login with setup password failed: %v", err)
+	}
+	if loginPair.AccessToken == "" {
+		t.Errorf("expected access token from login")
 	}
 }
