@@ -20,6 +20,7 @@ func registerConsumers(
 	rmqClient *rabbitmq.Client,
 	inboxService *service.InboxService,
 	notifService *service.NotificationService,
+	authClient consumer.AuthClient,
 	mailer consumer.Mailer,
 ) (*consumerRunner, error) {
 	workspaceReadyConsumer, err := consumer.NewWorkspaceReadyConsumer(consumer.WorkspaceReadyConsumerParams{
@@ -27,6 +28,7 @@ func registerConsumers(
 		Client:              rmqClient,
 		InboxService:        inboxService,
 		NotificationService: notifService,
+		AuthClient:          authClient,
 		Mailer:              mailer,
 	})
 	if err != nil {
@@ -38,6 +40,7 @@ func registerConsumers(
 		Client:              rmqClient,
 		InboxService:        inboxService,
 		NotificationService: notifService,
+		AuthClient:          authClient,
 		Mailer:              mailer,
 	})
 	if err != nil {

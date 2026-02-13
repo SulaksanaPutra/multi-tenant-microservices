@@ -24,9 +24,14 @@ func NewMailer(host, port, from string) *Mailer {
 	}
 }
 
-func (m *Mailer) SendWelcomeEmail(toEmail, tenantID string) (string, string, error) {
+func (m *Mailer) SendWelcomeEmail(toEmail, tenantID, setupToken string) (string, string, error) {
 	subject := "Welcome! Your Tenant Workspace is Ready"
-	body := fmt.Sprintf("Hello,\n\nYour tenant workspace '%s' has been successfully provisioned and is ready for use.\n\nThank you for choosing our platform!", tenantID)
+	setupLink := fmt.Sprintf("http://localhost:8000/setup-password?token=%s", setupToken)
+	body := fmt.Sprintf(
+		"Hello,\n\nYour tenant workspace '%s' has been successfully provisioned and is ready for use.\n\nPlease set up your password to activate your account:\n%s\n\nThank you for choosing our platform!",
+		tenantID,
+		setupLink,
+	)
 
 	addr := fmt.Sprintf("%s:%s", m.smtpHost, m.smtpPort)
 

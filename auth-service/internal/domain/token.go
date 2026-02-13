@@ -14,6 +14,19 @@ type RefreshToken struct {
 	CreatedAt time.Time
 }
 
+// PasswordSetupToken represents a server-side password setup token record.
+// Only the SHA-256 hash of the raw token is persisted.
+type PasswordSetupToken struct {
+	ID        string
+	UserID    string
+	TenantID  string
+	Email     string
+	TokenHash string    // SHA-256(raw token)
+	ExpiresAt time.Time
+	UsedAt    *time.Time // nil = unused
+	CreatedAt time.Time
+}
+
 // JWTClaims are extracted from a verified RS256 JWT and injected into gin.Context
 // by the JWT middleware so that downstream handlers can access identity without
 // re-parsing the token.

@@ -14,17 +14,15 @@ import (
 )
 
 type AuthService interface {
-	SetCredentials(ctx context.Context, input service.SetCredentialsInput) error
+	SetupPassword(ctx context.Context, input service.SetupPasswordInput) (*service.TokenPair, error)
 	Login(ctx context.Context, input service.LoginInput) (*service.TokenPair, error)
 	RefreshToken(ctx context.Context, input service.RefreshTokenInput) (*service.TokenPair, error)
 	Logout(ctx context.Context, input service.LogoutInput) error
 }
 
-type SetCredentialsRequest struct {
-	UserID   string `json:"user_id"   binding:"required"`
-	TenantID string `json:"tenant_id" binding:"required"`
-	Email    string `json:"email"     binding:"required,email"`
-	Password string `json:"password"  binding:"required,min=8"`
+type SetupPasswordRequest struct {
+	Token    string `json:"token"    binding:"required"`
+	Password string `json:"password" binding:"required,min=8"`
 }
 
 type LoginRequest struct {
@@ -64,24 +62,33 @@ func NewAuthHandler(authService AuthService, jwtManager *crypto.JWTManager) *Aut
 	}
 }
 
-func (h *AuthHandler) SetCredentials(c *gin.Context) {
-	var req SetCredentialsRequest
+func (h *AuthHandler) SetupPassword(c *gin.Context) {
+	var req SetupPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httputil.WriteValidationError(c, err)
 		return
 	}
 
-	if err := h.authService.SetCredentials(c.Request.Context(), service.SetCredentialsInput{
-		UserID:   req.UserID,
-		TenantID: req.TenantID,
-		Email:    req.Email,
+	pair, err := h.authService.SetupPassword(c.Request.Context(), service.SetupPasswordInput{
+		Token:    req.Token,
 		Password: req.Password,
-	}); err != nil {
+	})
+	if err != nil {
+		if errors.Is(err, domain.ErrTokenNotFound) ||
+			errors.Is(err, domain.ErrTokenExpired) ||
+			errors.Is(err, domain.ErrTokenAlreadyUsed) {
+			httputil.WriteError(c, http.StatusBadRequest, err.Error())
+			return
+		}
 		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	httputil.WriteSuccess[any](c, http.StatusOK, "Credentials set successfully", nil)
+	httputil.WriteSuccess(c, http.StatusOK, "Password setup successful", LoginResponse{
+		AccessToken:  pair.AccessToken,
+		RefreshToken: pair.RefreshToken,
+		ExpiresIn:    pair.ExpiresIn,
+	})
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {

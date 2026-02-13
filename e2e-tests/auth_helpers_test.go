@@ -11,7 +11,6 @@ import (
 
 const (
 	authServiceURL    = "http://localhost:8085"
-	authCredSetURL    = authServiceURL + "/auth/credentials/set"
 	authLoginURL      = authServiceURL + "/auth/login"
 	authRefreshURL    = authServiceURL + "/auth/refresh"
 )
@@ -27,39 +26,72 @@ type authTokenResponse struct {
 	} `json:"data"`
 }
 
-// setCredentials calls the TEMPORARY credential provisioning endpoint to assign a password
-// to a registered user. This is Stage 1 scaffolding only.
-//
-// TEMPORARY — NON-PRODUCTION SCAFFOLDING.
-// Will be replaced by an email-invite / token-gated reset flow in the OAuth 2.0 stage.
+// setCredentials provisions a user's password via the internal setup token endpoint and setup password flow.
 func setCredentials(t *testing.T, userID, tenantID, email, password string) {
 	t.Helper()
 
-	body, _ := json.Marshal(map[string]string{
+	tokenReqBody, _ := json.Marshal(map[string]string{
 		"user_id":   userID,
 		"tenant_id": tenantID,
 		"email":     email,
-		"password":  password,
 	})
 
-	// Retry up to 5 times — auth-service may not be fully up yet right after startup
+	var rawSetupToken string
 	var lastErr error
+
+	// 1. Fetch setup token via internal API
 	for i := 0; i < 5; i++ {
-		resp, err := http.Post(authCredSetURL, "application/json", bytes.NewBuffer(body))
+		req, err := http.NewRequest(http.MethodPost, authServiceURL+"/internal/auth/setup-token", bytes.NewBuffer(tokenReqBody))
+		if err != nil {
+			t.Fatalf("Failed to create request for internal setup-token: %v", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Internal-Service-Token", "default_internal_service_token")
+
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			lastErr = err
 			time.Sleep(time.Second)
 			continue
 		}
 		defer resp.Body.Close()
+
 		if resp.StatusCode == http.StatusOK {
-			t.Logf("[Auth] Credentials set for email='%s' user_id='%s'", email, userID)
-			return
+			var tokenResp struct {
+				Data struct {
+					Token string `json:"token"`
+				} `json:"data"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err == nil && tokenResp.Data.Token != "" {
+				rawSetupToken = tokenResp.Data.Token
+				break
+			}
 		}
-		lastErr = fmt.Errorf("setCredentials returned status %d", resp.StatusCode)
+		lastErr = fmt.Errorf("internal setup-token returned status %d", resp.StatusCode)
 		time.Sleep(time.Second)
 	}
-	t.Fatalf("setCredentials failed after retries: %v", lastErr)
+
+	if rawSetupToken == "" {
+		t.Fatalf("setCredentials failed to fetch setup token: %v", lastErr)
+	}
+
+	// 2. Submit password setup request
+	setupReqBody, _ := json.Marshal(map[string]string{
+		"token":    rawSetupToken,
+		"password": password,
+	})
+
+	resp, err := http.Post(authServiceURL+"/auth/credentials/setup", "application/json", bytes.NewBuffer(setupReqBody))
+	if err != nil {
+		t.Fatalf("POST /auth/credentials/setup failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("setCredentials setup password returned status %d", resp.StatusCode)
+	}
+
+	t.Logf("[Auth] Credentials set successfully for email='%s' user_id='%s'", email, userID)
 }
 
 // loginAndGetToken calls POST /auth/login and returns the JWT access token.

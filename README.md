@@ -102,11 +102,25 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
                              │ Both events received (Barrier Sync)
                              ▼
                  [ notification-service ]
-                             │ Dispatch Welcome Email via Mailpit
+                             │ 1. Barrier Sync met (workspace.ready + user.created)
+                             │ 2. Synchronous fetch: POST /internal/auth/setup-token (X-Internal-Service-Token)
+                             ▼
+                     [ auth-service ] (Generates raw token in RAM, persists SHA-256 in authDB)
+                             │ Returns raw setup token in HTTP response
+                             ▼
+                 [ notification-service ]
+                             │ Dispatch Welcome Email with Setup Link via Mailpit
+                             ▼
+                        [ Client ] ─────► POST /auth/credentials/setup { token, password }
+                                                │
+                                                ▼
+                                        [ auth-service ]
+                                                │ Validates token hash, sets bcrypt password,
+                                                │ invalidates setup token, returns RS256 JWT
 ```
 
 > [!NOTE]
-> **Registration to Auth Lifecycle:** After `POST /api/register` returns `202 Accepted` with `tenant_id` and `user_id`, the user identity exists in `user-service`. In Stage 1, password credentials are provisioned via `POST /auth/credentials/set` (scaffolding), enabling the user to execute `POST /auth/login` to obtain their RS256 JWT access token for subsequent data-plane calls.
+> **Registration to Auth Lifecycle:** `POST /api/register` is password-less to prevent plain credentials from leaking across RabbitMQ outbox/inbox tables. Once infrastructure provisioning completes (`workspace.ready` + `user.created`), `notification-service` synchronously fetches a single-use setup token from `auth-service` via internal HTTP (`X-Internal-Service-Token`). The raw token is held strictly in memory and sent via email. The user sets their password via `POST /auth/credentials/setup`, which returns their RS256 JWT access token for subsequent data-plane calls.
 
 ---
 

@@ -47,8 +47,9 @@ func TestListNotifications_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	req, _ := http.NewRequest(http.MethodGet, "/api/v1/notifications?tenant_id=tenant_abc", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/v1/notifications", nil)
 	c.Request = req
+	c.Set("tenantID", "tenant_abc")
 
 	h.ListNotifications(c)
 

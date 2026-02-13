@@ -12,7 +12,12 @@ import (
 )
 
 // newRouter initializes all HTTP routes for Auth Service.
-func newRouter(authHandler *handler.AuthHandler, jwtManager *crypto.JWTManager) http.Handler {
+func newRouter(
+	authHandler *handler.AuthHandler,
+	internalAuthHandler *handler.InternalAuthHandler,
+	jwtManager *crypto.JWTManager,
+	internalToken string,
+) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery(), gin.Logger())
@@ -28,15 +33,19 @@ func newRouter(authHandler *handler.AuthHandler, jwtManager *crypto.JWTManager) 
 	// Auth endpoints (unauthenticated)
 	auth := r.Group("/auth")
 	{
-		// TEMPORARY — NON-PRODUCTION SCAFFOLDING (Stage 1 only)
-		// Replace with email-invite/reset flow before OAuth 2.0 stage.
-		auth.POST("/credentials/set", authHandler.SetCredentials)
-
+		auth.POST("/credentials/setup", authHandler.SetupPassword)
 		auth.POST("/login", authHandler.Login)
 		auth.POST("/refresh", authHandler.Refresh)
 
 		// Logout requires a valid JWT (to prevent anonymous token revocation abuse)
 		auth.POST("/logout", middleware.RequireJWT(jwtManager), authHandler.Logout)
+	}
+
+	// Internal endpoints (authenticated via X-Internal-Service-Token)
+	internalGroup := r.Group("/internal")
+	internalGroup.Use(middleware.InternalAuthMiddleware(internalToken))
+	{
+		internalGroup.POST("/auth/setup-token", internalAuthHandler.CreateSetupToken)
 	}
 
 	return r
