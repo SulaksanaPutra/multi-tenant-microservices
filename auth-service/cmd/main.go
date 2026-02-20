@@ -13,7 +13,7 @@ import (
 
 	"auth-service/internal/crypto"
 	"auth-service/internal/handler"
-	"auth-service/internal/infrastructure"
+	"auth-service/internal/infrastructure/postgres"
 	"auth-service/internal/repository"
 	"auth-service/internal/service"
 	"auth-service/internal/txcontext"
@@ -44,7 +44,7 @@ func main() {
 	}
 
 	// Connect to auth DB
-	dbClient, err := infrastructure.NewClient(dbHost, dbPort, dbUser, dbPassword, dbName)
+	dbClient, err := postgres.NewClient(dbHost, dbPort, dbUser, dbPassword, dbName)
 	if err != nil {
 		log.Fatalf("Failed to initialize database client: %v", err)
 	}

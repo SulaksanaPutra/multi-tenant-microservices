@@ -52,6 +52,11 @@ func WithTx(ctx context.Context, tx *sql.Tx) context.Context {
 	return context.WithValue(ctx, execKey{}, DBExecutor(tx))
 }
 
+// WithExecutor returns a new Context that carries any custom DBExecutor (e.g. *sql.DB pool or *sql.Tx).
+func WithExecutor(ctx context.Context, exec DBExecutor) context.Context {
+	return context.WithValue(ctx, execKey{}, exec)
+}
+
 // GetExecutor extracts DBExecutor from Context if present; otherwise returns fallback DB.
 func GetExecutor(ctx context.Context, fallback DBExecutor) DBExecutor {
 	if exec, ok := ctx.Value(execKey{}).(DBExecutor); ok && exec != nil {

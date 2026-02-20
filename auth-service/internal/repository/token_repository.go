@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"auth-service/internal/domain"
-	"auth-service/internal/infrastructure"
+	"auth-service/internal/infrastructure/postgres"
 	"auth-service/internal/txcontext"
 )
 
@@ -27,10 +27,10 @@ type DeleteRefreshTokenInput struct {
 }
 
 type TokenRepository struct {
-	dbClient *infrastructure.Client
+	dbClient *postgres.Client
 }
 
-func NewTokenRepository(dbClient *infrastructure.Client) *TokenRepository {
+func NewTokenRepository(dbClient *postgres.Client) *TokenRepository {
 	return &TokenRepository{dbClient: dbClient}
 }
 
