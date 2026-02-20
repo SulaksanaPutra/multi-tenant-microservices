@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"auth-service/internal/domain"
-	"auth-service/internal/infrastructure"
+	"auth-service/internal/infrastructure/postgres"
 	"auth-service/internal/txcontext"
 )
 
@@ -19,10 +19,10 @@ type UpsertCredentialInput struct {
 }
 
 type CredentialRepository struct {
-	dbClient *infrastructure.Client
+	dbClient *postgres.Client
 }
 
-func NewCredentialRepository(dbClient *infrastructure.Client) *CredentialRepository {
+func NewCredentialRepository(dbClient *postgres.Client) *CredentialRepository {
 	return &CredentialRepository{dbClient: dbClient}
 }
 

@@ -1,4 +1,4 @@
-package infrastructure
+package postgres
 
 import (
 	"database/sql"
@@ -39,6 +39,7 @@ func NewClient(host, port, user, password, dbname string) (*Client, error) {
 	return nil, fmt.Errorf("failed to connect to PostgreSQL after retries: %w", err)
 }
 
+// Close safely closes the underlying database connection pool.
 func (c *Client) Close() {
 	if c != nil && c.DB != nil {
 		c.DB.Close()

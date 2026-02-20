@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"auth-service/internal/domain"
-	"auth-service/internal/infrastructure"
+	"auth-service/internal/infrastructure/postgres"
 	"auth-service/internal/txcontext"
 )
 
@@ -21,10 +21,10 @@ type CreateSetupTokenInput struct {
 }
 
 type SetupTokenRepository struct {
-	dbClient *infrastructure.Client
+	dbClient *postgres.Client
 }
 
-func NewSetupTokenRepository(dbClient *infrastructure.Client) *SetupTokenRepository {
+func NewSetupTokenRepository(dbClient *postgres.Client) *SetupTokenRepository {
 	return &SetupTokenRepository{dbClient: dbClient}
 }
 

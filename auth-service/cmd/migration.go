@@ -1,12 +1,12 @@
 package main
 
 import (
-	"auth-service/internal/infrastructure"
+	"auth-service/internal/infrastructure/postgres"
 )
 
 // runMigrations applies the auth DB schema idempotently.
 // It runs the DDL directly against the DB client to ensure tables exist on startup.
-func runMigrations(dbClient *infrastructure.Client) error {
+func runMigrations(dbClient *postgres.Client) error {
 	ddl := `
 		CREATE TABLE IF NOT EXISTS public.user_credentials (
 			user_id       TEXT        NOT NULL,
