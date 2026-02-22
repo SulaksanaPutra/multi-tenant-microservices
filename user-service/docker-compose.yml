@@ -13,6 +13,8 @@ services:
       DB_NAME: user_db
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       PORT: 8081
+      AUTH_JWT_PUBLIC_KEY_PEM: ${AUTH_JWT_PUBLIC_KEY_PEM}
+
     ports:
       - "${PORT:-8081}:${PORT:-8081}"
     networks:

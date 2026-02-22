@@ -1,3 +1,21 @@
+/*
+ * Test Specification: TC-E2E-001 & TC-E2E-007 - End-to-End Microservices Registration & Gateway Validation Flow
+ * Architectural Scope: Gateway (Traefik), user-service, tenant-service, auth-service, order-service, notification-service, RabbitMQ, Mailpit
+ * Objective: Validate full asynchronous control plane registration lifecycle, event broadcasting, Mailpit notification,
+ *            setup token credential provisioning, JWT authentication, and edge-case input validation rejection at the Gateway.
+ * Failure Mode Guarded: Unvalidated edge payload entry, asynchronous race conditions, token parsing errors, unauthenticated API access.
+ *
+ * Workflow / How It Works:
+ *   1. Bind ephemeral RabbitMQ listener queue to exchange company.events on routing key workspace.initiated.
+ *   2. Submit registration payload POST /api/register with realistic user/company data generated via gofakeit.
+ *   3. Assert HTTP 202 Accepted response containing valid tenant_id starting with 'tnt_'.
+ *   4. Query tenant_manager_db public.tenants table to confirm record insertion and owner email match.
+ *   5. Intercept WorkspaceInitiated event payload from RabbitMQ AMQP queue within timeout.
+ *   6. Query Mailpit REST API for welcome notification delivery and extract raw setup token via regex.
+ *   7. Perform password setup POST /auth/credentials/setup and obtain RS256 JWT access token.
+ *   8. Issue authenticated GET /api/orders request with Bearer JWT header and verify HTTP 200 OK response.
+ */
+
 package e2e_test
 
 import (
@@ -77,7 +95,13 @@ func generateFakeTenantData() (name, email, tenantName, tenantSlug, schemaName s
 }
 
 func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
-	// 1. Setup RabbitMQ listener on topic exchange "company.events" for "tenant.provisioned" events
+	t.Log("=== E2E Test: Full Control Plane & Microservices Registration Lifecycle ===")
+
+	// =========================================================================
+	// Step 1: Bind Ephemeral AMQP Listener Queue to Exchange
+	// Instruction: Create an exclusive queue bound to exchange company.events on routing key
+	//              workspace.initiated to intercept tenant control plane events.
+	// =========================================================================
 	rmqConn, err := amqp.Dial(rabbitmqURL)
 	if err != nil {
 		t.Fatalf("Failed to connect to RabbitMQ AMQP: %v", err)
@@ -126,13 +150,16 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 		t.Fatalf("Failed to consume from test queue: %v", err)
 	}
 
-	// 3. Generate realistic fake user & tenant data using gofakeit
+	// =========================================================================
+	// Step 2: Submit Registration Payload via Traefik Gateway
+	// Instruction: Generate realistic fake owner/tenant data and POST payload to /api/register.
+	// Architectural Invariant: Gateway responds with HTTP 202 Accepted and tenant_id (tnt_*).
+	// =========================================================================
 	testName, testEmail, testTenantName, testTenantSlug, _ := generateFakeTenantData()
 
 	t.Logf("Generated Fake Test Data ➔ Name: '%s', Email: '%s', Tenant: '%s', Slug: '%s'",
 		testName, testEmail, testTenantName, testTenantSlug)
 
-	// Register Tenant via Traefik Gateway (User Service - Step 5.2)
 	reqBody, _ := json.Marshal(RegisterRequest{
 		OwnerEmail: testEmail,
 		OwnerName:  testName,
@@ -161,7 +188,10 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 
 	t.Logf("2. [Tenant Service] Registration accepted via Gateway! tenant_id='%s'", regResp.Data.TenantID)
 
-	// 4. Verify PostgreSQL public.tenants record
+	// =========================================================================
+	// Step 3: Verify PostgreSQL Control Plane Persistence
+	// Instruction: Query tenant_manager_db public.tenants table for registered tenant_id.
+	// =========================================================================
 	db, err := sql.Open("postgres", postgresDSN)
 	if err != nil {
 		t.Fatalf("Failed to connect to PostgreSQL: %v", err)
@@ -181,7 +211,10 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 	t.Logf("3. [Tenant Service] Verified public.tenants (id='%s', owner_email='%s') record!",
 		regResp.Data.TenantID, dbOwnerEmail)
 
-	// 5. Verify RabbitMQ Management API for company.events exchange (Step 5.4)
+	// =========================================================================
+	// Step 4: Verify Message Broker Exchange Status
+	// Instruction: Query RabbitMQ Management REST API to verify company.events exchange existence.
+	// =========================================================================
 	rmqReq, _ := http.NewRequest("GET", rabbitmqAPI, nil)
 	rmqReq.SetBasicAuth("guest", "guest")
 	rmqResp, err := http.DefaultClient.Do(rmqReq)
@@ -191,7 +224,10 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 	rmqResp.Body.Close()
 	t.Logf("4. [RabbitMQ Broker] Verified 'company.events' exchange in RabbitMQ Management UI API!")
 
-	// 6. Verify RabbitMQ "WorkspaceInitiated" event emitted by tenant-service
+	// =========================================================================
+	// Step 5: Intercept WorkspaceInitiated Event Payload
+	// Instruction: Read message from ephemeral AMQP listener channel within 15s timeout.
+	// =========================================================================
 	select {
 	case d := <-msgs:
 		var event WorkspaceInitiatedEvent
@@ -213,7 +249,11 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 		t.Fatalf("Timed out waiting for WorkspaceInitiated RabbitMQ event")
 	}
 
-	// 7. Verify tenant record created in tenant_manager_db.public.tenants
+	// =========================================================================
+	// Step 6: Verify Database Status & Mailpit Welcome Notification
+	// Instruction: Confirm tenant status in database, poll Mailpit API for welcome email,
+	//              extract raw setup token, setup password, and issue authenticated orders request.
+	// =========================================================================
 	var tenantStatus string
 	err = db.QueryRow("SELECT status FROM public.tenants WHERE id = $1", regResp.Data.TenantID).Scan(&tenantStatus)
 	if err != nil {
@@ -222,7 +262,6 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 
 	t.Logf("6. [Tenant Service] Verified tenant_id='%s' record in public.tenants (status='%s')!", regResp.Data.TenantID, tenantStatus)
 
-	// 8. Verify Welcome Email in Mailpit, extract setup token, and setup password
 	var mailpitFound bool
 	var messageID string
 
@@ -329,9 +368,11 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 	}
 }
 
+// TestTenantRegistration_ValidationError tests TC-E2E-007 Gateway validation rejection.
+// Instruction: Submit POST /api/register request with malformed owner_email format and assert HTTP 400 Bad Request.
 func TestTenantRegistration_ValidationError(t *testing.T) {
 	reqBody, _ := json.Marshal(RegisterRequest{
-		OwnerEmail: "invalid-email-format", // Invalid email format should fail validation
+		OwnerEmail: "invalid-email-format",
 		OwnerName:  gofakeit.Name(),
 		Plan:       "shared",
 		TenantName: gofakeit.Company(),
@@ -350,6 +391,8 @@ func TestTenantRegistration_ValidationError(t *testing.T) {
 	t.Logf("Verified HTTP 400 Bad Request returned for invalid owner_email")
 }
 
+// TestNotificationAPI_E2E tests unauthenticated API rejection.
+// Instruction: Issue GET /api/notifications without Authorization header and assert HTTP 401 Unauthorized.
 func TestNotificationAPI_E2E(t *testing.T) {
 	req, _ := http.NewRequest("GET", "http://localhost:8000/api/notifications", nil)
 	resp, err := http.DefaultClient.Do(req)

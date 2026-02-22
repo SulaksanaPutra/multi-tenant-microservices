@@ -1,3 +1,18 @@
+/*
+ * Test Specification: TC-E2E-004 - Fanout Exchange Broadcast & Cache Invalidation
+ * Architectural Scope: RabbitMQ Fanout Exchange (company.events), order-service (PoolRegistry, TenantDBResolver)
+ * Objective: Validate multi-instance in-memory cache eviction (PoolRegistry DSN routing metadata) across all
+ *            service replicas when a tenant infrastructure migration or failover event is broadcast.
+ * Failure Mode Guarded: Stale database connection pool routing following tenant database migration or scaling.
+ *
+ * Workflow / How It Works:
+ *   1. Establish AMQP channel with RabbitMQ broker.
+ *   2. Register a new tenant, authenticate via JWT, and issue POST /api/orders to warm order-service connection pool cache.
+ *   3. Broadcast synthetic AMQP event tenant.infrastructure_changed over company.events exchange.
+ *   4. Wait 1 second for fanout consumer queues across all order-service replicas to consume the message and purge PoolRegistry.
+ *   5. Issue follow-up GET /api/orders request and verify order-service re-resolves DSN and succeeds with HTTP 200 OK.
+ */
+
 package e2e_test
 
 import (
@@ -15,7 +30,10 @@ import (
 func TestE2E_InfrastructureFanout_BroadcastPurge(t *testing.T) {
 	t.Log("=== E2E Test: Infrastructure Changed Fanout Exchange Broadcast Purge (Docs Case #13 & #14) ===")
 
-	// 1. Connect to RabbitMQ
+	// =========================================================================
+	// Step 1: Establish RabbitMQ AMQP Connection
+	// Instruction: Dial RabbitMQ broker and open dedicated channel for broadcasting events.
+	// =========================================================================
 	rmqConn, err := amqp.Dial(rabbitmqDSN)
 	if err != nil {
 		t.Fatalf("Failed to connect to RabbitMQ: %v", err)
@@ -28,7 +46,11 @@ func TestE2E_InfrastructureFanout_BroadcastPurge(t *testing.T) {
 	}
 	defer ch.Close()
 
-	// 2. Register a tenant and place an order to populate order-service PoolRegistry cache
+	// =========================================================================
+	// Step 2: Register Shared Tenant & Warm Connection Pool Cache
+	// Instruction: Register tenant, await activation, authenticate, and issue initial order creation request
+	//              to populate order-service in-memory PoolRegistry connection cache.
+	// =========================================================================
 	ownerName, ownerEmail, tenantName, _ := generateFakeData("shared")
 	reqBody, _ := json.Marshal(RegisterReq{
 		OwnerEmail: ownerEmail,
@@ -47,7 +69,7 @@ func TestE2E_InfrastructureFanout_BroadcastPurge(t *testing.T) {
 	_ = json.NewDecoder(resp.Body).Decode(&regResp)
 	tenantID := regResp.Data.TenantID
 
-	// Wait for tenant activation
+	// Wait for tenant activation in database
 	db, err := sql.Open("postgres", tenantDBDSN)
 	if err != nil {
 		t.Fatalf("Failed to connect to tenant_manager_db: %v", err)
@@ -68,14 +90,12 @@ func TestE2E_InfrastructureFanout_BroadcastPurge(t *testing.T) {
 		t.Fatalf("Tenant %s failed to reach 'active' status. Final status: '%s'", tenantID, tenantStatus)
 	}
 
-	// Add auth: set credentials and login
-	// TEMPORARY: setCredentials uses Stage 1 scaffolding endpoint.
 	userID := regResp.Data.UserID
 	const e2ePassword = "e2e-test-password-123"
 	setCredentials(t, userID, tenantID, ownerEmail, e2ePassword)
 	accessToken := loginAndGetToken(t, ownerEmail, e2ePassword)
 
-	// Place order to populate cache
+	// Issue order to warm PoolRegistry connection cache
 	orderBody, _ := json.Marshal(OrderReq{CustomerID: "cust_fanout", Amount: 99.00})
 	orderReq, _ := http.NewRequest("POST", gatewayOrdersURL, bytes.NewBuffer(orderBody))
 	orderReq.Header.Set("Content-Type", "application/json")
@@ -86,7 +106,12 @@ func TestE2E_InfrastructureFanout_BroadcastPurge(t *testing.T) {
 		oResp.Body.Close()
 	}
 
-	// 3. Broadcast tenant.infrastructure_changed event over company.events exchange
+	// =========================================================================
+	// Step 3: Broadcast Infrastructure Changed Event Over Fanout Exchange
+	// Instruction: Publish tenant.infrastructure_changed AMQP event to company.events exchange.
+	// Architectural Invariant: Event fanout broadcasts to exclusive, auto-delete queues bound by
+	//                          all running order-service instances to purge connection cache.
+	// =========================================================================
 	fanoutEvt, _ := json.Marshal(map[string]any{
 		"tenant_id": tenantID,
 		"reason":    "plan_upgrade_or_failover",
@@ -109,7 +134,12 @@ func TestE2E_InfrastructureFanout_BroadcastPurge(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
-	// 4. Send follow-up request to verify order-service handles cache purge & re-fetches cleanly
+	// =========================================================================
+	// Step 4: Verify Connection Cache Purge & Re-Resolution
+	// Instruction: Issue follow-up GET /api/orders request with authorization header.
+	// Architectural Invariant: Order service detects purged cache, re-queries tenant_manager_db DSN,
+	//                          re-establishes pool, and succeeds with HTTP 200 OK.
+	// =========================================================================
 	followUpReq, _ := http.NewRequest("GET", gatewayOrdersURL, nil)
 	followUpReq.Header.Set("Authorization", bearerHeader(accessToken))
 

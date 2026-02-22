@@ -1,3 +1,18 @@
+/*
+ * Test Specification: TC-E2E-010 - Cache Stampede Prevention via Singleflight Request Coalescing
+ * Architectural Scope: order-service (TenantDBResolver, singleflight.Group, PoolRegistry)
+ * Objective: Validate that singleflight request coalescing prevents database connection pool cache stampedes
+ *            when multiple concurrent requests hit an unheated or evicted connection pool cache.
+ * Failure Mode Guarded: Database connection pool exhaustion, elevated latency spikes, and cascading HTTP 500/504 errors.
+ *
+ * Workflow / How It Works:
+ *   1. Register a new shared-plan tenant via Gateway POST /api/register and await activation in tenant_manager_db.
+ *   2. Provision credentials via setup-token flow and login to acquire valid JWT bearer credentials.
+ *   3. Launch 50 concurrent HTTP requests (GET /api/orders) simultaneously against order-service with empty cache.
+ *   4. Verify that singleflight barrier coalesces all 50 concurrent routing/connection attempts into a single operation.
+ *   5. Assert 100% HTTP 200 OK success rate across all 50 concurrent goroutines.
+ */
+
 package e2e_test
 
 import (
@@ -15,7 +30,12 @@ import (
 func TestE2E_CacheStampede_SingleflightCoalescing(t *testing.T) {
 	t.Log("=== E2E Test: Singleflight Request Coalescing & Cache Stampede Prevention (TC-E2E-010 / Docs Case #11) ===")
 
-	// 1. Register a new tenant
+	// =========================================================================
+	// Step 1: Provision Shared Tenant & Await Asynchronous Activation
+	// Instruction: Register a new shared-plan tenant via Gateway and poll tenant_manager_db
+	//              until status transitions to 'active'.
+	// Architectural Invariant: Connection cache in order-service remains cold (uninitialized).
+	// =========================================================================
 	ownerName, ownerEmail, tenantName, _ := generateFakeData("shared")
 	reqBody, _ := json.Marshal(RegisterReq{
 		OwnerEmail: ownerEmail,
@@ -24,7 +44,7 @@ func TestE2E_CacheStampede_SingleflightCoalescing(t *testing.T) {
 		TenantName: tenantName,
 	})
 
-	resp, err := http.Post(gatewayRegisterURL, "application/json", bytes.NewBuffer(reqBody))
+	resp, err := defaultHTTPClient.Post(gatewayRegisterURL, "application/json", bytes.NewBuffer(reqBody))
 	if err != nil || resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("Failed to register tenant for singleflight test: %v", err)
 	}
@@ -34,7 +54,6 @@ func TestE2E_CacheStampede_SingleflightCoalescing(t *testing.T) {
 	_ = json.NewDecoder(resp.Body).Decode(&regResp)
 	tenantID := regResp.Data.TenantID
 
-	// 2. Wait for tenant activation (when order-service cache is empty)
 	db, err := sql.Open("postgres", tenantDBDSN)
 	if err != nil {
 		t.Fatalf("Failed to connect to tenant_manager_db: %v", err)
@@ -56,14 +75,23 @@ func TestE2E_CacheStampede_SingleflightCoalescing(t *testing.T) {
 	}
 	t.Logf("1. Tenant tenant_id='%s' activated! Cold cache ready for stampede test.", tenantID)
 
-	// Add auth: set credentials and login
-	// TEMPORARY: setCredentials uses Stage 1 scaffolding endpoint.
+	// =========================================================================
+	// Step 2: Authenticate User & Obtain Access Token
+	// Instruction: Provision user credentials via setCredentials and perform login
+	//              to retrieve a valid RS256 JWT access token.
+	// =========================================================================
 	userID := regResp.Data.UserID
 	const e2ePassword = "e2e-test-password-123"
 	setCredentials(t, userID, tenantID, ownerEmail, e2ePassword)
 	accessToken := loginAndGetToken(t, ownerEmail, e2ePassword)
 
-	// 3. Fire 50 concurrent HTTP requests simultaneously to hit empty cache
+	// =========================================================================
+	// Step 3: Launch High-Concurrency Fanout (50 Goroutines)
+	// Instruction: Spawn 50 concurrent HTTP GET /api/orders requests simultaneously
+	//              to target the unheated connection pool.
+	// Architectural Invariant: Order service singleflight group must intercept and coalesce
+	//                          all 50 concurrent callers into a single routing/DSN resolution call.
+	// =========================================================================
 	const concurrentReqs = 50
 	var wg sync.WaitGroup
 	wg.Add(concurrentReqs)
@@ -77,7 +105,7 @@ func TestE2E_CacheStampede_SingleflightCoalescing(t *testing.T) {
 			req, _ := http.NewRequest("GET", gatewayOrdersURL, nil)
 			req.Header.Set("Authorization", bearerHeader(accessToken))
 
-			r, err := http.DefaultClient.Do(req)
+			r, err := defaultHTTPClient.Do(req)
 			if err == nil && r.StatusCode == http.StatusOK {
 				successChan <- true
 				r.Body.Close()
@@ -93,6 +121,11 @@ func TestE2E_CacheStampede_SingleflightCoalescing(t *testing.T) {
 	wg.Wait()
 	close(successChan)
 
+	// =========================================================================
+	// Step 4: Validate Concurrency Barrier & 100% Success Rate
+	// Instruction: Aggregate response results from successChan and assert that every single
+	//              request succeeded with HTTP 200 OK.
+	// =========================================================================
 	successCount := 0
 	for res := range successChan {
 		if res {

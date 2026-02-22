@@ -18,5 +18,7 @@ repomix-output.txt
 *.test
 *.prof
 
+*.pem
+
 # Logs
 *.log

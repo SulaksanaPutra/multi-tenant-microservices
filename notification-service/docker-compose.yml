@@ -16,6 +16,8 @@ services:
       SMTP_PORT: 1025
       SMTP_FROM: no-reply@company.com
       PORT: 8083
+      AUTH_JWT_PUBLIC_KEY_PEM: ${AUTH_JWT_PUBLIC_KEY_PEM}
+
     ports:
       - "${PORT:-8083}:${PORT:-8083}"
     labels:
