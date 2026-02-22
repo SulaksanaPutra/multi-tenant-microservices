@@ -555,5 +555,6 @@ microservice-api/
 (cd order-service && docker compose down) && \
 (cd user-service && docker compose down) && \
 (cd tenant-service && docker compose down) && \
+(cd auth-service && docker compose down) && \
 (cd infrastructure && docker compose down)
 ```

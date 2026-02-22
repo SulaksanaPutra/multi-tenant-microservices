@@ -1,3 +1,22 @@
+/*
+ * Test Specification: TC-E2E-001 - Shared Plan Multi-Tenant Registration & Order Lifecycle
+ * Architectural Scope: user-service, tenant-service, auth-service, infra-provisioner, order-service, notification-service
+ * Objective: Validate full asynchronous control plane registration workflow, schema-per-tenant isolation (tenant_<slug>_order_db),
+ *            Mailpit notification delivery, setup token credential provisioning, JWT authentication, and isolated order operations.
+ * Failure Mode Guarded: Cross-tenant data leakage, unauthenticated order writes, asynchronous provisioning race conditions.
+ *
+ * Workflow / How It Works:
+ *   1. Bind an ephemeral AMQP listener queue on company.events exchange for workspace.initiated routing key.
+ *   2. Issue HTTP POST /api/register with plan="shared" and assert HTTP 202 Accepted with tenant_id (tnt_*).
+ *   3. Intercept workspace.initiated event on AMQP listener channel.
+ *   4. Poll tenant_manager_db public.tenants until status reaches 'active'.
+ *   5. Query Mailpit REST API to verify welcome email delivery.
+ *   6. Provision user password credentials and authenticate via POST /auth/login to obtain RS256 JWT access token.
+ *   7. Issue GET /api/notifications with Bearer token header and assert HTTP 200 OK.
+ *   8. Create an order via POST /api/orders targeting shared schema-per-tenant DB and assert HTTP 201 Created.
+ *   9. Retrieve orders via GET /api/orders and assert schema isolation.
+ */
+
 package e2e_test
 
 import (
@@ -94,7 +113,10 @@ func generateFakeData(plan string) (name, email, tenantName, slug string) {
 func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 	t.Log("=== E2E Test: Shared Plan Registration, Activation, Notifications & Order Management ===")
 
-	// 1. Setup RabbitMQ listener on topic exchange "company.events" for "workspace.initiated"
+	// =========================================================================
+	// Step 1: Bind Ephemeral AMQP Listener Queue
+	// Instruction: Create queue bound to exchange company.events on key workspace.initiated.
+	// =========================================================================
 	rmqConn, err := amqp.Dial(rabbitmqDSN)
 	if err != nil {
 		t.Fatalf("Failed to connect to RabbitMQ: %v", err)
@@ -120,7 +142,10 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 		t.Fatalf("Failed to consume from queue: %v", err)
 	}
 
-	// 2. Submit Registration for Shared Plan
+	// =========================================================================
+	// Step 2: Submit Shared Plan Registration Request
+	// Instruction: POST payload to Gateway /api/register and assert HTTP 202 Accepted.
+	// =========================================================================
 	ownerName, ownerEmail, tenantName, _ := generateFakeData("shared")
 	t.Logf("1. Submitting Registration: owner='%s', email='%s', tenant='%s', plan='shared'", ownerName, ownerEmail, tenantName)
 
@@ -131,7 +156,7 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 		TenantName: tenantName,
 	})
 
-	resp, err := http.Post(gatewayRegisterURL, "application/json", bytes.NewBuffer(reqBody))
+	resp, err := defaultHTTPClient.Post(gatewayRegisterURL, "application/json", bytes.NewBuffer(reqBody))
 	if err != nil {
 		t.Fatalf("HTTP POST /api/register failed: %v", err)
 	}
@@ -151,7 +176,10 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 	}
 	t.Logf("2. Tenant registration accepted! tenant_id='%s'", tenantID)
 
-	// 3. Verify workspace.initiated event on RabbitMQ
+	// =========================================================================
+	// Step 3: Intercept AMQP Event Payload
+	// Instruction: Read workspace.initiated event message from RabbitMQ queue within timeout.
+	// =========================================================================
 	select {
 	case d := <-msgs:
 		var event map[string]any
@@ -164,7 +192,10 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 		t.Fatalf("Timed out waiting for workspace.initiated event")
 	}
 
-	// 4. Poll database for Tenant Status = ACTIVE
+	// =========================================================================
+	// Step 4: Poll Database for Active Status
+	// Instruction: Query tenant_manager_db public.tenants table until status='active'.
+	// =========================================================================
 	db, err := sql.Open("postgres", tenantDBDSN)
 	if err != nil {
 		t.Fatalf("Failed to connect to tenant_manager_db: %v", err)
@@ -186,10 +217,13 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 	}
 	t.Logf("4. Verified tenant_id='%s' status reached 'active' in tenant_manager_db!", tenantID)
 
-	// 5. Verify Welcome Email in Mailpit
+	// =========================================================================
+	// Step 5: Verify Welcome Email in Mailpit
+	// Instruction: Query Mailpit REST API to verify notification delivery.
+	// =========================================================================
 	var emailReceived bool
 	for i := 0; i < 15; i++ {
-		mResp, err := http.Get(mailpitAPIURL)
+		mResp, err := defaultHTTPClient.Get(mailpitAPIURL)
 		if err == nil && mResp.StatusCode == http.StatusOK {
 			body, _ := io.ReadAll(mResp.Body)
 			mResp.Body.Close()
@@ -220,25 +254,29 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 		t.Logf("5. Verified welcome email delivered to Mailpit for %s!", ownerEmail)
 	}
 
-	// 6. Set credentials and login to obtain a JWT access token.
-	// TEMPORARY: setCredentials uses the Stage 1 scaffolding endpoint.
-	// Replace with email-invite flow in the OAuth 2.0 stage.
+	// =========================================================================
+	// Step 6: Authenticate User & Test Notifications API
+	// Instruction: Provision credentials, authenticate via JWT, and verify GET /api/notifications.
+	// =========================================================================
 	userID := regResp.Data.UserID
 	const e2ePassword = "e2e-test-password-123"
 	setCredentials(t, userID, tenantID, ownerEmail, e2ePassword)
 	accessToken := loginAndGetToken(t, ownerEmail, e2ePassword)
 
-	// 6b. Check Notifications API via Gateway using JWT Bearer token
 	nReq, _ := http.NewRequest("GET", gatewayNotifsURL, nil)
 	nReq.Header.Set("Authorization", bearerHeader(accessToken))
-	nResp, err := http.DefaultClient.Do(nReq)
+	nResp, err := defaultHTTPClient.Do(nReq)
 	if err != nil || nResp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /api/notifications failed or returned status %v", nResp)
 	}
 	nResp.Body.Close()
 	t.Logf("6. Verified GET /api/notifications API returning 200 OK (JWT Bearer auth)")
 
-	// 7. Create Order via Gateway on Shared Tenant DB
+	// =========================================================================
+	// Step 7: Create & Query Order on Shared Schema Database
+	// Instruction: Create an order via POST /api/orders and fetch orders via GET /api/orders.
+	// Architectural Invariant: Order service creates schema tenant_<slug>_order_db dynamically.
+	// =========================================================================
 	custID := gofakeit.UUID()
 	orderBody, _ := json.Marshal(OrderReq{
 		CustomerID: custID,
@@ -249,7 +287,7 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 	orderReq.Header.Set("Content-Type", "application/json")
 	orderReq.Header.Set("Authorization", bearerHeader(accessToken))
 
-	oResp, err := http.DefaultClient.Do(orderReq)
+	oResp, err := defaultHTTPClient.Do(orderReq)
 	if err != nil {
 		t.Fatalf("POST /api/orders failed: %v", err)
 	}
@@ -267,11 +305,10 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 	orderID := createOrderResp.Data.ID
 	t.Logf("7. Successfully created order id='%s' for shared tenant_id='%s'", orderID, tenantID)
 
-	// 8. Fetch Orders via Gateway on Shared Tenant DB
 	getOrdersReq, _ := http.NewRequest("GET", gatewayOrdersURL, nil)
 	getOrdersReq.Header.Set("Authorization", bearerHeader(accessToken))
 
-	getResp, err := http.DefaultClient.Do(getOrdersReq)
+	getResp, err := defaultHTTPClient.Do(getOrdersReq)
 	if err != nil || getResp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /api/orders failed or returned non-200 status: %v", getResp)
 	}

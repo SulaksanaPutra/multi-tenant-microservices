@@ -1,3 +1,18 @@
+/*
+ * Test Specification: TC-E2E-009 - Outbox Broadcaster Retry Survival During Broker Outage
+ * Architectural Scope: Outbox Repository (public.outbox), Outbox Worker, RabbitMQ AMQP connection manager
+ * Objective: Validate At-Least-Once event delivery guarantees and background outbox worker retry resilience
+ *            when the RabbitMQ message broker undergoes a temporary outage during event publication.
+ * Failure Mode Guarded: Transactional event loss during broker downtime, crashing background workers.
+ *
+ * Workflow / How It Works:
+ *   1. Stop RabbitMQ container via system Docker CLI to simulate a broker outage.
+ *   2. Submit registration request via Gateway POST /api/register.
+ *   3. Connect to database and verify outbox record is safely persisted in public.outbox (status='PENDING').
+ *   4. Restart RabbitMQ container and wait for broker TCP/AMQP readiness.
+ *   5. Trigger outbox dead-letter sweeper and poll tenant_manager_db until tenant reaches 'active' status.
+ */
+
 package e2e_test
 
 import (
@@ -16,19 +31,28 @@ import (
 func TestE2E_OutboxBrokerOutage_RetryAndRecovery(t *testing.T) {
 	t.Log("=== E2E Test: Outbox Broadcaster Retry Survival During Broker Outage (TC-E2E-009 / Docs Case #1) ===")
 
-	// Ensure RabbitMQ container is restarted after test completes
+	// Teardown fixture ensuring RabbitMQ container is always restarted even on test failure
 	defer func() {
 		_ = exec.Command("docker", "start", "rabbitmq").Run()
 	}()
 
-	// 1. Stop RabbitMQ container before registration outbox worker can publish
+	// =========================================================================
+	// Step 1: Simulate Message Broker Outage (Stop RabbitMQ)
+	// Instruction: Stop rabbitmq container via docker CLI before registration outbox worker publishes.
+	// Architectural Invariant: Gateway database transaction commits registration and outbox row atomically.
+	// =========================================================================
 	t.Log("1. Stopping RabbitMQ container to simulate broker downtime...")
 	cmd := exec.Command("docker", "stop", "rabbitmq")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("Failed to stop RabbitMQ container: %v (%s)", err, string(out))
 	}
 
-	// 2. Submit Registration via Gateway while RabbitMQ is dead
+	// =========================================================================
+	// Step 2: Submit Registration Request During Broker Outage
+	// Instruction: Submit POST /api/register request while RabbitMQ broker is offline.
+	// Architectural Invariant: HTTP endpoint succeeds with HTTP 202 Accepted because outbox pattern
+	//                          decouples HTTP write from AMQP event publication.
+	// =========================================================================
 	ownerName, ownerEmail, tenantName, _ := generateFakeData("shared")
 	t.Logf("2. Submitting Registration during broker outage: owner='%s', email='%s'", ownerName, ownerEmail)
 
@@ -49,7 +73,11 @@ func TestE2E_OutboxBrokerOutage_RetryAndRecovery(t *testing.T) {
 	_ = json.NewDecoder(resp.Body).Decode(&regResp)
 	tenantID := regResp.Data.TenantID
 
-	// 3. Connect to database and verify outbox table contains pending record
+	// =========================================================================
+	// Step 3: Verify Outbox Table Event Persistence
+	// Instruction: Query tenant_manager_db public.outbox table to confirm event is pending.
+	// Architectural Invariant: Outbox row status must be PENDING or PROCESSING.
+	// =========================================================================
 	db, err := sql.Open("postgres", tenantDBDSN)
 	if err != nil {
 		t.Fatalf("Failed to connect to tenant_manager_db: %v", err)
@@ -63,16 +91,18 @@ func TestE2E_OutboxBrokerOutage_RetryAndRecovery(t *testing.T) {
 	}
 	t.Logf("3. Verified outbox record safely stored in database (pending count=%d)", outboxCount)
 
-	time.Sleep(3 * time.Second) // Give outbox worker time to log retry attempts while broker is dead
+	time.Sleep(3 * time.Second) // Allow outbox worker to record retry attempts during outage
 
-	// 4. Restart RabbitMQ container
+	// =========================================================================
+	// Step 4: Restore RabbitMQ Broker & Await Network Readiness
+	// Instruction: Restart rabbitmq container and poll AMQP TCP port until active.
+	// =========================================================================
 	t.Log("4. Restarting RabbitMQ container...")
 	startCmd := exec.Command("docker", "start", "rabbitmq")
 	if out, err := startCmd.CombinedOutput(); err != nil {
 		t.Fatalf("Failed to restart RabbitMQ container: %v (%s)", err, string(out))
 	}
 
-	// Wait for RabbitMQ broker to accept connections
 	t.Log("Waiting for RabbitMQ broker to accept connections...")
 	for i := 0; i < 15; i++ {
 		conn, err := amqp.Dial(rabbitmqDSN)
@@ -84,10 +114,14 @@ func TestE2E_OutboxBrokerOutage_RetryAndRecovery(t *testing.T) {
 		time.Sleep(1 * time.Second)
 	}
 
-	// 5. Outbox Dead-Letter Recovery Sweeper: Reset any failed outbox row to PENDING
+	// =========================================================================
+	// Step 5: Trigger Recovery Sweeper & Verify Eventual Tenant Activation
+	// Instruction: Reset status to PENDING for failed rows and poll public.tenants until status='active'.
+	// Architectural Invariant: Outbox worker retries publication; downstream services consume event
+	//                          and tenant reaches 'active' status without data loss.
+	// =========================================================================
 	_, _ = db.Exec("UPDATE public.outbox SET status = 'PENDING', next_retry_at = NOW(), retry_count = 0 WHERE tenant_id = $1 AND status = 'FAILED'", tenantID)
 
-	// 5. Poll database for Tenant Status = ACTIVE (verifying outbox worker retried and published event)
 	var tenantStatus string
 	activated := false
 	for i := 0; i < 70; i++ {

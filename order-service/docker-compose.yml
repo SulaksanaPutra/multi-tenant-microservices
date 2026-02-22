@@ -16,6 +16,8 @@ services:
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       TENANT_SERVICE_URL: http://tenant-service:8082
       PORT: 8084
+      AUTH_JWT_PUBLIC_KEY_PEM: ${AUTH_JWT_PUBLIC_KEY_PEM}
+
     ports:
       - "${PORT:-8084}:${PORT:-8084}"
     labels:

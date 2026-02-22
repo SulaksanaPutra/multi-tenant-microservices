@@ -1,3 +1,19 @@
+/*
+ * Test Specification: TC-E2E-003 - Inbox Deduplication & Idempotent Processing Barrier Safety
+ * Architectural Scope: InboxRepository (public.inbox), AMQP Consumers (notification-service, order-service)
+ * Objective: Validate at-least-once message delivery idempotency, ensuring duplicate AMQP messages with identical
+ *            event IDs are safely trapped by the database inbox constraint without causing duplicate processing side-effects.
+ * Failure Mode Guarded: Duplicate event processing, double notification sending, transaction abortion under duplicate AMQP deliveries.
+ *
+ * Workflow / How It Works:
+ *   1. Establish connection to RabbitMQ broker and open AMQP channel.
+ *   2. Register a new tenant to acquire a valid tenant_id and wait for activation in tenant_manager_db.
+ *   3. Construct synthetic AMQP payload for event tenant.order_db.ready with explicit event_id='evt_duplicate_test_<tenantID>'.
+ *   4. Publish initial AMQP message to exchange 'company.events'.
+ *   5. Immediately publish a second AMQP message with the exact same event_id payload.
+ *   6. Query public.inbox table and assert that total matching rows equal exactly 1 (COUNT(*) <= 1).
+ */
+
 package e2e_test
 
 import (
@@ -15,7 +31,10 @@ import (
 func TestE2E_InboxDeduplication_BarrierSafety(t *testing.T) {
 	t.Log("=== E2E Test: Inbox Deduplication Barrier & Idempotent Processing (Docs Case #2) ===")
 
-	// 1. Connect to RabbitMQ to publish synthetic duplicate event
+	// =========================================================================
+	// Step 1: Connect to RabbitMQ Message Broker
+	// Instruction: Establish AMQP connection and open channel to publish synthetic events.
+	// =========================================================================
 	rmqConn, err := amqp.Dial(rabbitmqDSN)
 	if err != nil {
 		t.Fatalf("Failed to connect to RabbitMQ: %v", err)
@@ -28,7 +47,11 @@ func TestE2E_InboxDeduplication_BarrierSafety(t *testing.T) {
 	}
 	defer ch.Close()
 
-	// 2. Register a tenant to get a valid tenant_id
+	// =========================================================================
+	// Step 2: Register Shared Tenant & Await Activation
+	// Instruction: Register tenant via Gateway POST /api/register and poll tenant_manager_db
+	//              until status transitions to 'active'.
+	// =========================================================================
 	ownerName, ownerEmail, tenantName, _ := generateFakeData("shared")
 	reqBody, _ := json.Marshal(RegisterReq{
 		OwnerEmail: ownerEmail,
@@ -47,14 +70,12 @@ func TestE2E_InboxDeduplication_BarrierSafety(t *testing.T) {
 	_ = json.NewDecoder(resp.Body).Decode(&regResp)
 	tenantID := regResp.Data.TenantID
 
-	// 3. Connect to database to verify inbox entries
 	db, err := sql.Open("postgres", tenantDBDSN)
 	if err != nil {
 		t.Fatalf("Failed to connect to tenant_manager_db: %v", err)
 	}
 	defer db.Close()
 
-	// Wait for tenant activation
 	for i := 0; i < 20; i++ {
 		var status string
 		_ = db.QueryRow("SELECT status FROM public.tenants WHERE id = $1", tenantID).Scan(&status)
@@ -64,7 +85,12 @@ func TestE2E_InboxDeduplication_BarrierSafety(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	// 4. Publish a synthetic duplicate tenant.order_db.ready event to company.events exchange
+	// =========================================================================
+	// Step 3: Publish Synthetic Duplicate AMQP Events
+	// Instruction: Publish two consecutive AMQP messages to company.events exchange with
+	//              the exact same event_id payload (evt_duplicate_test_<tenantID>).
+	// Architectural Invariant: Consumer inbox repository uses ON CONFLICT (event_id) DO NOTHING.
+	// =========================================================================
 	dupEventID := "evt_duplicate_test_" + tenantID
 	dupPayload, _ := json.Marshal(map[string]any{
 		"event_id":     dupEventID,
@@ -93,7 +119,7 @@ func TestE2E_InboxDeduplication_BarrierSafety(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
-	// Publish second event with EXACT same event_id
+	// Publish duplicate event with exact same event_id
 	err = ch.Publish(
 		"company.events",
 		"tenant.order_db.ready",
@@ -109,7 +135,10 @@ func TestE2E_InboxDeduplication_BarrierSafety(t *testing.T) {
 
 	time.Sleep(1500 * time.Millisecond)
 
-	// 5. Verify inbox table traps dupEventID exactly ONCE
+	// =========================================================================
+	// Step 4: Verify Database Inbox Idempotency Barrier
+	// Instruction: Query public.inbox for matching event_id and assert count equals 1.
+	// =========================================================================
 	var count int
 	err = db.QueryRow("SELECT COUNT(*) FROM public.inbox WHERE event_id = $1", dupEventID).Scan(&count)
 	if err != nil {
