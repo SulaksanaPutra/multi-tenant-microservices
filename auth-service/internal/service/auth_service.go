@@ -37,6 +37,16 @@ type SetupTokenRepository interface {
 	MarkTokenUsed(ctx context.Context, tokenHash string) error
 }
 
+// UserPermissionProvider is the consumer-side interface for loading permission claims into JWTs.
+type UserPermissionProvider interface {
+	FindUserPermissions(ctx context.Context, userID, tenantID string) ([]string, int64, error)
+}
+
+// RoleSeeder is the consumer-side interface for seeding default roles and admin role assignments for new tenants.
+type RoleSeeder interface {
+	SeedDefaultRolesForTenant(ctx context.Context, tenantID string, adminUserID string) error
+}
+
 type CreateSetupTokenInput struct {
 	UserID   string
 	TenantID string
@@ -72,6 +82,8 @@ type AuthService struct {
 	tokenRepository      TokenRepository
 	setupTokenRepository SetupTokenRepository
 	jwtManager           *crypto.JWTManager
+	permProvider         UserPermissionProvider
+	roleSeeder           RoleSeeder
 }
 
 func NewAuthService(
@@ -79,12 +91,20 @@ func NewAuthService(
 	tokenRepository TokenRepository,
 	setupTokenRepository SetupTokenRepository,
 	jwtManager *crypto.JWTManager,
+	permProvider UserPermissionProvider,
+	roleSeeder ...RoleSeeder,
 ) *AuthService {
+	var seeder RoleSeeder
+	if len(roleSeeder) > 0 {
+		seeder = roleSeeder[0]
+	}
 	return &AuthService{
 		credentialRepository: credentialRepository,
 		tokenRepository:      tokenRepository,
 		setupTokenRepository: setupTokenRepository,
 		jwtManager:           jwtManager,
+		permProvider:         permProvider,
+		roleSeeder:           seeder,
 	}
 }
 
@@ -180,6 +200,13 @@ func (s *AuthService) CreatePasswordSetupToken(ctx context.Context, input Create
 	}
 
 	log.Printf("AuthService: Created password setup token for user_id='%s' email='%s'", input.UserID, input.Email)
+
+	if s.roleSeeder != nil && input.TenantID != "" {
+		if err := s.roleSeeder.SeedDefaultRolesForTenant(ctx, input.TenantID, input.UserID); err != nil {
+			log.Printf("AuthService: Warning — failed to seed default roles for tenant_id='%s': %v", input.TenantID, err)
+		}
+	}
+
 	return rawToken, nil
 }
 
@@ -233,8 +260,21 @@ func (s *AuthService) SetupPassword(ctx context.Context, input SetupPasswordInpu
 }
 
 func (s *AuthService) issuePair(ctx context.Context, cred *domain.Credential) (*TokenPair, error) {
+	var permissions []string
+	var permVersion int64 = 1
+
+	if s.permProvider != nil && cred.UserID != "" && cred.TenantID != "" {
+		perms, ver, err := s.permProvider.FindUserPermissions(ctx, cred.UserID, cred.TenantID)
+		if err == nil {
+			permissions = perms
+			permVersion = ver
+		} else {
+			log.Printf("AuthService: Warning — failed to fetch user permissions for user_id='%s': %v", cred.UserID, err)
+		}
+	}
+
 	jti := uuid.New().String()
-	accessToken, err := s.jwtManager.SignAccessToken(cred.UserID, cred.TenantID, cred.Email, jti)
+	accessToken, err := s.jwtManager.SignAccessToken(cred.UserID, cred.TenantID, cred.Email, jti, permissions, permVersion)
 	if err != nil {
 		return nil, fmt.Errorf("auth service: failed to sign access token: %w", err)
 	}

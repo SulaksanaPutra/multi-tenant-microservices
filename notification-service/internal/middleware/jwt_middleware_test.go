@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -107,6 +108,72 @@ func TestRequireJWT(t *testing.T) {
 		}
 		if capturedUserID != "usr_notif456" {
 			t.Errorf("expected userID 'usr_notif456', got '%s'", capturedUserID)
+		}
+	})
+}
+
+func TestRequirePermission(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("missing permissions claim returns 403", func(t *testing.T) {
+		r := gin.New()
+		r.Use(RequirePermission("notifications:read"))
+		r.GET("/test", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/test", nil)
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Errorf("expected 403, got %d", w.Code)
+		}
+	})
+
+	t.Run("matching permission in claims returns 200", func(t *testing.T) {
+		r := gin.New()
+		r.Use(func(c *gin.Context) {
+			c.Set(ContextKeyPermissions, []string{"notifications:read"})
+			c.Next()
+		})
+		r.Use(RequirePermission("notifications:read"))
+		r.GET("/test", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/test", nil)
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", w.Code)
+		}
+	})
+}
+
+func TestVersionCache(t *testing.T) {
+	vc := NewVersionCache("http://mock-auth-service", "test-token")
+
+	t.Run("zero version token always returns true", func(t *testing.T) {
+		valid := vc.VerifyVersion(context.Background(), "user1", "tenant1", 0)
+		if !valid {
+			t.Errorf("expected true for tokenPermVersion 0")
+		}
+	})
+
+	t.Run("cached higher version rejects lower version token", func(t *testing.T) {
+		vc.mu.Lock()
+		vc.cache["user1:tenant1"] = cacheEntry{
+			version:   2,
+			expiresAt: time.Now().Add(10 * time.Minute),
+		}
+		vc.mu.Unlock()
+
+		valid := vc.VerifyVersion(context.Background(), "user1", "tenant1", 1)
+		if valid {
+			t.Errorf("expected false for tokenPermVersion 1 when cached version is 2")
+		}
+
+		validEqual := vc.VerifyVersion(context.Background(), "user1", "tenant1", 2)
+		if !validEqual {
+			t.Errorf("expected true for tokenPermVersion 2 when cached version is 2")
 		}
 	})
 }

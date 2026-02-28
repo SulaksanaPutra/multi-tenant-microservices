@@ -31,8 +31,23 @@ type PasswordSetupToken struct {
 // by the JWT middleware so that downstream handlers can access identity without
 // re-parsing the token.
 type JWTClaims struct {
-	UserID   string
-	TenantID string
-	Email    string
-	JTI      string
+	UserID      string
+	TenantID    string
+	Email       string
+	JTI         string
+	Permissions []string
+	PermVersion int64
+}
+
+// HasPermission checks if the claims include the specified permission string.
+func (c *JWTClaims) HasPermission(perm string) bool {
+	if c == nil {
+		return false
+	}
+	for _, p := range c.Permissions {
+		if p == perm {
+			return true
+		}
+	}
+	return false
 }

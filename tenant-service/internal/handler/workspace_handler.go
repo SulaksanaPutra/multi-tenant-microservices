@@ -18,7 +18,7 @@ type RegisterWorkspaceRequest struct {
 }
 
 type RegisterWorkspaceResponse struct {
-	TenantID string `json:"tenant_id"`
+	Status string `json:"status"`
 }
 
 type GetInfrastructureResponse struct {
@@ -84,7 +84,7 @@ func (h *WorkspaceHandler) RegisterWorkspace(c *gin.Context) {
 	}
 
 	httputil.WriteSuccess(c, http.StatusAccepted, "Workspace registration accepted. Provisioning in progress.", RegisterWorkspaceResponse{
-		TenantID: output.TenantID,
+		Status: output.Status,
 	})
 }
 

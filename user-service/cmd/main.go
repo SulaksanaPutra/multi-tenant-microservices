@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"user-service/internal/infrastructure/authclient"
 	"user-service/internal/infrastructure/postgres"
 	"user-service/internal/infrastructure/rabbitmq"
 	"user-service/internal/publisher"
@@ -31,6 +32,19 @@ func main() {
 	dbName := getEnv("DB_NAME", "user_db")
 	amqpURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
 	httpPort := getEnv("PORT", "8081")
+	internalToken := getEnv("INTERNAL_SERVICE_TOKEN", "default_internal_service_token")
+	authServiceURL := getEnv("AUTH_SERVICE_URL", "http://auth-service:8085")
+
+	// Register domain permissions with auth-service (non-blocking)
+	permRegistrar := authclient.NewPermissionRegistrar(authServiceURL, internalToken)
+	go func() {
+		if err := permRegistrar.Register(context.Background(), "user-service", []authclient.PermissionItem{
+			{Name: "users:read", Description: "Read user profiles"},
+			{Name: "users:update", Description: "Update user profiles"},
+		}); err != nil {
+			log.Printf("User Service: Warning — startup permission registration deferred: %v", err)
+		}
+	}()
 
 	dbClient, err := postgres.NewClient(dbHost, dbPort, dbUser, dbPassword, dbName)
 	if err != nil {

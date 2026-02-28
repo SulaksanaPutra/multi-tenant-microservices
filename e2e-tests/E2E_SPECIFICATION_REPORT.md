@@ -23,7 +23,7 @@ This document serves as the authoritative technical test specification and archi
 ## 3. Test Cases Specification & Verification Matrix
 
 ### 3.1 Test Case TC-E2E-001: Shared Plan Multi-Tenant Registration & Order Lifecycle
-* **Test File**: [`./register_shared_plan_e2e_test.go`](./register_shared_plan_e2e_test.go)
+* **Test File**: [`./tc_e2e_001_register_shared_plan_e2e_test.go`](./tc_e2e_001_register_shared_plan_e2e_test.go)
 * **Objective**: Validate asynchronous control plane registration workflow, schema-per-tenant isolation, Mailpit notification dispatch, setup-token credential provisioning, JWT authentication, and multi-tenant order execution.
 * **Architectural Scope**: `user-service`, `tenant-service`, `auth-service`, `infra-provisioner`, `order-service`, `notification-service`.
 * **Failure Modes Guarded**: Cross-tenant data leakage, unauthenticated order writes, asynchronous provisioning race conditions.
@@ -43,7 +43,7 @@ This document serves as the authoritative technical test specification and archi
 ---
 
 ### 3.2 Test Case TC-E2E-002: Dedicated Plan Dynamic Container Provisioning
-* **Test File**: [`./register_dedicated_plan_e2e_test.go`](./register_dedicated_plan_e2e_test.go)
+* **Test File**: [`./tc_e2e_002_register_dedicated_plan_e2e_test.go`](./tc_e2e_002_register_dedicated_plan_e2e_test.go)
 * **Objective**: Validate dynamic Docker container orchestration, health check polling, Zero-Trust role/schema bootstrapping, JWT bearer token authentication, and private container order execution.
 * **Architectural Scope**: `auth-service`, `infra-provisioner`, `order-service`, Docker Daemon (`/var/run/docker.sock`).
 * **Failure Modes Guarded**: Tenant compute interference, docker socket privilege escalation leaks, database user privilege over-granting.
@@ -61,7 +61,7 @@ This document serves as the authoritative technical test specification and archi
 ---
 
 ### 3.3 Test Case TC-E2E-003: Inbox Deduplication & Idempotent Processing (Docs Case #2)
-* **Test File**: [`./inbox_deduplication_e2e_test.go`](./inbox_deduplication_e2e_test.go)
+* **Test File**: [`./tc_e2e_003_inbox_deduplication_e2e_test.go`](./tc_e2e_003_inbox_deduplication_e2e_test.go)
 * **Objective**: Validate at-least-once message delivery idempotency and prevention of PostgreSQL transaction abortion under duplicate AMQP message delivery.
 * **Architectural Scope**: `InboxRepository`, AMQP Consumers (`notification-service`, `order-service`).
 * **Failure Modes Guarded**: Duplicate domain processing side-effects, double email notifications, duplicate DB mutations under RabbitMQ redeliveries.
@@ -75,7 +75,7 @@ This document serves as the authoritative technical test specification and archi
 ---
 
 ### 3.4 Test Case TC-E2E-004: Fanout Exchange Broadcast & Cache Invalidation (Docs Case #13 & #14)
-* **Test File**: [`./infrastructure_fanout_e2e_test.go`](./infrastructure_fanout_e2e_test.go)
+* **Test File**: [`./tc_e2e_004_infrastructure_fanout_e2e_test.go`](./tc_e2e_004_infrastructure_fanout_e2e_test.go)
 * **Objective**: Validate multi-instance in-memory cache eviction (`PoolRegistry` and DSN routing metadata) upon infrastructure migration.
 * **Architectural Scope**: RabbitMQ Fanout Exchange `company.events`, `order-service` replicas.
 * **Failure Modes Guarded**: Stale DSN connection routing following tenant database migration or scaling.
@@ -88,7 +88,7 @@ This document serves as the authoritative technical test specification and archi
 ---
 
 ### 3.5 Test Case TC-E2E-005: Container Outage Survival & Queue Catch-Up
-* **Test File**: [`./service_outage_recovery_e2e_test.go`](./service_outage_recovery_e2e_test.go)
+* **Test File**: [`./tc_e2e_005_service_outage_recovery_e2e_test.go`](./tc_e2e_005_service_outage_recovery_e2e_test.go)
 * **Objective**: Validate system fault tolerance during consumer container crashes, AMQP queue durability, and eventual consistency upon recovery.
 * **Architectural Scope**: `notification-service`, RabbitMQ durable queues.
 * **Failure Modes Guarded**: Message drop during consumer crashes, lost notification emails.
@@ -104,7 +104,7 @@ This document serves as the authoritative technical test specification and archi
 ---
 
 ### 3.6 Test Case TC-E2E-006: Multi-Replica Scaling & Concurrency Control
-* **Test File**: [`./multi_replica_scaling_e2e_test.go`](./multi_replica_scaling_e2e_test.go)
+* **Test File**: [`./tc_e2e_006_multi_replica_scaling_e2e_test.go`](./tc_e2e_006_multi_replica_scaling_e2e_test.go)
 * **Objective**: Validate horizontal scaling of microservice replicas, Traefik round-robin load balancing, and outbox worker concurrency safety via `FOR UPDATE SKIP LOCKED`.
 * **Architectural Scope**: Scaled `order-service` replicas, Traefik Gateway.
 * **Failure Modes Guarded**: Concurrent outbox polling race conditions, duplicate event dispatch across worker instances.
@@ -117,7 +117,7 @@ This document serves as the authoritative technical test specification and archi
 ---
 
 ### 3.7 Test Case TC-E2E-007: Gateway Validation & Input Sanitization
-* **Test File**: [`./register_e2e_test.go`](./register_e2e_test.go)
+* **Test File**: [`./tc_e2e_007_register_e2e_test.go`](./tc_e2e_007_register_e2e_test.go)
 * **Objective**: Validate edge-case input rejection and gateway error handling.
 * **Architectural Scope**: API Gateway validation layer, Gin binding controllers.
 * **Failure Modes Guarded**: Malformed payload propagation to internal queue layers, SQL/no-SQL injection attempts.
@@ -128,7 +128,7 @@ This document serves as the authoritative technical test specification and archi
 ---
 
 ### 3.8 Test Case TC-E2E-009: Outbox Broadcaster Retry Survival (Docs Case #1)
-* **Test File**: [`./outbox_broker_outage_e2e_test.go`](./outbox_broker_outage_e2e_test.go)
+* **Test File**: [`./tc_e2e_009_outbox_broker_outage_e2e_test.go`](./tc_e2e_009_outbox_broker_outage_e2e_test.go)
 * **Objective**: Validate At-Least-Once Delivery and Outbox Worker retry survival when the message broker is temporarily unavailable.
 * **Architectural Scope**: Outbox Repository, Outbox Worker, RabbitMQ connection manager.
 * **Failure Modes Guarded**: Transactional event loss during broker downtime, crashing background workers.
@@ -143,7 +143,7 @@ This document serves as the authoritative technical test specification and archi
 ---
 
 ### 3.9 Test Case TC-E2E-010: Cache Stampede Prevention via Singleflight (Docs Case #11)
-* **Test File**: [`./cache_stampede_singleflight_e2e_test.go`](./cache_stampede_singleflight_e2e_test.go)
+* **Test File**: [`./tc_e2e_010_cache_stampede_singleflight_e2e_test.go`](./tc_e2e_010_cache_stampede_singleflight_e2e_test.go)
 * **Objective**: Validate that `singleflight` request coalescing prevents database connection cache stampedes under high concurrency.
 * **Architectural Scope**: `TenantDBResolver`, `singleflight.Group`, `PoolRegistry`.
 * **Failure Modes Guarded**: Connection pool depletion and high query latency on cold cache cache stampedes.
@@ -155,7 +155,7 @@ This document serves as the authoritative technical test specification and archi
 ---
 
 ### 3.10 Test Case TC-E2E-011: Transactional DDL Migration Rollback Safety (Docs Case #4)
-* **Test File**: [`./transactional_ddl_rollback_e2e_test.go`](./transactional_ddl_rollback_e2e_test.go)
+* **Test File**: [`./tc_e2e_011_transactional_ddl_rollback_e2e_test.go`](./tc_e2e_011_transactional_ddl_rollback_e2e_test.go)
 * **Objective**: Verify database schema safety and atomic rollback if SQL DDL migrations fail midway.
 * **Architectural Scope**: PostgreSQL DDL transaction engine.
 * **Failure Modes Guarded**: Partially applied schemas, corrupted database migrations, orphaned database objects.
@@ -170,7 +170,7 @@ This document serves as the authoritative technical test specification and archi
 ---
 
 ### 3.11 Test Case TC-E2E-012: Stateful Token Refresh Lifecycle
-* **Test File**: [`./stateful_token_refresh_e2e_test.go`](./stateful_token_refresh_e2e_test.go)
+* **Test File**: [`./tc_e2e_012_stateful_token_refresh_e2e_test.go`](./tc_e2e_012_stateful_token_refresh_e2e_test.go)
 * **Objective**: Validate the hybrid authentication model by simulating an expired short-lived JWT, confirming downstream rejection, and successfully rotating credentials via the stateful refresh token.
 * **Architectural Scope**: `auth-service` (Refresh endpoint), `order-service` (JWT Middleware).
 * **Failure Modes Guarded**: Expired token acceptance, static un-rotatable access credentials.
@@ -187,7 +187,7 @@ This document serves as the authoritative technical test specification and archi
 ---
 
 ### 3.12 Test Case TC-E2E-013: Immediate Session Revocation (Logout)
-* **Test File**: [`./session_revocation_e2e_test.go`](./session_revocation_e2e_test.go)
+* **Test File**: [`./tc_e2e_013_session_revocation_e2e_test.go`](./tc_e2e_013_session_revocation_e2e_test.go)
 * **Objective**: Validate the stateful revocation capability, ensuring that once a refresh token is explicitly revoked, the user cannot acquire new access tokens.
 * **Architectural Scope**: `auth-service` (`public.refresh_tokens`).
 * **Failure Modes Guarded**: Post-logout unauthorized token acquisition, stolen refresh token persistence.
@@ -202,7 +202,7 @@ This document serves as the authoritative technical test specification and archi
 ---
 
 ### 3.13 Test Case TC-E2E-014: Password Setup Token Single-Use Idempotency
-* **Test File**: [`./password_setup_idempotency_e2e_test.go`](./password_setup_idempotency_e2e_test.go)
+* **Test File**: [`./tc_e2e_014_password_setup_idempotency_e2e_test.go`](./tc_e2e_014_password_setup_idempotency_e2e_test.go)
 * **Objective**: Prevent account hijacking race conditions by validating that a setup token can only be consumed exactly once.
 * **Architectural Scope**: `auth-service` (`public.password_setup_tokens`).
 * **Failure Modes Guarded**: Token replay attacks, account hijacking during onboarding.
@@ -216,7 +216,7 @@ This document serves as the authoritative technical test specification and archi
 ---
 
 ### 3.14 Test Case TC-E2E-015: Decentralized Authorization Resilience (Auth Service Outage)
-* **Test File**: [`./decentralized_auth_resilience_e2e_test.go`](./decentralized_auth_resilience_e2e_test.go)
+* **Test File**: [`./tc_e2e_015_decentralized_auth_resilience_e2e_test.go`](./tc_e2e_015_decentralized_auth_resilience_e2e_test.go)
 * **Objective**: Prove that local RS256 JWT verification prevents the `auth-service` from becoming a synchronous bottleneck or single point of failure for existing active sessions.
 * **Architectural Scope**: `order-service` JWT Middleware, Docker runtime.
 * **Failure Modes Guarded**: Centralized auth server single-point-of-failure bottlenecks.
@@ -231,7 +231,7 @@ This document serves as the authoritative technical test specification and archi
 ---
 
 ### 3.15 Test Case TC-E2E-016: Malicious Token Forgery Prevention (RS256 vs HS256)
-* **Test File**: [`./token_forgery_prevention_e2e_test.go`](./token_forgery_prevention_e2e_test.go)
+* **Test File**: [`./tc_e2e_016_token_forgery_prevention_e2e_test.go`](./tc_e2e_016_token_forgery_prevention_e2e_test.go)
 * **Objective**: Validate the zero-trust cryptographic boundary by ensuring downstream services strictly enforce RS256 verification and reject forged symmetric signatures.
 * **Architectural Scope**: `order-service` JWT Middleware.
 * **Failure Modes Guarded**: JWT algorithm confusion vulnerability (signing HS256 tokens using the public key string).
@@ -242,6 +242,52 @@ This document serves as the authoritative technical test specification and archi
   4. Issue `GET /api/orders` with the forged token.
   5. Assert HTTP 401 Unauthorized.
 * **Expected Guarantee**: The JWT middleware strictly verifies the `alg` header is `RS256` and successfully rejects the forged token before it reaches application logic.
+
+---
+
+### 3.16 Test Case TC-E2E-017: Multi-Tenant Custom Role CRUD & Instant Permission Invalidation (Docs Case #18 & #19)
+* **Test File**: [`./tc_e2e_017_custom_role_crud_e2e_test.go`](./tc_e2e_017_custom_role_crud_e2e_test.go)
+* **Objective**: Validate tenant-scoped custom role creation, atomic user permission version batch-incrementing, and instant downstream token revocation (`VersionCache` invalidation).
+* **Architectural Scope**: `auth-service`, `order-service`, `user-service`, `notification-service`.
+* **Failure Modes Guarded**: Post-revocation unauthorized access using non-expired JWT access tokens, role permission drift.
+* **Test Procedure**:
+  1. Register tenant, setup credentials, and obtain JWT access token with initial permissions (`perm_version = 1`).
+  2. Create custom role via `POST /api/roles` and update role permissions via `PUT /api/roles/:id/permissions`.
+  3. Verify `auth-service` batch-increments `user_permission_versions.version` to `2`.
+  4. Issue request `POST /api/orders` with initial JWT access token (`perm_version = 1`).
+  5. Assert HTTP 401 Unauthorized response rejection (`token superseded: permissions updated`).
+* **Expected Guarantee**: Modifying tenant role permissions immediately invalidates downstream access tokens on version check mismatch before token expiration.
+
+---
+
+### 3.17 Test Case TC-E2E-018: System Default Role Protection & Guardrails
+* **Test File**: [`./tc_e2e_018_system_default_role_protection_e2e_test.go`](./tc_e2e_018_system_default_role_protection_e2e_test.go)
+* **Objective**: Validate platform guardrails protecting pre-seeded system default roles (`admin`, `viewer`) from modification or deletion by tenant admins.
+* **Architectural Scope**: `auth-service` Role Management API.
+* **Failure Modes Guarded**: Accidental or malicious mutation/deletion of platform system roles, system stability degradation.
+* **Test Procedure**:
+  1. Authenticate as tenant admin and fetch system roles (`GET /api/roles`).
+  2. Identify system role (`admin` or `viewer` with `is_system = true`).
+  3. Attempt to update system role permissions via `PUT /api/roles/:id/permissions`.
+  4. Assert HTTP 400 Bad Request or HTTP 403 Forbidden with `ErrSystemRoleProtected`.
+  5. Attempt to delete system role via `DELETE /api/roles/:id`.
+  6. Assert HTTP 400 Bad Request or HTTP 403 Forbidden with `ErrSystemRoleProtected`.
+* **Expected Guarantee**: Platform system default roles remain immutably protected against modification or deletion.
+
+---
+
+### 3.18 Test Case TC-E2E-019: Cross-Tenant Permission Isolation Boundary
+* **Test File**: [`./tc_e2e_019_cross_tenant_permission_isolation_e2e_test.go`](./tc_e2e_019_cross_tenant_permission_isolation_e2e_test.go)
+* **Objective**: Validate strict multi-tenant boundary isolation, ensuring valid JWT access tokens issued for Tenant A cannot access or mutate resources of Tenant B.
+* **Architectural Scope**: Gateway, `order-service`, `user-service`, `notification-service`.
+* **Failure Modes Guarded**: Multi-tenant data leakage, lateral authorization bypass between tenants.
+* **Test Procedure**:
+  1. Register two independent tenants: Tenant A (`tnt_a`) and Tenant B (`tnt_b`).
+  2. Complete credential setup and log in to obtain JWT access tokens for both tenants (`jwt_a` and `jwt_b`).
+  3. Create an order under Tenant A (`POST /api/orders` with `jwt_a`).
+  4. Attempt to query or mutate Tenant A's order using `jwt_b` or forging `tenant_id` query/header parameters.
+  5. Query `GET /api/orders` using `jwt_b`.
+* **Expected Guarantee**: Requests executed with `jwt_b` only observe resources in Tenant B's isolated database schema/container; zero visibility or access to Tenant A resources.
 
 ---
 

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"tenant-service/internal/infrastructure/authclient"
 	"tenant-service/internal/infrastructure/postgres"
 	"tenant-service/internal/infrastructure/rabbitmq"
 	"tenant-service/internal/publisher"
@@ -32,6 +33,19 @@ func main() {
 	amqpURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
 	httpPort := getEnv("PORT", "8082")
 	internalToken := getEnv("INTERNAL_SERVICE_TOKEN", "default_internal_service_token")
+	authServiceURL := getEnv("AUTH_SERVICE_URL", "http://auth-service:8085")
+
+	// Register domain permissions with auth-service (non-blocking)
+	permRegistrar := authclient.NewPermissionRegistrar(authServiceURL, internalToken)
+	go func() {
+		if err := permRegistrar.Register(context.Background(), "tenant-service", []authclient.PermissionItem{
+			{Name: "tenants:read", Description: "Read tenant workspace details"},
+			{Name: "tenants:update", Description: "Update tenant workspace details"},
+			{Name: "tenants:plan.change", Description: "Upgrade or downgrade tenant plan"},
+		}); err != nil {
+			log.Printf("Tenant Service: Warning — startup permission registration deferred: %v", err)
+		}
+	}()
 
 	// 1. Connect Infrastructure Drivers
 	dbClient, err := postgres.NewClient(dbHost, dbPort, dbUser, dbPassword, dbName)

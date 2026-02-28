@@ -26,13 +26,17 @@ func newRouter(tenantDBResolver *tenantdb.Resolver) http.Handler {
 		panic("order-service: AUTH_JWT_PUBLIC_KEY_PEM environment variable is required")
 	}
 
+	authServiceURL := os.Getenv("AUTH_SERVICE_URL")
+	internalToken := os.Getenv("INTERNAL_SERVICE_TOKEN")
+	versionCache := middleware.NewVersionCache(authServiceURL, internalToken)
+
 	orderHandler := handler.NewOrderHandler(nil)
 
 	api := r.Group("/api")
-	api.Use(middleware.RequireJWT(publicKeyPEM, tenantDBResolver))
+	api.Use(middleware.RequireJWT(publicKeyPEM, tenantDBResolver, versionCache))
 
-	api.GET("/orders", orderHandler.ListOrders)
-	api.POST("/orders", orderHandler.CreateOrder)
+	api.GET("/orders", middleware.RequirePermission("orders:read"), orderHandler.ListOrders)
+	api.POST("/orders", middleware.RequirePermission("orders:create"), orderHandler.CreateOrder)
 
 	return r
 }

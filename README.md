@@ -50,7 +50,35 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
 
 ## 2. Workflows & Sequences
 
-### 2.1 Registration & Dynamic Infrastructure Provisioning (`POST /api/register`)
+### 2.1 Microservice Boot & Domain Permission Registration (`POST /internal/permissions/register`)
+
+```text
++-----------------------------------------------------------------------------------+
+|               Microservice Boot & Domain Permission Registration                  |
++-----------------------------------------------------------------------------------+
+
+[ order-service Boot ]       [ notification-service Boot ]     [ user-service Boot ]
+          │                               │                           │
+          │ POST /internal/permissions    │ POST /internal/permission │ POST /internal/permissions
+          │ (X-Internal-Service-Token)    │ (X-Internal-Service-Token)│ (X-Internal-Service-Token)
+          ▼                               ▼                           ▼
+  ┌───────────────────────────────────────────────────────────────────────────┐
+  │                         [ auth-service :8085 ]                            │
+  │  1. Receives domain permission declarations                             │
+  │  2. Executes idempotent upsert: ON CONFLICT (name) DO UPDATE              │
+  │  3. Non-blocking HTTP semaphore prevents startup stampedes               │
+  └─────────────────────────────────────┬─────────────────────────────────────┘
+                                        ▼
+                            [ auth_db.permissions ]
+                     (Centralized Opaque Permission Store)
+```
+
+* **Domain-Driven Permission Ownership:** Domain services (`order-service`, `notification-service`, `user-service`) own their atomic capability strings (e.g. `orders:create`, `orders:read`).
+* **Non-Blocking Registration:** Services register capabilities at startup via an internal HTTP semaphore contract (`POST /internal/permissions/register`). `auth-service` persists them as opaque strings without needing compile-time knowledge of domain semantics.
+
+---
+
+### 2.2 Open Registration & Dynamic Infrastructure Provisioning (`POST /api/register`)
 
 ```text
 +-----------------------------------------------------------------------------------+
@@ -96,71 +124,54 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
     │  Stores routing metadata (NO PASSWORDS)         │
     │  Emits: workspace.ready                         │
     ▼                                                 │
-[ RabbitMQ Queue ]                                    │
-    │                                                 │
-    └────────────────────────┬────────────────────────┘
-                             │ Both events received (Barrier Sync)
-                             ▼
-                 [ notification-service ]
-                             │ 1. Barrier Sync met (workspace.ready + user.created)
-                             │ 2. Synchronous fetch: POST /internal/auth/setup-token (X-Internal-Service-Token)
-                             ▼
-                     [ auth-service ] (Generates raw token in RAM, persists SHA-256 in authDB)
-                             │ Returns raw setup token in HTTP response
-                             ▼
-                 [ notification-service ]
-                             │ Dispatch Welcome Email with Setup Link via Mailpit
-                             ▼
-                        [ Client ] ─────► POST /auth/credentials/setup { token, password }
-                                                │
-                                                ▼
-                                        [ auth-service ]
-                                                │ Validates token hash, sets bcrypt password,
-                                                │ invalidates setup token, returns RS256 JWT
+[ RabbitMQ Queue ] ───────────────────────────────────┘
 ```
-
-> [!NOTE]
-> **Registration to Auth Lifecycle:** `POST /api/register` is password-less to prevent plain credentials from leaking across RabbitMQ outbox/inbox tables. Once infrastructure provisioning completes (`workspace.ready` + `user.created`), `notification-service` synchronously fetches a single-use setup token from `auth-service` via internal HTTP (`X-Internal-Service-Token`). The raw token is held strictly in memory and sent via email. The user sets their password via `POST /auth/credentials/setup`, which returns their RS256 JWT access token for subsequent data-plane calls.
 
 ---
 
-### 2.2 Orders Workflow (`POST /api/orders` & `GET /api/orders`)
+### 2.3 Password Setup & Credential Initialization (`POST /auth/credentials/setup`)
 
 ```text
 +-----------------------------------------------------------------------------------+
-|                        POST / GET /api/orders Workflow                            |
+|                   Password Setup & Credential Initialization Workflow             |
 +-----------------------------------------------------------------------------------+
 
-[ Client ]
-    │  POST /api/orders or GET /api/orders (Header: Authorization: Bearer <JWT>)
+[ RabbitMQ Queue ]
+    │  Both events received: workspace.ready + user.created (Barrier Sync)
     ▼
-[ order-service ]
-    │  1. RequireJWT Middleware verifies RS256 signature via in-memory RSA Public Key
-    │  2. Extract tenantID claim from verified JWT payload
-    │  3. Check PoolRegistry (sync.RWMutex with 3-min TTL & Bounded LRU)
-    ├─────────────────────────────────────────┐
-    ▼ (Cache Hit)                             ▼ (Cache Miss)
-Use existing *sql.DB pool               GET /internal/tenants/:id/infrastructure/order-service
-    │                                   Header: X-Internal-Service-Token
-    │                                         │
-    │                                         ▼ Returns Routing Metadata (host, port, db_name)
-    │                                   Derive ORDER_SERVICE_SECRET password in memory & open pool
-    │                                         │
-    └───────────────────┬─────────────────────┘
-                        ▼
-    [ Tenant DB (Shared Schema or Dedicated Container) ]
-                        │  Execute Query
-                        ▼
-    [ Response to Client (201 Created or 200 OK) ]
+[ notification-service ]
+    │  1. Barrier Sync met (workspace.ready + user.created)
+    │  2. Synchronous fetch: POST /internal/auth/setup-token (Header: X-Internal-Service-Token)
+    ▼
+[ auth-service ]
+    │  1. Generates 256-bit single-use setup token in RAM
+    │  2. Saves SHA-256(raw_token) in auth_db.password_setup_tokens
+    │  3. Seeds default system roles (admin, viewer) for new tenant_id
+    │  4. Assigns user_id the 'admin' role in auth_db.user_roles
+    │  5. Returns raw setup token in HTTP 200 OK
+    ▼
+[ notification-service ]
+    │  Dispatches Welcome Email with Setup Link via Mailpit:
+    │  http://localhost:8000/setup-password?token=<RAW_TOKEN>
+    ▼
+[ Client / User ]
+    │  POST /auth/credentials/setup { "token": "<RAW_TOKEN>", "password": "..." }
+    ▼
+[ auth-service ]
+    │  1. Validates setup token hash, expiry & unused state
+    │  2. Hashes password with bcrypt & upserts into auth_db.user_credentials
+    │  3. Marks setup token as USED in auth_db.password_setup_tokens
+    │  4. Mints RS256 JWT Access Token (Claims: userID, tenantID, email, permissions[], perm_version)
+    │  5. Returns { "access_token": "<JWT>", "refresh_token": "<raw>" } to Client
 ```
 
 ---
 
-### 2.4 Authentication & RS256 JWT Access Token Flow (`POST /auth/login` & Bearer Verification)
+### 2.4 User Authentication & RS256 JWT Access Token Flow (`POST /auth/login`)
 
 ```text
 +-----------------------------------------------------------------------------------+
-|               Authentication & RS256 Bearer Token Verification                    |
+|                        User Login & Token Issuance Flow                           |
 +-----------------------------------------------------------------------------------+
 
 [ Client ] ─────► POST /auth/login { "email": "...", "password": "..." }
@@ -168,28 +179,84 @@ Use existing *sql.DB pool               GET /internal/tenants/:id/infrastructure
                         ▼
                 [ auth-service :8085 ]
                         │  1. Verify bcrypt password in auth_db.user_credentials
-                        │  2. Sign RS256 Access Token (Claims: userID, tenantID, email, 15m TTL)
-                        │  3. Save SHA-256(raw_refresh_token) to auth_db.refresh_tokens (7d TTL)
+                        │  2. Query assigned permissions & perm_version:
+                        │     user_roles ──► roles ──► role_permissions ──► permissions
+                        │  3. Sign RS256 Access Token:
+                        │     Claims: { sub, tenant_id, email, permissions: [...], perm_version: N }
+                        │  4. Save SHA-256(raw_refresh_token) to auth_db.refresh_tokens (7d TTL)
                         │
                         ▼
 [ Client ] ◄───── Return { "access_token": "<JWT>", "refresh_token": "<raw>" }
-
-[ Client ] ─────► GET /api/orders (Header: Authorization: Bearer <JWT>)
-                        │
-                        ▼
-                [ order-service :8084 ]
-                        │  1. RequireJWT Middleware parses Bearer token
-                        │  2. In-memory signature check via AUTH_JWT_PUBLIC_KEY_PEM (0 network calls)
-                        │  3. Extract tenantID claim from verified payload
-                        │  4. Resolve dynamic Tenant DB connection pool
-                        │
-                        ▼
-[ Client ] ◄───── Return Tenant Orders JSON (200 OK)
 ```
 
 ---
 
-### 2.5 Infrastructure Availability, Container Rebinding & Routing Invalidation (`tenant.infrastructure_changed`)
+### 2.5 Tenant Admin Role & Permission Management (`/api/roles` & `/api/users/:userID/role`)
+
+```text
++-----------------------------------------------------------------------------------+
+|              Tenant Admin Custom Role & Permission Management Flow                |
++-----------------------------------------------------------------------------------+
+
+[ Tenant Admin Client ]
+          │  1. POST /api/roles { "tenant_id": "...", "name": "editor" }
+          │  2. PUT /api/roles/:id/permissions { "permission_ids": ["perm_1", "perm_2"] }
+          │  3. PUT /api/users/:userID/role { "tenant_id": "...", "role_id": "..." }
+          ▼
+  [ auth-service :8085 ]
+          │  1. Enforces tenant-scoped role uniqueness: UNIQUE (tenant_id, name)
+          │  2. Protects platform system roles (is_system = true) from modification
+          │  3. Atomically batch-increments user_permission_versions.version for all
+          │     assigned users when role permissions change
+          ▼
+  [ auth_db.roles / role_permissions / user_roles / user_permission_versions ]
+```
+
+* **Tenant-Scoped Custom Roles:** Tenant admins compose custom roles for their workspace. System default roles (`admin`, `viewer`) are seeded automatically and protected from mutation (`is_system = true`).
+* **Near-Instant Permission Revocation:** Updating role permissions increments `user_permission_versions.version` in a single batch, invalidating cached JWT permissions across downstream microservices.
+
+---
+
+### 2.6 Orders API: Authorization Enforcement & Dynamic DSN Resolution (`POST / GET /api/orders`)
+
+```text
++-----------------------------------------------------------------------------------+
+|          POST / GET /api/orders Workflow (RBAC & Dynamic DSN Resolution)          |
++-----------------------------------------------------------------------------------+
+
+[ Client ] ─────► POST /api/orders or GET /api/orders (Header: Authorization: Bearer <JWT>)
+                        │
+                        ▼
+                [ order-service :8084 ]
+                        │
+                        ├─► 1. RequireJWT Middleware: In-memory RS256 signature check (0 network calls)
+                        ├─► 2. RequirePermission("orders:create"): Checks "orders:create" in claims.permissions[]
+                        │
+                        ├─► 3. Permission Version Check (Local VersionCache):
+                        │      ├─► Fast Path (Cache Hit & claims.perm_version == cached_version): Proceed (< 100ns)
+                        │      └─► Slow Path (Cache Miss / Mismatch):
+                        │            GET /internal/auth/users/:userID/perm-version (auth-service :8085)
+                        │            Header: X-Internal-Service-Token
+                        │            If fetched_version > claims.perm_version -> Reject 401 Token Superseded
+                        │
+                        ├─► 4. Dynamic Tenant DSN Resolution (TenantDBResolver):
+                        │      ├─► Fast Path: Local RoutingRegistry materialized view hit
+                        │      └─► Slow Path (Cache Miss):
+                        │            GET /internal/tenants/:id/infrastructure/order-service (tenant-service :8082)
+                        │            Header: X-Internal-Service-Token
+                        │            Derive ORDER_SERVICE_SECRET password in memory & open pool
+                        │
+                        ▼
+    [ Tenant Database (Shared Schema or Dedicated Container) ]
+                        │
+                        ▼ Execute Query: WHERE tenant_id = jwt.tenant_id
+                        │
+    [ Response to Client (201 Created or 200 OK) ]
+```
+
+---
+
+### 2.7 Advanced Infrastructure Availability & Cache Invalidation (`tenant.infrastructure_changed`)
 
 ```text
 +-----------------------------------------------------------------------------------+
@@ -219,211 +286,23 @@ Use existing *sql.DB pool               GET /internal/tenants/:id/infrastructure
 ```
 
 * **New Tenant Registration:** Every `order-service` replica experiences a natural cache miss on its first request and lazily resolves the routing metadata.
-* **Infrastructure Rebinding & Plan Changes (Upgrades/Downgrades):** 
-  * If a dedicated DB container dies and is rescheduled on a new IP/port by Docker/K8s, OR if a tenant undergoes a plan upgrade/downgrade, `order-service` replicas hold stale DSNs in memory.
-  * To prevent routing to dead hosts or split-brain writes, `tenant-service` broadcasts `tenant.infrastructure_changed` over the **`company.events` Topic Exchange** to exclusive anonymous queues, forcing **all** `order-service` replicas to purge their local `RoutingRegistry` and `PoolRegistry` caches in real-time.
+* **Infrastructure Rebinding & Plan Changes:** If a dedicated DB container dies and is rescheduled on a new IP/port by Docker/K8s, or if a tenant undergoes a plan upgrade/downgrade, `tenant-service` broadcasts `tenant.infrastructure_changed` over the **`company.events` Topic Exchange** to exclusive anonymous queues, forcing all `order-service` replicas to purge their local `RoutingRegistry` and `PoolRegistry` connection caches in real-time.
 
 ---
 
-### 2.4 AMQP Event Contract Matrix
+## 3. Microservice Layer Hierarchy & Documentation Topology
 
-| Event Name | Exchange / Routing Key | Publishing Service | Consuming Service(s) | Payload Purpose & Invariants |
-| :--- | :--- | :--- | :--- | :--- |
-| `workspace.initiated` | `company.events` / `workspace.initiated` | `tenant-service` | `infra-provisioner`, `user-service` | Triggers container provisioning for dedicated plans & user identity creation. |
-| `user.created` | `company.events` / `user.created` | `user-service` | `notification-service` | Tracks user creation for barrier sync prior to dispatching welcome email. |
-| `infrastructure.provisioned` | `company.events` / `infrastructure.provisioned` | `infra-provisioner` | `order-service` | Signals container readiness; triggers `order-service` SQL migrations. |
-| `tenant.order_db.ready` | `company.events` / `tenant.order_db.ready` | `order-service` | `tenant-service` | Confirms migration success; `tenant-service` activates workspace (`ACTIVE`). |
-| `workspace.ready` | `company.events` / `workspace.ready` | `tenant-service` | `notification-service` | Signals complete workspace setup; completes barrier sync for welcome email dispatch. |
-| `tenant.infrastructure_changed` | `company.events` / `tenant.infrastructure_changed` | `tenant-service` | `order-service` (all replicas) | Broadcast cache invalidation key to clear stale DB routing/connection pools. |
+This workspace enforces strict **Clean Architecture boundaries** across all microservices. The documentation follows a **2-Tier Macro/Micro Model**:
 
----
-
-## 3. Microservice Layer Hierarchy & Mental Model
-
-Each microservice follows Clean Architecture boundaries with a predictable, 3-layer mental model:
-
-### The 3 Architectural Layers
-
-```text
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                 LAYER 1: ENTRY POINTS / DRIVING ADAPTERS                        │
-│                                                                                 │
-│      [ HTTP Handler ]              [ AMQP Consumer ]       [ Background Worker ]│
-│    (internal/handler)            (internal/consumer)         (internal/worker)  │
-└───────────┬────────────────────────────────┼───────────────────────┬────────────┘
-            │                                │                       │
-            ▼                                ▼                       │
-┌──────────────────────────────────────────────────────────────────┐ │
-│            LAYER 2: APPLICATION SERVICE CORE                     │ │
-│                                                                  │ │
-│                   [ Application / Domain Service ]               │ │
-│                         (internal/service)                       │ │
-└───────────────────┬──────────────────────────────────────────────┘ │
-                    │                                                │
-                    ▼                                                ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│               LAYER 3: PERSISTENCE & DRIVEN ADAPTERS                            │
-│                                                                                 │
-│           [ Repository ]                       [ Publisher Adapter ]            │
-│       (internal/repository)                     (internal/publisher)            │
-└───────────┬────────────────────────────────────────────┬────────────────────────┘
-            │                                            │
-            ▼                                            ▼
-     [ PostgreSQL DB ]                           [ RabbitMQ Broker ]
-```
-
-#### Layer Responsibilities & Principles
-
-1. **Layer 1: Entry Points / Driving Adapters (`handler/`, `consumer/`, `worker/`)**
-   - **`handler/`**: Handles incoming HTTP requests (Gin API routes), binds JSON schemas, initiates `txManager.WithTransaction`, delegates to service methods, and writes HTTP responses.
-   - **`consumer/`**: Listens for AMQP messages from RabbitMQ queues, initiates `txManager.WithTransaction`, calls `inboxService.ClaimEvent` for deduplication, and ACK/NACKs the channel.
-   - **`worker/`**: Runs background loops (e.g. `outboxWorker`), polling PostgreSQL using `SELECT FOR UPDATE SKIP LOCKED` or receiving `.Poke()` signals to dispatch events.
-   - **Transaction Ownership**: Transaction boundaries live in Layer 1. Handlers and Consumers own `txManager.WithTransaction(ctx, fn)`, ensuring outer Unit-of-Work boundaries commit before HTTP `200 OK` or AMQP `ACK`.
-
-2. **Layer 2: Application Service Core (`service/`)**
-   - Pure, transport-agnostic business logic orchestrating use cases (`WorkspaceService`, `UserService`, `TenantInfrastructureService`, `NotificationService`).
-   - Accepts standard `txCtx context.Context` from Layer 1 and passes it down to repositories without holding `*sql.DB` or `*sql.Tx` references directly.
-   - Declares consumer-side interfaces for dependencies (`TenantRepository`, `OutboxRepository`).
-
-3. **Layer 3: Persistence & Driven Adapters (`repository/`, `publisher/`)**
-   - **`repository/`**: Executes raw SQL queries against PostgreSQL. Dynamically extracts `DBExecutor` (`*sql.Tx` if active, fallback to `*sql.DB` pool) via `txcontext.GetExecutor(ctx, r.dbClient)`. Always returns pure `domain.*` entities.
-   - **`publisher/`**: Serializes domain event payloads and publishes frames to RabbitMQ exchanges.
-
----
-
-### Intentional Exemption: `MigrationService` in `order-service`
-
-`order-service/internal/service/migration_service.go` is the **only** intentional exception to the Layer 2 no-database-connection rule.
-
-**Why:** DDL schema migrations for new tenants must run against an *arbitrary, runtime-derived tenant DSN* — not the service's own pre-established connection pool. This cannot be delegated to a standard `txcontext.GetExecutor` repository because:
-- The target database does not exist in any pool yet.
-- DDL operations like `CREATE SCHEMA` must run outside a transaction on some databases.
-- The migration SQL may contain a `-- tx: false` annotation requiring non-transactional execution.
-
-`MigrationService` opens an ephemeral, self-closing connection per migration call and is consumed through a **consumer-side interface** (`type MigrationService interface { MigrateTenantDB(...) error }`) — no DB primitives leak to Layer 1. It is architecturally a narrow infrastructure utility, not a domain service. It should be treated as such during code review.
-
----
-
-### Barrier Sync Consumer Pattern (`notification-service`)
-
-When a consumer implements a **barrier sync** (must wait for N independent events before acting), the inbox is used as first-class business input — not just a deduplication guard. The Layer 1 consumer owns both steps:
-
-```text
-Consumer (Layer 1)
-  └─ txManager.WithTransaction
-       ├─ 1. inboxService.ClaimEvent(txCtx, inboxInput)      ← guard: deduplicates atomically
-       ├─ 2. inboxService.GetBarrierEvents(txCtx, tenantID)  ← reads full inbox state (consistent in tx)
-       └─ 3. notificationService.ProcessEventAndTrySendWelcome(txCtx, input, events)
-                                                              ← service receives events as DATA
-                                                              ← writes pending audit log, returns details
-  (Transaction commits — DB connection released)
-  └─ 4. mailer.SendWelcomeEmail(details.RecipientEmail, ...)  ← AFTER commit, outside tx
-```
-
-This pattern ensures:
-- `NotificationService` is a pure business service with no inbox repository dependency.
-- The barrier state read is consistent with the `ClaimEvent` write (same transaction).
-- External I/O (SMTP) never holds an open DB transaction.
-
----
-
-### Rule: No External I/O Inside `txManager.WithTransaction`
-
-`txManager.WithTransaction` must contain **only DB operations**. External network calls (SMTP, HTTP, gRPC) are strictly prohibited inside transaction closures.
-
-**Why this matters:**
-- Every millisecond the closure runs, a DB connection and potentially row-level locks are held.
-- An SMTP timeout of 30 seconds holds a DB connection for 30 seconds — exhausting the connection pool under load.
-- If a network call fails inside a transaction, the rollback undoes all DB writes — on NACK retry, the consumer re-inserts into the inbox (`ON CONFLICT DO NOTHING`) and re-attempts the network call. This is correct behavior only if the external call has **not** already partially succeeded.
-
-**Pattern:**
-```go
-// CORRECT
-var result *DispatchDetails
-c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-    // Only DB work here
-    result, err = service.DoDBWork(txCtx, ...)
-    return err
-})
-// External I/O after commit
-mailer.Send(result.Email)
-
-// WRONG — network I/O inside the transaction closure
-c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-    service.DoDBWork(txCtx, ...)
-    mailer.Send(...) // ← PROHIBITED
-    return nil
-})
-```
-
----
-
-### Inbound & Outbound Delivery Flow Diagrams
-
-#### Flow A: Synchronous REST Request (HTTP Endpoint)
-```text
-Client HTTP POST /api/register
-  │
-  ▼
-[ WorkspaceHandler ]           (internal/handler)
-  │ 1. Opens Tx: txManager.WithTransaction(ctx, ...)
-  ▼
-[ WorkspaceService ]           (internal/service)
-  │ 2. Validates & executes domain business logic
-  ├──────────────────────────┐
-  ▼                          ▼
-[ TenantRepository ]   [ OutboxRepository ]    (internal/repository)
-  │                          │
-  └──────────┬───────────────┘
-             │ 3. Writes Tenant & Outbox records in SAME Tx
-             ▼
-       [ PostgreSQL ]
-             │ 4. Tx Commit succeeds!
-             ▼
-  [ WorkspaceHandler writes HTTP 202 Accepted & pokes outboxWorker.Poke() ]
-```
-
-#### Flow B: Inbound Message Consumption (RabbitMQ Consumer)
-```text
-RabbitMQ Message (workspace.initiated)
-  │
-  ▼
-[ WorkspaceInitiatedConsumer ] (internal/consumer)
-  │ 1. Opens Tx: txManager.WithTransaction(ctx, ...)
-  ▼
-[ InboxService.ClaimEvent ]    (internal/service)
-  │ 2. Deduplicates event_id atomically inside txCtx
-  ▼
-[ Domain / Provisioner Service ] (internal/service)
-  │ 3. Executes downstream business logic
-  ▼
-[ TenantInfraRepository ]      (internal/repository)
-  │ 4. Persists infrastructure state
-  ▼
-  [ PostgreSQL ]
-  │ 5. Tx Commit succeeds!
-  ▼
-  [ Consumer Acks message to RabbitMQ ]
-  (Note: If step 3 fails, Tx rolls back Inbox claim atomically & Consumer NACKs for retry)
-```
-
-#### Flow C: Asynchronous Event Dispatching (Outbox Worker)
-```text
-Background Timer Ticker / .Poke()
-  │
-  ▼
-[ OutboxWorker ]               (internal/worker)
-  │ 1. Fetches pending outbox batch (SELECT FOR UPDATE SKIP LOCKED)
-  ▼
-[ OutboxRepository ]           (internal/repository)
-  │
-  ▼
-[ TenantEventPublisher ]       (internal/publisher)
-  │ 2. Serializes AMQP payload & publishes to Exchange
-  ▼
-  [ RabbitMQ Exchange ]
-  │ 3. On success: OutboxWorker marks status = 'PUBLISHED' in DB
-```
+1. **Macro System Mesh (Root Documentation):** Focuses on global orchestration, cross-cutting distributed workflows, security boundaries, and AMQP contracts (see Sections 1, 2 & 4).
+2. **Clean Architecture Standards ([docs/00-clean-architecture-standards-and-layer-hierarchy.md](docs/00-clean-architecture-standards-and-layer-hierarchy.md)):** Comprehensive documentation of Layer 1 (Adapters), Layer 2 (Service Core), Layer 3 (Persistence), transaction ownership rules (`txManager.WithTransaction`), and flow diagrams.
+3. **Micro Domain Services (Service READMEs):** Each microservice maintains its local domain contracts, archetype declaration, and local exception rationale:
+   - [`order-service/README.md`](order-service/README.md) - Archetype A: Dynamic DSN resolution, PoolRegistry & `MigrationService` exemption.
+   - [`notification-service/README.md`](notification-service/README.md) - Archetype B: Barrier Sync pattern & Mailpit SMTP delivery outside tx.
+   - [`tenant-service/README.md`](tenant-service/README.md) - Archetype A: Control-plane registry, Outbox worker & infrastructure routing update.
+   - [`auth-service/README.md`](auth-service/README.md) - Archetype A: RS256 JWT key pair, refresh token hashing & permissions registration.
+   - [`infra-provisioner/README.md`](infra-provisioner/README.md) - Archetype C: Isolated Docker container provisioner & QoS=1 AMQP worker.
+   - [`user-service/README.md`](user-service/README.md) - Archetype A: Identity profile management & `workspace.initiated` event listener.
 
 ---
 
@@ -433,6 +312,7 @@ This repository contains comprehensive technical design deep-dives located in th
 
 | # | Document Title | Focus Area |
 | :-: | :--- | :--- |
+| 0 | [Clean Architecture Standards & Layer Hierarchy](docs/00-clean-architecture-standards-and-layer-hierarchy.md) | 3-Layer Mental Model, Transaction Boundaries & Delivery Flow Diagrams |
 | 1 | [What Happens If The Broadcaster Breaks?](docs/1-what-happens-if-the-broadcaster-breaks-and-how-do-we-retry.md) | Outbox Pattern, At-Least-Once Delivery & Retry Loops |
 | 2 | [How Does Phantom Batch Duplicate Delivery Happen?](docs/2-how-does-the-phantom-batch-duplicate-delivery-happen-and-how-do-we-fix-it.md) | Inbox Pattern, Deduplication Barriers & Consumer Idempotency |
 | 3 | [What If The Database Crashes After RabbitMQ Succeeds?](docs/3-what-if-the-database-crashes-after-rabbitmq-succeeds-the-idempotent-consumer.md) | Atomic Transactions & Transactional Inbox Handlers |
@@ -450,6 +330,8 @@ This repository contains comprehensive technical design deep-dives located in th
 | 15 | [When the Broker Goes Silent, Does Your Service Tell the Truth?](docs/15-when-the-broker-goes-silent-does-your-service-tell-the-truth.md) | Context Lifecycles, Cache Miss Throttling, Singleflight & Load Shedding |
 | 16 | [How Do We Safely Manage Multi-Tenant Database Duality Without Data Leakage or Connection Sprawl?](docs/16-how-do-we-safely-manage-multi-tenant-database-duality-without-cross-tenant-data-leakage-or-connection-sprawl.md) | Constructor Arity, Dynamic DSN Resolution, Bounded LRU Connection Pooling & Clean Architecture Isolation |
 | 17 | [How Do We Isolate Authentication and Token Issuance in a Standalone Microservice?](docs/17-how-do-we-isolate-authentication-and-jwt-token-issuance-standalone-auth-service.md) | RS256 Asymmetric Key Verification, Opaque Refresh Token Rotation & Stage 1 Scaffolding Scope |
+| 18 | [How Do We Design Multi-Tenant RBAC with Domain-Distributed Permission Ownership?](docs/18-how-do-we-design-multi-tenant-rbac-with-domain-distributed-permission-ownership.md) | Hybrid Centralized Permission Registry, Tenant-Scoped Custom Roles, JWT Claim Enrichment & Startup Registration |
+| 19 | [How Do We Achieve Instant Revocation in Stateless RS256 JWTs via Version Caching?](docs/19-how-do-we-achieve-instant-jwt-revocation-with-perm-version-caching.md) | Stateless JWT Claims, Token Bloat Math, `perm_version` Claim & Local In-Memory VersionCache Enforcement |
 
 ---
 
@@ -458,6 +340,15 @@ This repository contains comprehensive technical design deep-dives located in th
 ```text
 microservice-api/
 ├── README.md                     # Workspace & Architecture Documentation
+│
+├── auth-service/                 # Central Authentication, Identity & RBAC Service
+│   ├── cmd/main.go               # Port 8085 - RS256 JWT Issuer, Credentials Setup & Permission Registry
+│   ├── internal/
+│   │   ├── crypto/               # RS256 signing, verification & JWKS builder
+│   │   ├── handler/              # Auth, Setup, Permission & Role CRUD Handlers
+│   │   ├── repository/           # Credentials, Refresh Tokens, Permissions & Roles Repositories
+│   │   └── service/              # Login, Setup Token, Permission & Role Management Core
+│   └── Dockerfile
 │
 ├── infra-provisioner/            # Isolated Infrastructure Provisioning Worker
 │   ├── cmd/main.go               # Entrypoint & RabbitMQ consumer
@@ -470,41 +361,41 @@ microservice-api/
 ├── tenant-service/               # Control-Plane Tenant Management & Outbox Service
 │   ├── cmd/main.go               # Port 8082 - Control Plane & Outbox Worker
 │   ├── internal/
-│   │   ├── middleware/           # InternalAuthMiddleware (X-Internal-Service-Token)
+│   │   ├── infrastructure/       # AuthClient PermissionRegistrar (tenants:read/update/plan.change)
+│   │   ├── middleware/           # InternalAuthMiddleware & RequirePermission RBAC
 │   │   └── repository/           # Control plane metadata-only repository
 │   └── Dockerfile
 │
 ├── user-service/                 # User Identity Service
 │   ├── cmd/main.go               # Port 8081 - User Profile & Event Consumer
-│   └── Dockerfile
-│
-├── auth-service/                 # Authentication & Token Issuance Service
-│   ├── cmd/main.go               # Port 8085 - RS256 JWT & Opaque Refresh Token Provider
 │   ├── internal/
-│   │   ├── crypto/               # RS256 signing, verification & JWKS builder
-│   │   ├── repository/           # Bcrypt credential & refresh token store
-│   │   └── service/              # Login, Refresh rotation & Logout business logic
+│   │   ├── infrastructure/       # AuthClient PermissionRegistrar (users:read/update)
+│   │   └── middleware/           # RequireJWT & RequirePermission RBAC
 │   └── Dockerfile
 │
 ├── order-service/                # Dynamic Multi-Tenant Data-Plane Service
 │   ├── cmd/main.go               # Port 8084 - Orders API & Migration Consumer
 │   ├── internal/
 │   │   ├── crypto/               # HMAC-SHA256 password derivation
-│   │   ├── infrastructure/       # Zero-Trust TenantDB Resolver
+│   │   ├── infrastructure/       # Zero-Trust TenantDB Resolver & AuthClient PermissionRegistrar
+│   │   ├── middleware/           # RequireJWT & RequirePermission RBAC (orders:create/read)
 │   │   └── registry/             # PoolRegistry with 15-minute TTL eviction
 │   └── Dockerfile
 │
-├── notification-service/         # Async Notification Worker
-│   ├── cmd/main.go               # Port 8083 - Mailpit Dispatcher & Audit Logger
+├── notification-service/         # Async Notification Worker & Internal Setup Client
+│   ├── cmd/main.go               # Port 8083 - Mailpit Dispatcher & Setup Token Client
+│   ├── internal/
+│   │   ├── infrastructure/       # AuthClient PermissionRegistrar (notifications:read)
+│   │   └── middleware/           # RequireJWT & RequirePermission RBAC
 │   └── Dockerfile
 │
 ├── infrastructure/               # Shared Infrastructure & Docker Topology
-│   ├── init.sql                  # Base database initialization scripts (Sanitized tenant_services schema)
+│   ├── init.sql                  # Base database initialization scripts (Sanitized auth_db & tenant_services schemas)
 │   ├── docker-compose.yml        # Postgres, RabbitMQ, Mailpit, Traefik, Infra-Provisioner, Web-UI
 │   └── web-ui/                   # Functional Web UI
 │
-├── docs/                         # Architectural Deep-Dives & Technical Design Challenges
-│   └── 10-how-do-we-isolate-domain-database-secrets...md
+├── docs/                         # Architectural Deep-Dives & Technical Design Challenges (Docs 0 - 19)
+│   └── 19-how-do-we-achieve-instant-jwt-revocation...md
 │
 └── e2e-tests/                    # Automated Integration Tests
     └── register_e2e_test.go      # Dynamic registration & order flow test suite
