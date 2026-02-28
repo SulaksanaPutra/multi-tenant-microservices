@@ -9,22 +9,17 @@ import (
 	"sync"
 	"time"
 
-	"notification-service/internal/httputil"
+	"tenant-service/internal/httputil"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
 
 const (
-	// ContextKeyUserID is the gin.Context key for the authenticated user's ID.
-	ContextKeyUserID = "userID"
-	// ContextKeyTenantID is the gin.Context key for the authenticated tenant's ID.
-	ContextKeyTenantID = "tenantID"
-	// ContextKeyEmail is the gin.Context key for the authenticated user's email.
-	ContextKeyEmail = "email"
-	// ContextKeyPermissions is the gin.Context key for the user's permissions.
+	ContextKeyUserID      = "userID"
+	ContextKeyTenantID    = "tenantID"
+	ContextKeyEmail       = "email"
 	ContextKeyPermissions = "permissions"
-	// ContextKeyPermVersion is the gin.Context key for the token's permission version.
 	ContextKeyPermVersion = "permVersion"
 )
 
@@ -113,7 +108,6 @@ func (vc *VersionCache) VerifyVersion(ctx context.Context, userID, tenantID stri
 	return fetchedVersion <= tokenPermVersion
 }
 
-// jwtClaims mirrors the JWT payload structure issued by auth-service.
 type jwtClaims struct {
 	TenantID    string   `json:"tenant_id"`
 	Email       string   `json:"email"`
@@ -122,12 +116,11 @@ type jwtClaims struct {
 	jwt.RegisteredClaims
 }
 
-// RequireJWT validates an RS256 Bearer token on incoming requests and injects
-// the verified JWT claims (userID, tenantID, email, permissions) into the gin.Context.
+// RequireJWT validates an RS256 Bearer token and injects token claims into gin.Context.
 func RequireJWT(publicKeyPEM string, versionCache ...*VersionCache) gin.HandlerFunc {
 	pubKey, err := jwt.ParseRSAPublicKeyFromPEM([]byte(publicKeyPEM))
 	if err != nil {
-		panic(fmt.Sprintf("notification-service: failed to parse AUTH_JWT_PUBLIC_KEY_PEM: %v", err))
+		panic(fmt.Sprintf("tenant-service: failed to parse AUTH_JWT_PUBLIC_KEY_PEM: %v", err))
 	}
 
 	var vCache *VersionCache
@@ -165,12 +158,6 @@ func RequireJWT(publicKeyPEM string, versionCache ...*VersionCache) gin.HandlerF
 		claims, ok := token.Claims.(*jwtClaims)
 		if !ok {
 			httputil.WriteError(c, http.StatusUnauthorized, "malformed token claims")
-			c.Abort()
-			return
-		}
-
-		if claims.TenantID == "" {
-			httputil.WriteError(c, http.StatusUnauthorized, "token missing tenant_id claim")
 			c.Abort()
 			return
 		}

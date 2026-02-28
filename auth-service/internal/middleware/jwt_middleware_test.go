@@ -73,7 +73,7 @@ func TestRequireJWT(t *testing.T) {
 			t.Fatalf("failed to create different JWTManager: %v", err)
 		}
 
-		forgedToken, err := differentJwtMgr.SignAccessToken("usr_forged", "tnt_1", "forged@example.com", "jti_forged")
+		forgedToken, err := differentJwtMgr.SignAccessToken("usr_forged", "tnt_1", "forged@example.com", "jti_forged", nil, 1)
 		if err != nil {
 			t.Fatalf("failed to sign forged token: %v", err)
 		}
@@ -125,7 +125,7 @@ func TestRequireJWT(t *testing.T) {
 		email := "valid@example.com"
 		jti := "jti_valid_789"
 
-		tokenStr, err := jwtMgr.SignAccessToken(userID, tenantID, email, jti)
+		tokenStr, err := jwtMgr.SignAccessToken(userID, tenantID, email, jti, nil, 1)
 		if err != nil {
 			t.Fatalf("failed to sign token: %v", err)
 		}

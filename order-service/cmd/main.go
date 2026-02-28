@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"order-service/internal/infrastructure/authclient"
 	"order-service/internal/infrastructure/rabbitmq"
 	"order-service/internal/infrastructure/tenantdb"
 	"order-service/internal/registry"
@@ -27,6 +28,18 @@ func main() {
 	amqpURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
 	httpPort := getEnv("PORT", "8084")
 	tenantServiceURL := getEnv("TENANT_SERVICE_URL", "http://tenant-service:8082")
+	authServiceURL := getEnv("AUTH_SERVICE_URL", "http://auth-service:8085")
+
+	// Register domain permissions with auth-service (non-blocking)
+	permRegistrar := authclient.NewPermissionRegistrar(authServiceURL, internalToken)
+	go func() {
+		if err := permRegistrar.Register(context.Background(), "order-service", []authclient.PermissionItem{
+			{Name: "orders:create", Description: "Create new tenant order"},
+			{Name: "orders:read", Description: "Read tenant orders"},
+		}); err != nil {
+			log.Printf("Order Service: Warning — startup permission registration deferred: %v", err)
+		}
+	}()
 
 	// 1. Connect RabbitMQ Driver
 	rmqClient, err := rabbitmq.NewClient(amqpURL)

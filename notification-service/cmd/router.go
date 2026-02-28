@@ -26,7 +26,11 @@ func newRouter(notifHandler *handler.NotificationHandler) http.Handler {
 		panic("notification-service: AUTH_JWT_PUBLIC_KEY_PEM environment variable is required")
 	}
 
-	r.GET("/api/notifications", middleware.RequireJWT(publicKeyPEM), notifHandler.ListNotifications)
+	authServiceURL := os.Getenv("AUTH_SERVICE_URL")
+	internalToken := os.Getenv("INTERNAL_SERVICE_TOKEN")
+	versionCache := middleware.NewVersionCache(authServiceURL, internalToken)
+
+	r.GET("/api/notifications", middleware.RequireJWT(publicKeyPEM, versionCache), middleware.RequirePermission("notifications:read"), notifHandler.ListNotifications)
 
 	return r
 }

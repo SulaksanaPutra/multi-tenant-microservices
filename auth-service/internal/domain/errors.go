@@ -12,4 +12,12 @@ var (
 	ErrEmailRequired      = errors.New("auth service: email is required")
 	ErrPasswordRequired   = errors.New("auth service: password is required")
 	ErrUserIDRequired     = errors.New("auth service: user_id is required")
+
+	ErrPermissionNotFound  = errors.New("auth service: permission not found")
+	ErrRoleNotFound        = errors.New("auth service: role not found")
+	ErrRoleAlreadyExists   = errors.New("auth service: role already exists for tenant")
+	ErrSystemRoleProtected = errors.New("auth service: system roles cannot be modified or deleted")
+	ErrRoleIDRequired      = errors.New("auth service: role_id is required")
+	ErrTenantIDRequired    = errors.New("auth service: tenant_id is required")
+	ErrRoleNameRequired    = errors.New("auth service: role name is required")
 )

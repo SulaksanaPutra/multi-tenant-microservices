@@ -144,7 +144,7 @@ func TestE2E_TC_E2E_015_DecentralizedAuthorizationResilience(t *testing.T) {
 
 	restarted := false
 	for i := 0; i < 20; i++ {
-		hResp, err := defaultHTTPClient.Get(authServiceURL + "/health")
+		hResp, err := defaultHTTPClient.Get(authServiceURL + "/.well-known/jwks.json")
 		if err == nil && hResp.StatusCode == http.StatusOK {
 			hResp.Body.Close()
 			restarted = true

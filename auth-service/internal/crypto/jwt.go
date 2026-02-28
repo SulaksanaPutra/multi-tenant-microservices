@@ -63,20 +63,24 @@ func (m *JWTManager) PublicKey() *rsa.PublicKey {
 
 // jwtClaims defines the full JWT payload structure registered with golang-jwt.
 type jwtClaims struct {
-	TenantID string `json:"tenant_id"`
-	Email    string `json:"email"`
+	TenantID    string   `json:"tenant_id"`
+	Email       string   `json:"email"`
+	Permissions []string `json:"permissions,omitempty"`
+	PermVersion int64    `json:"perm_version,omitempty"`
 	jwt.RegisteredClaims
 }
 
 // SignAccessToken issues a signed RS256 JWT access token with a 15-minute TTL.
-func (m *JWTManager) SignAccessToken(userID, tenantID, email, jti string) (string, error) {
+func (m *JWTManager) SignAccessToken(userID, tenantID, email, jti string, permissions []string, permVersion int64) (string, error) {
 	if m.privateKey == nil {
 		return "", fmt.Errorf("JWTManager is in verify-only mode (no private key loaded)")
 	}
 	now := time.Now().UTC()
 	claims := jwtClaims{
-		TenantID: tenantID,
-		Email:    email,
+		TenantID:    tenantID,
+		Email:       email,
+		Permissions: permissions,
+		PermVersion: permVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID,
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -110,10 +114,12 @@ func (m *JWTManager) VerifyAccessToken(tokenString string) (*domain.JWTClaims, e
 	}
 
 	return &domain.JWTClaims{
-		UserID:   claims.Subject,
-		TenantID: claims.TenantID,
-		Email:    claims.Email,
-		JTI:      claims.ID,
+		UserID:      claims.Subject,
+		TenantID:    claims.TenantID,
+		Email:       claims.Email,
+		JTI:         claims.ID,
+		Permissions: claims.Permissions,
+		PermVersion: claims.PermVersion,
 	}, nil
 }
 

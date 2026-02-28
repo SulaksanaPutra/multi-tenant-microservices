@@ -38,6 +38,16 @@ func main() {
 	authServiceURL := getEnv("AUTH_SERVICE_URL", "http://auth-service:8085")
 	internalServiceToken := getEnv("INTERNAL_SERVICE_TOKEN", "default_internal_service_token")
 
+	// Register domain permissions with auth-service (non-blocking)
+	permRegistrar := authclient.NewPermissionRegistrar(authServiceURL, internalServiceToken)
+	go func() {
+		if err := permRegistrar.Register(context.Background(), "notification-service", []authclient.PermissionItem{
+			{Name: "notifications:read", Description: "Read user notifications"},
+		}); err != nil {
+			log.Printf("Notification Service: Warning — startup permission registration deferred: %v", err)
+		}
+	}()
+
 	// 1. Connect Infrastructure Drivers
 	dbClient, err := postgres.NewClient(dbHost, dbPort, dbUser, dbPassword, dbName)
 	if err != nil {

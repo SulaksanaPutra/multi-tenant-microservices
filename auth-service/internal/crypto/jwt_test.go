@@ -35,7 +35,7 @@ func TestJWTManager_SignAndVerify(t *testing.T) {
 	email := "test@example.com"
 	jti := "jti_789"
 
-	tokenStr, err := jwtMgr.SignAccessToken(userID, tenantID, email, jti)
+	tokenStr, err := jwtMgr.SignAccessToken(userID, tenantID, email, jti, []string{"orders:read"}, 1)
 	if err != nil {
 		t.Fatalf("failed to sign access token: %v", err)
 	}

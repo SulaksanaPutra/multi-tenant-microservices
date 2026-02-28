@@ -60,16 +60,21 @@ func main() {
 	credentialRepository := repository.NewCredentialRepository(dbClient)
 	tokenRepository := repository.NewTokenRepository(dbClient)
 	setupTokenRepository := repository.NewSetupTokenRepository(dbClient)
+	permissionRepository := repository.NewPermissionRepository(dbClient)
+	roleRepository := repository.NewRoleRepository(dbClient)
 
-	// Initialize service
-	authService := service.NewAuthService(credentialRepository, tokenRepository, setupTokenRepository, jwtManager)
+	// Initialize services
+	permissionService := service.NewPermissionService(permissionRepository, roleRepository)
+	authService := service.NewAuthService(credentialRepository, tokenRepository, setupTokenRepository, jwtManager, roleRepository, permissionService)
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authService, jwtManager)
 	internalAuthHandler := handler.NewInternalAuthHandler(authService)
+	permissionHandler := handler.NewPermissionHandler(permissionService)
+	roleHandler := handler.NewRoleHandler(permissionService)
 
 	// Start HTTP server
-	httpRouter := newRouter(authHandler, internalAuthHandler, jwtManager, internalServiceToken)
+	httpRouter := newRouter(authHandler, internalAuthHandler, permissionHandler, roleHandler, jwtManager, internalServiceToken)
 	httpServer := &http.Server{
 		Addr:    ":" + httpPort,
 		Handler: httpRouter,
