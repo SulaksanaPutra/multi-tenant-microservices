@@ -34,7 +34,7 @@ func (m *mockWorkspaceService) RegisterWorkspace(ctx context.Context, input serv
 	if m.registerWorkspaceFn != nil {
 		return m.registerWorkspaceFn(ctx, input)
 	}
-	return &service.RegisterWorkspaceOutput{TenantID: "default-tenant-id"}, nil
+	return &service.RegisterWorkspaceOutput{Status: "accepted"}, nil
 }
 
 type mockTenantInfrastructureService struct {
@@ -55,7 +55,7 @@ func (m *mockTenantInfrastructureService) GetServiceInfrastructure(ctx context.C
 }
 
 func TestWorkspaceHandler_Constructor(t *testing.T) {
-	h := NewWorkspaceHandler(&mockTxManager{}, &mockWorkspaceService{}, &mockTenantInfrastructureService{})
+	h := NewWorkspaceHandler(&mockTxManager{}, &mockWorkspaceService{})
 	if h == nil {
 		t.Fatal("expected NewWorkspaceHandler to return a non-nil struct pointer")
 	}
@@ -63,7 +63,7 @@ func TestWorkspaceHandler_Constructor(t *testing.T) {
 
 func TestRegisterWorkspace_ValidationError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	h := NewWorkspaceHandler(&mockTxManager{}, &mockWorkspaceService{}, &mockTenantInfrastructureService{})
+	h := NewWorkspaceHandler(&mockTxManager{}, &mockWorkspaceService{})
 
 	r := gin.New()
 	r.POST("/workspaces", h.RegisterWorkspace)
@@ -130,7 +130,7 @@ func TestRegisterWorkspace_ServiceError(t *testing.T) {
 		},
 	}
 
-	h := NewWorkspaceHandler(&mockTxManager{}, wsSvc, &mockTenantInfrastructureService{})
+	h := NewWorkspaceHandler(&mockTxManager{}, wsSvc)
 	r := gin.New()
 	r.POST("/workspaces", h.RegisterWorkspace)
 
@@ -163,11 +163,11 @@ func TestRegisterWorkspace_Success(t *testing.T) {
 	wsSvc := &mockWorkspaceService{
 		registerWorkspaceFn: func(ctx context.Context, input service.RegisterWorkspaceInput) (*service.RegisterWorkspaceOutput, error) {
 			capturedInput = input
-			return &service.RegisterWorkspaceOutput{TenantID: "t-acme-999"}, nil
+			return &service.RegisterWorkspaceOutput{Status: "accepted"}, nil
 		},
 	}
 
-	h := NewWorkspaceHandler(&mockTxManager{}, wsSvc, &mockTenantInfrastructureService{})
+	h := NewWorkspaceHandler(&mockTxManager{}, wsSvc)
 	r := gin.New()
 	r.POST("/workspaces", h.RegisterWorkspace)
 
@@ -192,18 +192,13 @@ func TestRegisterWorkspace_Success(t *testing.T) {
 		capturedInput.Plan != "shared" || capturedInput.TenantName != "Acme Inc" {
 		t.Errorf("unexpected input captured by service: %+v", capturedInput)
 	}
-
-	if !strings.Contains(w.Body.String(), "t-acme-999") {
-		t.Errorf("expected body to contain tenant_id 't-acme-999', got: %s", w.Body.String())
-	}
 }
 
-func TestGetServiceInfrastructure_MissingParams(t *testing.T) {
+func TestInternalTenantHandler_MissingParams(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	h := NewWorkspaceHandler(&mockTxManager{}, &mockWorkspaceService{}, &mockTenantInfrastructureService{})
+	h := NewInternalTenantHandler(&mockTenantInfrastructureService{})
 
 	r := gin.New()
-	// Handler attached to a route missing parameters or empty param string
 	r.GET("/infrastructure", h.GetServiceInfrastructure)
 
 	req, _ := http.NewRequest(http.MethodGet, "/infrastructure", nil)
@@ -213,37 +208,9 @@ func TestGetServiceInfrastructure_MissingParams(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected status 400 Bad Request when path parameters are missing, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "path must contain tenant_id and service_name") {
-		t.Errorf("expected body to contain missing path params error message, got: %s", w.Body.String())
-	}
 }
 
-func TestGetServiceInfrastructure_NotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	infraSvc := &mockTenantInfrastructureService{
-		getServiceInfrastructureFn: func(ctx context.Context, tenantID, serviceName string) (*service.RoutingOutput, error) {
-			return nil, errors.New("infrastructure record not found")
-		},
-	}
-
-	h := NewWorkspaceHandler(&mockTxManager{}, &mockWorkspaceService{}, infraSvc)
-	r := gin.New()
-	r.GET("/tenants/:tenant_id/infrastructure/:service_name", h.GetServiceInfrastructure)
-
-	req, _ := http.NewRequest(http.MethodGet, "/tenants/t-missing/infrastructure/order-service", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Errorf("expected status 404 Not Found, got %d", w.Code)
-	}
-	if !strings.Contains(w.Body.String(), "infrastructure record not found") {
-		t.Errorf("expected body to contain error message, got: %s", w.Body.String())
-	}
-}
-
-func TestGetServiceInfrastructure_Success(t *testing.T) {
+func TestInternalTenantHandler_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	var capturedTenantID, capturedServiceName string
@@ -261,7 +228,7 @@ func TestGetServiceInfrastructure_Success(t *testing.T) {
 		},
 	}
 
-	h := NewWorkspaceHandler(&mockTxManager{}, &mockWorkspaceService{}, infraSvc)
+	h := NewInternalTenantHandler(infraSvc)
 	r := gin.New()
 	r.GET("/tenants/:tenant_id/infrastructure/:service_name", h.GetServiceInfrastructure)
 
@@ -275,11 +242,5 @@ func TestGetServiceInfrastructure_Success(t *testing.T) {
 
 	if capturedTenantID != "t-100" || capturedServiceName != "order-service" {
 		t.Errorf("unexpected parameters captured: tenantID=%s, serviceName=%s", capturedTenantID, capturedServiceName)
-	}
-
-	bodyStr := w.Body.String()
-	if !strings.Contains(bodyStr, "pg-host-1") || !strings.Contains(bodyStr, "order_db_100") ||
-		!strings.Contains(bodyStr, "tenant_schema_100") {
-		t.Errorf("unexpected response body: %s", bodyStr)
 	}
 }

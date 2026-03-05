@@ -16,16 +16,17 @@ func newRouter(txManager *txcontext.SQLTxManager, workspaceService *service.Work
 	r := gin.New()
 	r.Use(gin.Recovery(), gin.Logger())
 
-	workspaceHandler := handler.NewWorkspaceHandler(txManager, workspaceService, tenantInfrastructureService)
+	workspaceHandler := handler.NewWorkspaceHandler(txManager, workspaceService)
+	internalTenantHandler := handler.NewInternalTenantHandler(tenantInfrastructureService)
 
 	// Public registration endpoint
-	r.POST("/api/register", workspaceHandler.RegisterWorkspace)
+	r.POST("/api/tenants/register", workspaceHandler.RegisterWorkspace)
 
 	// Protected Internal Control Plane routing endpoints (Zero-Trust)
 	internal := r.Group("/internal/tenants")
 	internal.Use(middleware.InternalAuthMiddleware(internalToken))
 	{
-		internal.GET("/:tenant_id/infrastructure/:service_name", workspaceHandler.GetServiceInfrastructure)
+		internal.GET("/:tenant_id/infrastructure/:service_name", internalTenantHandler.GetServiceInfrastructure)
 	}
 
 	// Health check

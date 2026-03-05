@@ -82,7 +82,7 @@ func TestE2E_SystemDefaultRoleProtection(t *testing.T) {
 	accessToken, _ := loginAndGetTokenPair(t, ownerEmail, password)
 
 	// Step 2: Fetch System Roles via GET /api/roles
-	listReq, _ := http.NewRequest(http.MethodGet, "http://localhost:8000/api/roles", nil)
+	listReq, _ := http.NewRequest(http.MethodGet, "http://localhost:8000/api/auth/roles", nil)
 	listReq.Header.Set("Authorization", "Bearer "+accessToken)
 
 	listResp, err := defaultHTTPClient.Do(listReq)
@@ -121,7 +121,7 @@ func TestE2E_SystemDefaultRoleProtection(t *testing.T) {
 	}
 	updateBody, _ := json.Marshal(updateReqPayload)
 
-	mutateURL := fmt.Sprintf("http://localhost:8000/api/roles/%s/permissions", systemRoleID)
+	mutateURL := fmt.Sprintf("http://localhost:8000/api/auth/roles/%s/permissions", systemRoleID)
 	mutateReq, _ := http.NewRequest(http.MethodPut, mutateURL, bytes.NewBuffer(updateBody))
 	mutateReq.Header.Set("Content-Type", "application/json")
 	mutateReq.Header.Set("Authorization", "Bearer "+accessToken)
@@ -139,7 +139,7 @@ func TestE2E_SystemDefaultRoleProtection(t *testing.T) {
 	t.Logf("System role mutation rejected as expected with HTTP %d", mutateResp.StatusCode)
 
 	// Step 4: Attempt Deletion (DELETE /api/roles/:id)
-	deleteURL := fmt.Sprintf("http://localhost:8000/api/roles/%s", systemRoleID)
+	deleteURL := fmt.Sprintf("http://localhost:8000/api/auth/roles/%s", systemRoleID)
 	deleteReq, _ := http.NewRequest(http.MethodDelete, deleteURL, nil)
 	deleteReq.Header.Set("Authorization", "Bearer "+accessToken)
 

@@ -1,0 +1,57 @@
+package handler
+
+import (
+	"context"
+	"net/http"
+
+	"tenant-service/internal/httputil"
+	"tenant-service/internal/service"
+
+	"github.com/gin-gonic/gin"
+)
+
+type InternalGetInfrastructureResponse struct {
+	DBHost     string `json:"db_host"`
+	DBPort     int    `json:"db_port"`
+	DBName     string `json:"db_name"`
+	DBUser     string `json:"db_user"`
+	SchemaName string `json:"schema_name"`
+}
+
+type InternalTenantInfrastructureService interface {
+	GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*service.RoutingOutput, error)
+}
+
+type InternalTenantHandler struct {
+	tenantInfraService InternalTenantInfrastructureService
+}
+
+func NewInternalTenantHandler(tenantInfraService InternalTenantInfrastructureService) *InternalTenantHandler {
+	return &InternalTenantHandler{
+		tenantInfraService: tenantInfraService,
+	}
+}
+
+func (h *InternalTenantHandler) GetServiceInfrastructure(c *gin.Context) {
+	tenantID := c.Param("tenant_id")
+	serviceName := c.Param("service_name")
+
+	if tenantID == "" || serviceName == "" {
+		httputil.WriteError(c, http.StatusBadRequest, "path must contain tenant_id and service_name")
+		return
+	}
+
+	output, err := h.tenantInfraService.GetServiceInfrastructure(c.Request.Context(), tenantID, serviceName)
+	if err != nil {
+		httputil.WriteError(c, http.StatusNotFound, err.Error())
+		return
+	}
+
+	httputil.WriteSuccess(c, http.StatusOK, "", InternalGetInfrastructureResponse{
+		DBHost:     output.DBHost,
+		DBPort:     output.DBPort,
+		DBName:     output.DBName,
+		DBUser:     output.DBUser,
+		SchemaName: output.SchemaName,
+	})
+}

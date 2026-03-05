@@ -21,7 +21,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=microservice-network"
-      - "traefik.http.routers.tenant-service.rule=PathPrefix(`/api/register`)"
+      - "traefik.http.routers.tenant-service.rule=PathPrefix(`/api/tenants`)"
       - "traefik.http.routers.tenant-service.entrypoints=web"
       - "traefik.http.services.tenant-service.loadbalancer.server.port=${PORT:-8082}"
     networks:

@@ -10,36 +10,36 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type InternalAuthService interface {
-	CreatePasswordSetupToken(ctx context.Context, input service.CreateSetupTokenInput) (string, error)
+type InternalAuthAppService interface {
+	CreatePasswordSetupToken(ctx context.Context, input service.InternalCreateSetupTokenInput) (string, error)
 }
 
-type CreateSetupTokenRequest struct {
+type InternalCreateSetupTokenRequest struct {
 	UserID   string `json:"user_id"   binding:"required"`
 	TenantID string `json:"tenant_id" binding:"required"`
 	Email    string `json:"email"     binding:"required,email"`
 }
 
-type CreateSetupTokenResponse struct {
+type InternalCreateSetupTokenResponse struct {
 	Token string `json:"token"`
 }
 
 type InternalAuthHandler struct {
-	authService InternalAuthService
+	authService InternalAuthAppService
 }
 
-func NewInternalAuthHandler(authService InternalAuthService) *InternalAuthHandler {
+func NewInternalAuthHandler(authService InternalAuthAppService) *InternalAuthHandler {
 	return &InternalAuthHandler{authService: authService}
 }
 
 func (h *InternalAuthHandler) CreateSetupToken(c *gin.Context) {
-	var req CreateSetupTokenRequest
+	var req InternalCreateSetupTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httputil.WriteValidationError(c, err)
 		return
 	}
 
-	token, err := h.authService.CreatePasswordSetupToken(c.Request.Context(), service.CreateSetupTokenInput{
+	token, err := h.authService.CreatePasswordSetupToken(c.Request.Context(), service.InternalCreateSetupTokenInput{
 		UserID:   req.UserID,
 		TenantID: req.TenantID,
 		Email:    req.Email,
@@ -49,7 +49,7 @@ func (h *InternalAuthHandler) CreateSetupToken(c *gin.Context) {
 		return
 	}
 
-	httputil.WriteSuccess(c, http.StatusOK, "Setup token generated successfully", CreateSetupTokenResponse{
+	httputil.WriteSuccess(c, http.StatusOK, "Setup token generated successfully", InternalCreateSetupTokenResponse{
 		Token: token,
 	})
 }

@@ -18,7 +18,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=microservice-network"
-      - "traefik.http.routers.auth-service.rule=PathPrefix(`/auth`) || PathPrefix(`/.well-known`) || PathPrefix(`/api/roles`) || PathPrefix(`/api/users`) || PathPrefix(`/internal`)"
+      - "traefik.http.routers.auth-service.rule=PathPrefix(`/api/auth`) || PathPrefix(`/.well-known`) || PathPrefix(`/internal/auth`)"
       - "traefik.http.routers.auth-service.entrypoints=web"
       - "traefik.http.routers.auth-service.priority=10"
       - "traefik.http.services.auth-service.loadbalancer.server.port=8085"

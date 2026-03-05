@@ -85,7 +85,7 @@ func TestE2E_TC_E2E_013_ImmediateSessionRevocation(t *testing.T) {
 	// Architectural Invariant: Auth service marks refresh_tokens database row as revoked.
 	// =========================================================================
 	logoutBody, _ := json.Marshal(map[string]string{"refresh_token": refreshToken})
-	logoutReq, err := http.NewRequest(http.MethodPost, authServiceURL+"/auth/logout", bytes.NewBuffer(logoutBody))
+	logoutReq, err := http.NewRequest(http.MethodPost, authServiceURL+"/api/auth/logout", bytes.NewBuffer(logoutBody))
 	if err != nil {
 		t.Fatalf("Failed to create POST /auth/logout request: %v", err)
 	}

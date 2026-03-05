@@ -64,17 +64,20 @@ func main() {
 	roleRepository := repository.NewRoleRepository(dbClient)
 
 	// Initialize services
-	permissionService := service.NewPermissionService(permissionRepository, roleRepository)
-	authService := service.NewAuthService(credentialRepository, tokenRepository, setupTokenRepository, jwtManager, roleRepository, permissionService)
+	internalPermissionService := service.NewInternalPermissionService(permissionRepository, roleRepository)
+	roleService := service.NewRoleService(roleRepository)
+	internalAuthService := service.NewInternalAuthService(setupTokenRepository, internalPermissionService)
+	authService := service.NewAuthService(credentialRepository, tokenRepository, setupTokenRepository, jwtManager, roleRepository, internalPermissionService)
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authService, jwtManager)
-	internalAuthHandler := handler.NewInternalAuthHandler(authService)
-	permissionHandler := handler.NewPermissionHandler(permissionService)
-	roleHandler := handler.NewRoleHandler(permissionService)
+	internalAuthHandler := handler.NewInternalAuthHandler(internalAuthService)
+	internalPermissionHandler := handler.NewInternalPermissionHandler(internalPermissionService)
+	permissionHandler := handler.NewPermissionHandler(internalPermissionService)
+	roleHandler := handler.NewRoleHandler(roleService)
 
 	// Start HTTP server
-	httpRouter := newRouter(authHandler, internalAuthHandler, permissionHandler, roleHandler, jwtManager, internalServiceToken)
+	httpRouter := newRouter(authHandler, internalAuthHandler, internalPermissionHandler, permissionHandler, roleHandler, jwtManager, internalServiceToken)
 	httpServer := &http.Server{
 		Addr:    ":" + httpPort,
 		Handler: httpRouter,

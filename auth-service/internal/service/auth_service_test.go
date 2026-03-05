@@ -115,7 +115,7 @@ func (m *mockSetupTokenRepo) MarkTokenUsed(_ context.Context, tokenHash string) 
 	return domain.ErrTokenNotFound
 }
 
-func setupAuthService(t *testing.T) (*service.AuthService, *mockCredentialRepo, *mockTokenRepo, *mockSetupTokenRepo) {
+func setupAuthService(t *testing.T) (*service.AuthService, *service.InternalAuthService, *mockCredentialRepo, *mockTokenRepo, *mockSetupTokenRepo) {
 	t.Helper()
 	privateKey, _ := rsa.GenerateKey(rand.Reader, 2048)
 	der := x509.MarshalPKCS1PrivateKey(privateKey)
@@ -129,15 +129,16 @@ func setupAuthService(t *testing.T) (*service.AuthService, *mockCredentialRepo, 
 	credRepo := &mockCredentialRepo{creds: make(map[string]*domain.Credential)}
 	tokenRepo := &mockTokenRepo{tokens: make(map[string]*domain.RefreshToken)}
 	setupRepo := &mockSetupTokenRepo{tokens: make(map[string]*domain.PasswordSetupToken)}
-	svc := service.NewAuthService(credRepo, tokenRepo, setupRepo, jwtMgr)
-	return svc, credRepo, tokenRepo, setupRepo
+	svc := service.NewAuthService(credRepo, tokenRepo, setupRepo, jwtMgr, nil)
+	internalSvc := service.NewInternalAuthService(setupRepo)
+	return svc, internalSvc, credRepo, tokenRepo, setupRepo
 }
 
 func TestAuthService_SetupPasswordAndLogin(t *testing.T) {
-	svc, _, _, _ := setupAuthService(t)
+	svc, internalSvc, _, _, _ := setupAuthService(t)
 	ctx := context.Background()
 
-	rawToken, err := svc.CreatePasswordSetupToken(ctx, service.CreateSetupTokenInput{
+	rawToken, err := internalSvc.CreatePasswordSetupToken(ctx, service.InternalCreateSetupTokenInput{
 		UserID:   "usr_100",
 		TenantID: "tnt_200",
 		Email:    "user@example.com",
@@ -196,10 +197,10 @@ func TestAuthService_SetupPasswordAndLogin(t *testing.T) {
 }
 
 func TestAuthService_CreatePasswordSetupTokenAndSetupPassword(t *testing.T) {
-	svc, _, _, _ := setupAuthService(t)
+	svc, internalSvc, _, _, _ := setupAuthService(t)
 	ctx := context.Background()
 
-	rawToken, err := svc.CreatePasswordSetupToken(ctx, service.CreateSetupTokenInput{
+	rawToken, err := internalSvc.CreatePasswordSetupToken(ctx, service.InternalCreateSetupTokenInput{
 		UserID:   "usr_setup_100",
 		TenantID: "tnt_setup_200",
 		Email:    "setup@example.com",
