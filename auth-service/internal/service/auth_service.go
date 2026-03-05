@@ -47,12 +47,6 @@ type RoleSeeder interface {
 	SeedDefaultRolesForTenant(ctx context.Context, tenantID string, adminUserID string) error
 }
 
-type CreateSetupTokenInput struct {
-	UserID   string
-	TenantID string
-	Email    string
-}
-
 type SetupPasswordInput struct {
 	Token    string
 	Password string
@@ -175,40 +169,7 @@ func (s *AuthService) Logout(ctx context.Context, input LogoutInput) error {
 	return nil
 }
 
-func (s *AuthService) CreatePasswordSetupToken(ctx context.Context, input CreateSetupTokenInput) (string, error) {
-	if input.UserID == "" {
-		return "", domain.ErrUserIDRequired
-	}
-	if input.Email == "" {
-		return "", domain.ErrEmailRequired
-	}
 
-	rawToken, tokenHash, err := crypto.GenerateRefreshToken()
-	if err != nil {
-		return "", fmt.Errorf("auth service: failed to generate setup token: %w", err)
-	}
-
-	expiresAt := time.Now().UTC().Add(24 * time.Hour)
-	if err := s.setupTokenRepository.CreateSetupToken(ctx, repository.CreateSetupTokenInput{
-		UserID:    input.UserID,
-		TenantID:  input.TenantID,
-		Email:     input.Email,
-		TokenHash: tokenHash,
-		ExpiresAt: expiresAt,
-	}); err != nil {
-		return "", fmt.Errorf("auth service: failed to persist setup token: %w", err)
-	}
-
-	log.Printf("AuthService: Created password setup token for user_id='%s' email='%s'", input.UserID, input.Email)
-
-	if s.roleSeeder != nil && input.TenantID != "" {
-		if err := s.roleSeeder.SeedDefaultRolesForTenant(ctx, input.TenantID, input.UserID); err != nil {
-			log.Printf("AuthService: Warning — failed to seed default roles for tenant_id='%s': %v", input.TenantID, err)
-		}
-	}
-
-	return rawToken, nil
-}
 
 func (s *AuthService) SetupPassword(ctx context.Context, input SetupPasswordInput) (*TokenPair, error) {
 	if input.Token == "" {

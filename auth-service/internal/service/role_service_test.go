@@ -5,50 +5,8 @@ import (
 	"testing"
 
 	"auth-service/internal/domain"
-	"auth-service/internal/repository"
 	"auth-service/internal/service"
 )
-
-type mockPermRepo struct {
-	permissions []domain.Permission
-}
-
-func (m *mockPermRepo) BulkUpsertPermissions(_ context.Context, serviceName string, items []repository.RegisterPermissionItem) error {
-	for _, item := range items {
-		m.permissions = append(m.permissions, domain.Permission{
-			ID:          "perm_" + item.Name,
-			Name:        item.Name,
-			Service:     serviceName,
-			Description: item.Description,
-		})
-	}
-	return nil
-}
-
-func (m *mockPermRepo) ListAllPermissions(_ context.Context) ([]domain.Permission, error) {
-	return m.permissions, nil
-}
-
-func (m *mockPermRepo) FindByIDs(_ context.Context, ids []string) ([]domain.Permission, error) {
-	var res []domain.Permission
-	for _, p := range m.permissions {
-		for _, id := range ids {
-			if p.ID == id {
-				res = append(res, p)
-			}
-		}
-	}
-	return res, nil
-}
-
-func (m *mockPermRepo) FindByName(_ context.Context, name string) (*domain.Permission, error) {
-	for _, p := range m.permissions {
-		if p.Name == name {
-			return &p, nil
-		}
-	}
-	return nil, domain.ErrPermissionNotFound
-}
 
 type mockRoleRepo struct {
 	roles     map[string]*domain.Role
@@ -182,36 +140,9 @@ func (m *mockRoleRepo) BumpUserPermissionVersionsForRole(_ context.Context, role
 	return nil
 }
 
-func TestPermissionService_RegisterAndList(t *testing.T) {
-	pRepo := &mockPermRepo{}
+func TestRoleService_CreateAndManageRole(t *testing.T) {
 	rRepo := newMockRoleRepo()
-	svc := service.NewPermissionService(pRepo, rRepo)
-	ctx := context.Background()
-
-	err := svc.RegisterPermissions(ctx, service.RegisterPermissionsInput{
-		Service: "order-service",
-		Permissions: []repository.RegisterPermissionItem{
-			{Name: "orders:create", Description: "Create order"},
-			{Name: "orders:read", Description: "Read order"},
-		},
-	})
-	if err != nil {
-		t.Fatalf("RegisterPermissions failed: %v", err)
-	}
-
-	perms, err := svc.ListPermissions(ctx)
-	if err != nil {
-		t.Fatalf("ListPermissions failed: %v", err)
-	}
-	if len(perms) != 2 {
-		t.Fatalf("expected 2 permissions, got %d", len(perms))
-	}
-}
-
-func TestPermissionService_CreateAndManageRole(t *testing.T) {
-	pRepo := &mockPermRepo{}
-	rRepo := newMockRoleRepo()
-	svc := service.NewPermissionService(pRepo, rRepo)
+	svc := service.NewRoleService(rRepo)
 	ctx := context.Background()
 
 	tenantID := "tnt_001"
@@ -225,6 +156,15 @@ func TestPermissionService_CreateAndManageRole(t *testing.T) {
 	}
 	if role.Name != "custom_manager" {
 		t.Errorf("expected role name 'custom_manager', got '%s'", role.Name)
+	}
+
+	// Fetch role by ID
+	fetched, err := svc.GetRole(ctx, role.ID)
+	if err != nil {
+		t.Fatalf("GetRole failed: %v", err)
+	}
+	if fetched.ID != role.ID {
+		t.Errorf("expected role ID '%s', got '%s'", role.ID, fetched.ID)
 	}
 
 	// Update role permissions
@@ -254,28 +194,19 @@ func TestPermissionService_CreateAndManageRole(t *testing.T) {
 	if ur.RoleID != role.ID {
 		t.Errorf("expected role ID '%s', got '%s'", role.ID, ur.RoleID)
 	}
-}
 
-func TestPermissionService_SeedDefaultRoles(t *testing.T) {
-	pRepo := &mockPermRepo{}
-	rRepo := newMockRoleRepo()
-	svc := service.NewPermissionService(pRepo, rRepo)
-	ctx := context.Background()
-
-	_ = pRepo.BulkUpsertPermissions(ctx, "order-service", []repository.RegisterPermissionItem{
-		{Name: "orders:create"},
-	})
-
-	err := svc.SeedDefaultRolesForTenant(ctx, "tnt_seed", "usr_admin")
+	// List roles for tenant
+	roles, err := svc.ListRolesForTenant(ctx, tenantID)
 	if err != nil {
-		t.Fatalf("SeedDefaultRolesForTenant failed: %v", err)
+		t.Fatalf("ListRolesForTenant failed: %v", err)
+	}
+	if len(roles) != 1 {
+		t.Errorf("expected 1 role for tenant, got %d", len(roles))
 	}
 
-	ur, err := svc.GetUserRole(ctx, "usr_admin", "tnt_seed")
+	// Delete role
+	err = svc.DeleteRole(ctx, role.ID)
 	if err != nil {
-		t.Fatalf("expected admin user role to be seeded: %v", err)
-	}
-	if ur.Role == nil || ur.Role.Name != "admin" {
-		t.Errorf("expected assigned role name 'admin', got '%v'", ur.Role)
+		t.Fatalf("DeleteRole failed: %v", err)
 	}
 }

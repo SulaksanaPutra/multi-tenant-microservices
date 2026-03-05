@@ -111,7 +111,7 @@ func TestE2E_MultiTenant_CustomRoleCRUD_And_InstantPermissionInvalidation(t *tes
 	}
 	roleBody, _ := json.Marshal(roleReq)
 
-	req, _ := http.NewRequest(http.MethodPost, "http://localhost:8000/api/roles", bytes.NewBuffer(roleBody))
+	req, _ := http.NewRequest(http.MethodPost, "http://localhost:8000/api/auth/roles", bytes.NewBuffer(roleBody))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+initialToken)
 
@@ -138,7 +138,7 @@ func TestE2E_MultiTenant_CustomRoleCRUD_And_InstantPermissionInvalidation(t *tes
 	}
 	updateBody, _ := json.Marshal(updatePermsReq)
 
-	updateReqURL := fmt.Sprintf("http://localhost:8000/api/roles/%s/permissions", roleID)
+	updateReqURL := fmt.Sprintf("http://localhost:8000/api/auth/roles/%s/permissions", roleID)
 	updateReq, _ := http.NewRequest(http.MethodPut, updateReqURL, bytes.NewBuffer(updateBody))
 	updateReq.Header.Set("Content-Type", "application/json")
 	updateReq.Header.Set("Authorization", "Bearer "+initialToken)

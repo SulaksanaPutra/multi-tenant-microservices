@@ -81,7 +81,7 @@ func (r *PermissionRegistrar) doRegister(ctx context.Context, serviceName string
 		return fmt.Errorf("permission registrar: failed to marshal payload: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/internal/permissions/register", r.authServiceURL)
+	url := fmt.Sprintf("%s/internal/auth/permissions/register", r.authServiceURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(bodyBytes))
 	if err != nil {
 		return fmt.Errorf("permission registrar: failed to build request: %w", err)

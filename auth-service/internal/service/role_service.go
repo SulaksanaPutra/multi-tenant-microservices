@@ -1,0 +1,157 @@
+package service
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"auth-service/internal/domain"
+)
+
+type RoleRepository interface {
+	CreateRole(ctx context.Context, role domain.Role) (*domain.Role, error)
+	FindRoleByID(ctx context.Context, id string) (*domain.Role, error)
+	FindRoleByName(ctx context.Context, tenantID *string, name string) (*domain.Role, error)
+	FindRolesByTenantID(ctx context.Context, tenantID string) ([]domain.Role, error)
+	UpdateRolePermissions(ctx context.Context, roleID string, permissionIDs []string) error
+	DeleteRole(ctx context.Context, id string) error
+	AssignUserRole(ctx context.Context, userID, tenantID, roleID string, assignedBy *string) error
+	FindUserRole(ctx context.Context, userID, tenantID string) (*domain.UserRole, error)
+	FindUserPermissions(ctx context.Context, userID, tenantID string) ([]string, int64, error)
+	GetUserPermissionVersion(ctx context.Context, userID, tenantID string) (int64, error)
+	BumpUserPermissionVersionsForRole(ctx context.Context, roleID string) error
+}
+
+type CreateRoleInput struct {
+	TenantID    string `json:"tenant_id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type UpdateRolePermissionsInput struct {
+	RoleID        string   `json:"role_id"`
+	PermissionIDs []string `json:"permission_ids"`
+}
+
+type AssignUserRoleInput struct {
+	UserID     string  `json:"user_id"`
+	TenantID   string  `json:"tenant_id"`
+	RoleID     string  `json:"role_id"`
+	AssignedBy *string `json:"assigned_by"`
+}
+
+type RoleService struct {
+	roleRepo RoleRepository
+}
+
+func NewRoleService(roleRepo RoleRepository) *RoleService {
+	return &RoleService{
+		roleRepo: roleRepo,
+	}
+}
+
+func (s *RoleService) CreateRole(ctx context.Context, input CreateRoleInput) (*domain.Role, error) {
+	if input.TenantID == "" {
+		return nil, domain.ErrTenantIDRequired
+	}
+	if input.Name == "" {
+		return nil, domain.ErrRoleNameRequired
+	}
+
+	role := domain.Role{
+		TenantID:    &input.TenantID,
+		Name:        input.Name,
+		Description: input.Description,
+		IsSystem:    false,
+	}
+
+	created, err := s.roleRepo.CreateRole(ctx, role)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Printf("RoleService: Created role '%s' (ID: %s) for tenant '%s'", created.Name, created.ID, input.TenantID)
+	return created, nil
+}
+
+func (s *RoleService) GetRole(ctx context.Context, roleID string) (*domain.Role, error) {
+	if roleID == "" {
+		return nil, domain.ErrRoleIDRequired
+	}
+	return s.roleRepo.FindRoleByID(ctx, roleID)
+}
+
+func (s *RoleService) ListRolesForTenant(ctx context.Context, tenantID string) ([]domain.Role, error) {
+	if tenantID == "" {
+		return nil, domain.ErrTenantIDRequired
+	}
+	return s.roleRepo.FindRolesByTenantID(ctx, tenantID)
+}
+
+func (s *RoleService) UpdateRolePermissions(ctx context.Context, input UpdateRolePermissionsInput) error {
+	if input.RoleID == "" {
+		return domain.ErrRoleIDRequired
+	}
+
+	role, err := s.roleRepo.FindRoleByID(ctx, input.RoleID)
+	if err != nil {
+		return err
+	}
+
+	if role.IsSystem {
+		return domain.ErrSystemRoleProtected
+	}
+
+	if err := s.roleRepo.UpdateRolePermissions(ctx, input.RoleID, input.PermissionIDs); err != nil {
+		return fmt.Errorf("role service: failed to update role permissions: %w", err)
+	}
+
+	// Invalidate versions for users assigned to this role
+	if err := s.roleRepo.BumpUserPermissionVersionsForRole(ctx, input.RoleID); err != nil {
+		log.Printf("RoleService: Warning — failed to bump user permission versions for role '%s': %v", input.RoleID, err)
+	}
+
+	log.Printf("RoleService: Updated permissions for role '%s' (ID: %s)", role.Name, role.ID)
+	return nil
+}
+
+func (s *RoleService) DeleteRole(ctx context.Context, roleID string) error {
+	if roleID == "" {
+		return domain.ErrRoleIDRequired
+	}
+	return s.roleRepo.DeleteRole(ctx, roleID)
+}
+
+func (s *RoleService) AssignUserRole(ctx context.Context, input AssignUserRoleInput) error {
+	if input.UserID == "" {
+		return domain.ErrUserIDRequired
+	}
+	if input.TenantID == "" {
+		return domain.ErrTenantIDRequired
+	}
+	if input.RoleID == "" {
+		return domain.ErrRoleIDRequired
+	}
+
+	// Verify role exists
+	if _, err := s.roleRepo.FindRoleByID(ctx, input.RoleID); err != nil {
+		return err
+	}
+
+	if err := s.roleRepo.AssignUserRole(ctx, input.UserID, input.TenantID, input.RoleID, input.AssignedBy); err != nil {
+		return fmt.Errorf("role service: failed to assign user role: %w", err)
+	}
+
+	log.Printf("RoleService: Assigned role '%s' to user '%s' for tenant '%s'", input.RoleID, input.UserID, input.TenantID)
+	return nil
+}
+
+func (s *RoleService) GetUserRole(ctx context.Context, userID, tenantID string) (*domain.UserRole, error) {
+	if userID == "" {
+		return nil, domain.ErrUserIDRequired
+	}
+	if tenantID == "" {
+		return nil, domain.ErrTenantIDRequired
+	}
+	return s.roleRepo.FindUserRole(ctx, userID, tenantID)
+}

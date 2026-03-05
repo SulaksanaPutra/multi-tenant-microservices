@@ -36,7 +36,7 @@ import (
 )
 
 const (
-	gatewayURL  = "http://localhost:8000/api/register"
+	gatewayURL  = "http://localhost:8000/api/tenants/register"
 	postgresDSN = "host=localhost port=5432 user=postgres password=postgres dbname=tenant_manager_db sslmode=disable"
 	rabbitmqURL = "amqp://guest:guest@localhost:5672/"
 	rabbitmqAPI = "http://localhost:15672/api/exchanges/%2F/company.events"
@@ -326,7 +326,7 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 			"password": "SuperSecretPassword123!",
 		})
 
-		setupResp, err := http.Post("http://localhost:8085/auth/credentials/setup", "application/json", bytes.NewBuffer(setupReqBody))
+		setupResp, err := http.Post("http://localhost:8085/api/auth/credentials/setup", "application/json", bytes.NewBuffer(setupReqBody))
 		if err != nil {
 			t.Fatalf("Failed to post credentials setup: %v", err)
 		}

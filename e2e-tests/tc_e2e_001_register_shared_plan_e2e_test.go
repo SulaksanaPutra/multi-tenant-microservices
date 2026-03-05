@@ -4,17 +4,6 @@
  * Objective: Validate full asynchronous control plane registration workflow, schema-per-tenant isolation (tenant_<slug>_order_db),
  *            Mailpit notification delivery, setup token credential provisioning, JWT authentication, and isolated order operations.
  * Failure Mode Guarded: Cross-tenant data leakage, unauthenticated order writes, asynchronous provisioning race conditions.
- *
- * Workflow / How It Works:
- *   1. Bind an ephemeral AMQP listener queue on company.events exchange for workspace.initiated routing key.
- *   2. Issue HTTP POST /api/register with plan="shared" and assert HTTP 202 Accepted with tenant_id (tnt_*).
- *   3. Intercept workspace.initiated event on AMQP listener channel.
- *   4. Poll tenant_manager_db public.tenants until status reaches 'active'.
- *   5. Query Mailpit REST API to verify welcome email delivery.
- *   6. Provision user password credentials and authenticate via POST /auth/login to obtain RS256 JWT access token.
- *   7. Issue GET /api/notifications with Bearer token header and assert HTTP 200 OK.
- *   8. Create an order via POST /api/orders targeting shared schema-per-tenant DB and assert HTTP 201 Created.
- *   9. Retrieve orders via GET /api/orders and assert schema isolation.
  */
 
 package e2e_test
@@ -37,7 +26,7 @@ import (
 )
 
 const (
-	gatewayRegisterURL = "http://localhost:8000/api/register"
+	gatewayRegisterURL = "http://localhost:8000/api/tenants/register"
 	gatewayOrdersURL   = "http://localhost:8000/api/orders"
 	gatewayNotifsURL   = "http://localhost:8000/api/notifications"
 	tenantDBDSN        = "host=localhost port=5432 user=postgres password=postgres dbname=tenant_manager_db sslmode=disable"
@@ -115,7 +104,6 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 
 	// =========================================================================
 	// Step 1: Bind Ephemeral AMQP Listener Queue
-	// Instruction: Create queue bound to exchange company.events on key workspace.initiated.
 	// =========================================================================
 	rmqConn, err := amqp.Dial(rabbitmqDSN)
 	if err != nil {
@@ -144,7 +132,6 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 
 	// =========================================================================
 	// Step 2: Submit Shared Plan Registration Request
-	// Instruction: POST payload to Gateway /api/register and assert HTTP 202 Accepted.
 	// =========================================================================
 	ownerName, ownerEmail, tenantName, _ := generateFakeData("shared")
 	t.Logf("1. Submitting Registration: owner='%s', email='%s', tenant='%s', plan='shared'", ownerName, ownerEmail, tenantName)
@@ -170,31 +157,30 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&regResp); err != nil {
 		t.Fatalf("Failed to decode register response: %v", err)
 	}
-	tenantID := regResp.Data.TenantID
-	if tenantID == "" || !strings.HasPrefix(tenantID, "tnt_") {
-		t.Fatalf("Expected valid tenant_id starting with 'tnt_', got '%s'", tenantID)
-	}
-	t.Logf("2. Tenant registration accepted! tenant_id='%s'", tenantID)
+	t.Logf("2. Tenant registration accepted dynamically! Waiting for async processing...")
 
 	// =========================================================================
-	// Step 3: Intercept AMQP Event Payload
-	// Instruction: Read workspace.initiated event message from RabbitMQ queue within timeout.
+	// Step 3: Intercept AMQP Event Payload & Extract TenantID
 	// =========================================================================
+	var tenantID string
 	select {
 	case d := <-msgs:
 		var event map[string]any
 		_ = json.Unmarshal(d.Body, &event)
-		if event["tenant_id"] != tenantID {
-			t.Fatalf("RabbitMQ event tenant_id mismatch! Expected '%s', got '%v'", tenantID, event["tenant_id"])
+
+		// We now extract the tenantID directly from the message broker payload
+		tID, ok := event["tenant_id"].(string)
+		if !ok || tID == "" {
+			t.Fatalf("RabbitMQ event missing tenant_id: %v", event)
 		}
-		t.Logf("3. Verified workspace.initiated event on RabbitMQ for tenant_id='%s'", tenantID)
+		tenantID = tID
+		t.Logf("3. Extracted tenant_id='%s' from workspace.initiated event on RabbitMQ", tenantID)
 	case <-time.After(10 * time.Second):
 		t.Fatalf("Timed out waiting for workspace.initiated event")
 	}
 
 	// =========================================================================
 	// Step 4: Poll Database for Active Status
-	// Instruction: Query tenant_manager_db public.tenants table until status='active'.
 	// =========================================================================
 	db, err := sql.Open("postgres", tenantDBDSN)
 	if err != nil {
@@ -219,7 +205,6 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 
 	// =========================================================================
 	// Step 5: Verify Welcome Email in Mailpit
-	// Instruction: Query Mailpit REST API to verify notification delivery.
 	// =========================================================================
 	var emailReceived bool
 	for i := 0; i < 15; i++ {
@@ -256,10 +241,11 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 
 	// =========================================================================
 	// Step 6: Authenticate User & Test Notifications API
-	// Instruction: Provision credentials, authenticate via JWT, and verify GET /api/notifications.
 	// =========================================================================
-	userID := regResp.Data.UserID
+	// Safely resolve the user ID via DB polling since it's an asynchronous process
+	userID := resolveUserID(t, regResp, ownerEmail)
 	const e2ePassword = "e2e-test-password-123"
+
 	setCredentials(t, userID, tenantID, ownerEmail, e2ePassword)
 	accessToken := loginAndGetToken(t, ownerEmail, e2ePassword)
 
@@ -274,8 +260,6 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 
 	// =========================================================================
 	// Step 7: Create & Query Order on Shared Schema Database
-	// Instruction: Create an order via POST /api/orders and fetch orders via GET /api/orders.
-	// Architectural Invariant: Order service creates schema tenant_<slug>_order_db dynamically.
 	// =========================================================================
 	custID := gofakeit.UUID()
 	orderBody, _ := json.Marshal(OrderReq{

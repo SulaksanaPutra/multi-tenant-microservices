@@ -16,10 +16,10 @@ import (
 )
 
 type mockInternalAuthService struct {
-	CreatePasswordSetupTokenFn func(ctx context.Context, input service.CreateSetupTokenInput) (string, error)
+	CreatePasswordSetupTokenFn func(ctx context.Context, input service.InternalCreateSetupTokenInput) (string, error)
 }
 
-func (m *mockInternalAuthService) CreatePasswordSetupToken(ctx context.Context, input service.CreateSetupTokenInput) (string, error) {
+func (m *mockInternalAuthService) CreatePasswordSetupToken(ctx context.Context, input service.InternalCreateSetupTokenInput) (string, error) {
 	if m.CreatePasswordSetupTokenFn != nil {
 		return m.CreatePasswordSetupTokenFn(ctx, input)
 	}
@@ -34,7 +34,7 @@ func TestInternalAuthHandler_CreateSetupToken(t *testing.T) {
 		h := NewInternalAuthHandler(&mockInternalAuthService{})
 		r.POST("/internal/auth/setup-token", h.CreateSetupToken)
 
-		body := CreateSetupTokenRequest{UserID: "usr_1", TenantID: "tnt_1", Email: ""}
+		body := InternalCreateSetupTokenRequest{UserID: "usr_1", TenantID: "tnt_1", Email: ""}
 		jsonBytes, _ := json.Marshal(body)
 		req := httptest.NewRequest(http.MethodPost, "/internal/auth/setup-token", bytes.NewBuffer(jsonBytes))
 		req.Header.Set("Content-Type", "application/json")
@@ -50,7 +50,7 @@ func TestInternalAuthHandler_CreateSetupToken(t *testing.T) {
 		_, r := gin.CreateTestContext(w)
 
 		mockSvc := &mockInternalAuthService{
-			CreatePasswordSetupTokenFn: func(ctx context.Context, input service.CreateSetupTokenInput) (string, error) {
+			CreatePasswordSetupTokenFn: func(ctx context.Context, input service.InternalCreateSetupTokenInput) (string, error) {
 				return "", errors.New("db error")
 			},
 		}
@@ -58,7 +58,7 @@ func TestInternalAuthHandler_CreateSetupToken(t *testing.T) {
 		h := NewInternalAuthHandler(mockSvc)
 		r.POST("/internal/auth/setup-token", h.CreateSetupToken)
 
-		body := CreateSetupTokenRequest{UserID: "usr_1", TenantID: "tnt_1", Email: "user@example.com"}
+		body := InternalCreateSetupTokenRequest{UserID: "usr_1", TenantID: "tnt_1", Email: "user@example.com"}
 		jsonBytes, _ := json.Marshal(body)
 		req := httptest.NewRequest(http.MethodPost, "/internal/auth/setup-token", bytes.NewBuffer(jsonBytes))
 		req.Header.Set("Content-Type", "application/json")
@@ -74,7 +74,7 @@ func TestInternalAuthHandler_CreateSetupToken(t *testing.T) {
 		_, r := gin.CreateTestContext(w)
 
 		mockSvc := &mockInternalAuthService{
-			CreatePasswordSetupTokenFn: func(ctx context.Context, input service.CreateSetupTokenInput) (string, error) {
+			CreatePasswordSetupTokenFn: func(ctx context.Context, input service.InternalCreateSetupTokenInput) (string, error) {
 				return "setup_token_xyz", nil
 			},
 		}
@@ -82,7 +82,7 @@ func TestInternalAuthHandler_CreateSetupToken(t *testing.T) {
 		h := NewInternalAuthHandler(mockSvc)
 		r.POST("/internal/auth/setup-token", h.CreateSetupToken)
 
-		body := CreateSetupTokenRequest{UserID: "usr_1", TenantID: "tnt_1", Email: "user@example.com"}
+		body := InternalCreateSetupTokenRequest{UserID: "usr_1", TenantID: "tnt_1", Email: "user@example.com"}
 		jsonBytes, _ := json.Marshal(body)
 		req := httptest.NewRequest(http.MethodPost, "/internal/auth/setup-token", bytes.NewBuffer(jsonBytes))
 		req.Header.Set("Content-Type", "application/json")
@@ -92,7 +92,7 @@ func TestInternalAuthHandler_CreateSetupToken(t *testing.T) {
 			t.Fatalf("expected status 200, got %d", w.Code)
 		}
 
-		var resp httputil.StandardResponse[CreateSetupTokenResponse]
+		var resp httputil.StandardResponse[InternalCreateSetupTokenResponse]
 		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 			t.Fatalf("failed to unmarshal response: %v", err)
 		}

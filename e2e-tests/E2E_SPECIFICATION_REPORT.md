@@ -28,13 +28,13 @@ This document serves as the authoritative technical test specification and archi
 * **Architectural Scope**: `user-service`, `tenant-service`, `auth-service`, `infra-provisioner`, `order-service`, `notification-service`.
 * **Failure Modes Guarded**: Cross-tenant data leakage, unauthenticated order writes, asynchronous provisioning race conditions.
 * **Test Procedure**:
-  1. Issue HTTP request `POST /api/register` with `plan: "shared"`.
-  2. Assert HTTP 202 Accepted response containing `tenant_id` (`tnt_*`) and `user_id` (`usr_*`).
-  3. Intercept AMQP event `workspace.initiated` on exchange `company.events`.
-  4. Poll `tenant_manager_db.public.tenants` until `status` transitions to `active`.
+  1. Issue HTTP request `POST /api/tenants/register` with `plan: "shared"`.
+  2. Poll database until `tenants.status` transitions from `provisioning` to `active`.
+  3. Verify schema isolation: confirm dedicated schema `shared_db` contains database tables `orders` and `outbox_events`.
+  4. Verify AMQP fanout: check exchange `company.events` received routing keys `workspace.initiated` and `infrastructure.provisioned`.
   5. Query Mailpit REST API (`http://localhost:8025/api/v1/messages`) for welcome notification.
-  6. Request password setup token via `POST /internal/auth/setup-token` and complete password setup via `POST /auth/credentials/setup`.
-  7. Authenticate via `POST /auth/login` to obtain RS256 JWT access token.
+  6. Extract single-use setup token from welcome email and establish password.
+  7. Authenticate via `POST /api/auth/login` to obtain RS256 JWT access token.
   8. Issue HTTP request `GET /api/notifications` with `Authorization: Bearer <accessToken>` header and assert HTTP 200 OK.
   9. Issue HTTP request `POST /api/orders` with `Authorization: Bearer <accessToken>` header and assert HTTP 201 Created.
   10. Issue HTTP request `GET /api/orders` with `Authorization: Bearer <accessToken>` header and assert order retrieval from `shared_db`.
@@ -48,12 +48,12 @@ This document serves as the authoritative technical test specification and archi
 * **Architectural Scope**: `auth-service`, `infra-provisioner`, `order-service`, Docker Daemon (`/var/run/docker.sock`).
 * **Failure Modes Guarded**: Tenant compute interference, docker socket privilege escalation leaks, database user privilege over-granting.
 * **Test Procedure**:
-  1. Issue HTTP request `POST /api/register` with `plan: "dedicated"`.
-  2. Assert HTTP 202 Accepted response.
-  3. Verify `infra-provisioner` creates container `postgres-tenant-<id>` with 512MB RAM and 0.5 CPU limits.
-  4. Poll `tenant_manager_db.public.tenants` until `status` transitions to `active`.
-  5. Query routing metadata in `public.tenant_infrastructures`.
-  6. Provision credentials via `POST /internal/auth/setup-token` & `POST /auth/credentials/setup`, then authenticate via `POST /auth/login` to obtain JWT access token.
+  1. Issue HTTP request `POST /api/tenants/register` with `plan: "dedicated"`.
+  2. Poll database until `tenants.status` transitions from `provisioning` to `active`.
+  3. Verify schema isolation: confirm dedicated schema `tenant_<id>` is created with isolated tables.
+  4. Verify AMQP fanout: check exchange `company.events` received routing keys `workspace.initiated` and `infrastructure.provisioned`.
+  5. Query Mailpit REST API (`http://localhost:8025/api/v1/messages`) for welcome notification.
+  6. Provision credentials via `POST /internal/auth/setup-token` & `POST /api/auth/credentials/setup`, then authenticate via `POST /api/auth/login` to obtain JWT access token.
   7. Issue HTTP request `POST /api/orders` with `Authorization: Bearer <accessToken>` header targeting the dedicated container database.
   8. Issue HTTP request `GET /api/orders` with `Authorization: Bearer <accessToken>` header and verify order retrieval.
 * **Expected Guarantee**: Container provisioned, healthy, bootstrapped with domain user `order_user`, public schema privileges granted, and order data isolated on dedicated container compute.
@@ -122,22 +122,21 @@ This document serves as the authoritative technical test specification and archi
 * **Architectural Scope**: API Gateway validation layer, Gin binding controllers.
 * **Failure Modes Guarded**: Malformed payload propagation to internal queue layers, SQL/no-SQL injection attempts.
 * **Test Procedure**:
-  1. Issue HTTP request `POST /api/register` with malformed email payload (`invalid-email-format`).
-* **Expected Guarantee**: Gateway returns HTTP 400 Bad Request before database or message broker operations occur.
+  1. Issue HTTP request `POST /api/tenants/register` with malformed email payload (`invalid-email-format`).
+  2. Verify system returns HTTP 400 Bad Request and aborts transaction before hitting DB or MQ.
+  3. Attempt duplicate tenant registration with identical `tenant_name`.
+  4. Assert unique constraint error or handling strategy.
 
----
-
-### 3.8 Test Case TC-E2E-009: Outbox Broadcaster Retry Survival (Docs Case #1)
-* **Test File**: [`./tc_e2e_009_outbox_broker_outage_e2e_test.go`](./tc_e2e_009_outbox_broker_outage_e2e_test.go)
-* **Objective**: Validate At-Least-Once Delivery and Outbox Worker retry survival when the message broker is temporarily unavailable.
+### TC-E2E-008: Outbox Event Broker Publishing & Idempotency
+- **Goal**: Verify outbox pattern ensures at-least-once delivery without duplicate broker events.
+- **Steps**:
+  1. Trigger event-producing workflow.
+  2. Register a tenant via Gateway (`POST /api/tenants/register`). At-Least-Once Delivery and Outbox Worker retry survival when the message broker is temporarily unavailable.
 * **Architectural Scope**: Outbox Repository, Outbox Worker, RabbitMQ connection manager.
 * **Failure Modes Guarded**: Transactional event loss during broker downtime, crashing background workers.
 * **Test Procedure**:
   1. Stop RabbitMQ container (`docker stop rabbitmq`).
   2. Register a tenant via Gateway (`POST /api/register`).
-  3. Query `public.outbox` to verify outbox record is safely stored in database (`status = 'PENDING'`).
-  4. Restart RabbitMQ container (`docker start rabbitmq`) and wait for TCP connection initialization.
-  5. Trigger outbox dead-letter recovery sweeper and poll database until tenant reaches `active` status.
 * **Expected Guarantee**: Outbox worker handles broker downtime gracefully without crashing; publishes pending event upon broker recovery; tenant transitions to `active`.
 
 ---
@@ -179,7 +178,7 @@ This document serves as the authoritative technical test specification and archi
   2. Generate a synthetic JWT signed with the valid RSA private key but an `exp` claim set to 5 minutes ago.
   3. Issue `GET /api/orders` with the expired `access_token`.
   4. Assert HTTP 401 Unauthorized.
-  5. Issue `POST /auth/refresh` with the `refresh_token`.
+  5. Issue `POST /api/auth/refresh` with the `refresh_token`.
   6. Assert HTTP 200 OK and extract the new `access_token`.
   7. Issue `GET /api/orders` with the new token and assert HTTP 200 OK.
 * **Expected Guarantee**: Downstream services correctly reject expired JWTs locally; `auth-service` successfully validates the opaque token against `public.refresh_tokens` and issues a new pair.
@@ -192,11 +191,11 @@ This document serves as the authoritative technical test specification and archi
 * **Architectural Scope**: `auth-service` (`public.refresh_tokens`).
 * **Failure Modes Guarded**: Post-logout unauthorized token acquisition, stolen refresh token persistence.
 * **Test Procedure**:
-  1. Login to obtain `access_token` and `refresh_token`.
-  2. Issue `POST /auth/logout` using the `access_token` as authorization header and `refresh_token` in body.
-  3. Assert HTTP 200 OK.
-  4. Issue `POST /auth/refresh` using the previously valid `refresh_token`.
-  5. Assert HTTP 401 Unauthorized.
+  1. Register tenant & authenticate user.
+  2. Issue `POST /api/auth/logout` using the `access_token` as authorization header and `refresh_token` in body.
+  3. Verify Auth Service sets `revoked_at` timestamp in `public.refresh_tokens`.
+  4. Issue `POST /api/auth/refresh` using the previously valid `refresh_token`.
+  5. Verify Auth Service rejects refresh attempt with HTTP 401 Unauthorized.
 * **Expected Guarantee**: The `refresh_tokens` row is marked as revoked in the database; subsequent refresh attempts are permanently denied.
 
 ---
@@ -266,12 +265,12 @@ This document serves as the authoritative technical test specification and archi
 * **Architectural Scope**: `auth-service` Role Management API.
 * **Failure Modes Guarded**: Accidental or malicious mutation/deletion of platform system roles, system stability degradation.
 * **Test Procedure**:
-  1. Authenticate as tenant admin and fetch system roles (`GET /api/roles`).
-  2. Identify system role (`admin` or `viewer` with `is_system = true`).
-  3. Attempt to update system role permissions via `PUT /api/roles/:id/permissions`.
-  4. Assert HTTP 400 Bad Request or HTTP 403 Forbidden with `ErrSystemRoleProtected`.
-  5. Attempt to delete system role via `DELETE /api/roles/:id`.
-  6. Assert HTTP 400 Bad Request or HTTP 403 Forbidden with `ErrSystemRoleProtected`.
+  1. Authenticate as tenant admin and fetch system roles (`GET /api/auth/roles`).
+  2. Identify immutable system roles (`admin`, `viewer`).
+  3. Attempt to update system role permissions via `PUT /api/auth/roles/:id/permissions`.
+  4. Assert HTTP 400 Bad Request or HTTP 403 Forbidden rejection.
+  5. Attempt to delete system role via `DELETE /api/auth/roles/:id`.
+  6. Assert HTTP 400 Bad Request or HTTP 403 Forbidden rejection.th `ErrSystemRoleProtected`.
 * **Expected Guarantee**: Platform system default roles remain immutably protected against modification or deletion.
 
 ---

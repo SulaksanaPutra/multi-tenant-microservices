@@ -261,4 +261,26 @@ To maintain strict Clean Architecture boundaries and avoid transport coupling, e
 * **PROHIBITED:** Suffixing domain entity structs with `Record` (e.g. use `Tenant` instead of `TenantRecord`).
 * **Cognitive Collision Prevention Rule:** If a DB table's plural name (e.g. `tenant_services`) singularizes to an Application Service name (`TenantService`), the table MUST be named after its domain intent (e.g. `tenant_infrastructures` ──> `domain.TenantInfra`) to prevent mental model collisions between application services and database entities.
 
+### Rule 6.3: Internal Inter-Service vs. Public API Explicit Naming Rule
+
+To eliminate cognitive confusion between public user-facing operations and internal control-plane/inter-service operations:
+
+* **Presentation Layer (`internal/handler`)**:
+  - Handlers processing internal inter-service endpoints (authenticated via `InternalAuthMiddleware` or `X-Internal-Service-Token`) MUST use the `internal_` filename prefix and the `Internal` struct prefix:
+    - `internal_auth_handler.go` ──> `InternalAuthHandler`
+    - `internal_permission_handler.go` ──> `InternalPermissionHandler`
+    - `internal_tenant_handler.go` ──> `InternalTenantHandler`
+  - Transport DTOs for internal handlers MUST be prefixed with `Internal`:
+    - `Internal{Action}Request` (e.g. `InternalCreateSetupTokenRequest`, `InternalRegisterPermissionsRequest`)
+    - `Internal{Action}Response` (e.g. `InternalCreateSetupTokenResponse`, `InternalPermissionVersionResponse`, `InternalGetInfrastructureResponse`)
+* **Application Use-Case Layer (`internal/service`)**:
+  - Application services handling internal inter-service use cases MUST use the `internal_` filename prefix and the `Internal` struct prefix:
+    - `internal_auth_service.go` ──> `InternalAuthService`
+    - `internal_permission_service.go` ──> `InternalPermissionService`
+  - Service DTOs for internal services MUST be prefixed with `Internal`:
+    - `Internal{UseCase}Input` (e.g. `InternalCreateSetupTokenInput`, `InternalRegisterPermissionsInput`)
+    - `Internal{UseCase}Output` (e.g. `InternalCreateSetupTokenOutput`, `InternalRoutingOutput`)
+* **Persistence Layer (`internal/repository`)**:
+  - Repositories persist domain entities into PostgreSQL. Database storage mechanisms do NOT have transport scope concepts; repositories MUST maintain standard entity names (`RoleRepository`, `PermissionRepository`) without the `Internal` prefix.
+
 

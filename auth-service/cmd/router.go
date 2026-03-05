@@ -15,6 +15,7 @@ import (
 func newRouter(
 	authHandler *handler.AuthHandler,
 	internalAuthHandler *handler.InternalAuthHandler,
+	internalPermissionHandler *handler.InternalPermissionHandler,
 	permissionHandler *handler.PermissionHandler,
 	roleHandler *handler.RoleHandler,
 	jwtManager *crypto.JWTManager,
@@ -33,7 +34,7 @@ func newRouter(
 	r.GET("/.well-known/jwks.json", authHandler.JWKS)
 
 	// Auth endpoints (unauthenticated)
-	auth := r.Group("/auth")
+	auth := r.Group("/api/auth")
 	{
 		auth.POST("/credentials/setup", authHandler.SetupPassword)
 		auth.POST("/login", authHandler.Login)
@@ -44,9 +45,12 @@ func newRouter(
 	}
 
 	// Tenant Admin API endpoints (JWT authenticated)
-	api := r.Group("/api")
+	api := r.Group("/api/auth")
 	api.Use(middleware.RequireJWT(jwtManager))
 	{
+		// Permission catalog listing endpoint
+		api.GET("/permissions", permissionHandler.ListPermissions)
+
 		// Role management endpoints
 		api.POST("/roles", roleHandler.CreateRole)
 		api.GET("/roles", roleHandler.ListRoles)
@@ -60,13 +64,12 @@ func newRouter(
 	}
 
 	// Internal endpoints (authenticated via X-Internal-Service-Token)
-	internalGroup := r.Group("/internal")
+	internalGroup := r.Group("/internal/auth")
 	internalGroup.Use(middleware.InternalAuthMiddleware(internalToken))
 	{
-		internalGroup.POST("/auth/setup-token", internalAuthHandler.CreateSetupToken)
-		internalGroup.POST("/permissions/register", permissionHandler.RegisterPermissions)
-		internalGroup.GET("/permissions", permissionHandler.ListPermissions)
-		internalGroup.GET("/auth/users/:userID/perm-version", permissionHandler.GetUserPermissionVersion)
+		internalGroup.POST("/setup-token", internalAuthHandler.CreateSetupToken)
+		internalGroup.POST("/permissions/register", internalPermissionHandler.RegisterPermissions)
+		internalGroup.GET("/users/:userID/perm-version", internalPermissionHandler.GetUserPermissionVersion)
 	}
 
 	return r

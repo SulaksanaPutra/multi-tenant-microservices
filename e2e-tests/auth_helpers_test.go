@@ -35,8 +35,8 @@ import (
 
 const (
 	authServiceURL = "http://localhost:8085"
-	authLoginURL   = authServiceURL + "/auth/login"
-	authRefreshURL = authServiceURL + "/auth/refresh"
+	authLoginURL   = authServiceURL + "/api/auth/login"
+	authRefreshURL = authServiceURL + "/api/auth/refresh"
 
 	// userDBDSN is the local DSN for the user_db used as a fallback to resolve
 	// user_id when the registration response does not include it.
@@ -138,7 +138,7 @@ func setCredentials(t *testing.T, userID, tenantID, email, password string) {
 		"password": password,
 	})
 
-	resp, err := defaultHTTPClient.Post(authServiceURL+"/auth/credentials/setup", "application/json", bytes.NewBuffer(setupBody))
+	resp, err := defaultHTTPClient.Post(authServiceURL+"/api/auth/credentials/setup", "application/json", bytes.NewBuffer(setupBody))
 	if err != nil {
 		t.Fatalf("[Auth] POST /auth/credentials/setup failed: %v", err)
 	}

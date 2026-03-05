@@ -31,12 +31,15 @@ Domain services register their required permissions (e.g. `orders:create`, `orde
 ### HTTP Endpoints (Port 8085)
 | Method | Endpoint | Auth | Description |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/auth/credentials/setup` | None | Consume single-use setup token & set user password → return JWT pair |
+| `POST` | `/api/auth/credentials/setup` | None | Consume single-use setup token & set user password → return JWT pair |
+| `POST` | `/api/auth/login` | None | Authenticate email/password → return RS256 JWT & refresh token |
+| `POST` | `/api/auth/refresh` | None | Rotate refresh token → issue new RS256 JWT |
+| `POST` | `/api/auth/logout` | JWT Bearer | Revoke refresh token |
+| `GET` | `/api/auth/permissions` | JWT Bearer | Tenant Admin API to list available system permissions |
+| `POST` | `/api/auth/roles` | JWT Bearer | Create role with assigned permissions |
 | `POST` | `/internal/auth/setup-token` | `X-Internal-Service-Token` | Internal endpoint for setup token generation |
-| `POST` | `/internal/permissions/register` | `X-Internal-Service-Token` | Internal domain permission startup registration |
-| `POST` | `/auth/login` | None | Authenticate email/password → return RS256 JWT & refresh token |
-| `POST` | `/auth/refresh` | None | Rotate refresh token → issue new RS256 JWT |
-| `POST` | `/auth/logout` | JWT Bearer | Revoke refresh token |
+| `POST` | `/internal/auth/permissions/register` | `X-Internal-Service-Token` | Internal domain permission startup registration |
+| `GET` | `/internal/auth/users/:userID/perm-version` | `X-Internal-Service-Token` | Internal query for user permission version |
 | `GET` | `/.well-known/jwks.json` | None | RSA public key for downstream JWT signature verification |
 | `GET` | `/health` | None | Health check endpoint |
 
