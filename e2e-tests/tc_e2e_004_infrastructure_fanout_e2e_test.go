@@ -31,8 +31,7 @@ func TestE2E_InfrastructureFanout_BroadcastPurge(t *testing.T) {
 	t.Log("=== E2E Test: Infrastructure Changed Fanout Exchange Broadcast Purge (Docs Case #13 & #14) ===")
 
 	// =========================================================================
-	// Step 1: Establish RabbitMQ AMQP Connection
-	// Instruction: Dial RabbitMQ broker and open dedicated channel for broadcasting events.
+	// Step 1: Establish RabbitMQ AMQP Connection & Listener
 	// =========================================================================
 	rmqConn, err := amqp.Dial(rabbitmqDSN)
 	if err != nil {
@@ -46,10 +45,22 @@ func TestE2E_InfrastructureFanout_BroadcastPurge(t *testing.T) {
 	}
 	defer ch.Close()
 
+	// Bind queue to intercept the generated tenant_id from registration
+	q, err := ch.QueueDeclare("", false, true, true, false, nil)
+	if err != nil {
+		t.Fatalf("Failed to declare queue: %v", err)
+	}
+	if err := ch.QueueBind(q.Name, "workspace.initiated", "company.events", false, nil); err != nil {
+		t.Fatalf("Failed to bind queue: %v", err)
+	}
+
+	msgs, err := ch.Consume(q.Name, "", true, false, false, false, nil)
+	if err != nil {
+		t.Fatalf("Failed to consume from queue: %v", err)
+	}
+
 	// =========================================================================
-	// Step 2: Register Shared Tenant & Warm Connection Pool Cache
-	// Instruction: Register tenant, await activation, authenticate, and issue initial order creation request
-	//              to populate order-service in-memory PoolRegistry connection cache.
+	// Step 2: Register Shared Tenant
 	// =========================================================================
 	ownerName, ownerEmail, tenantName, _ := generateFakeData("shared")
 	reqBody, _ := json.Marshal(RegisterReq{
@@ -67,9 +78,29 @@ func TestE2E_InfrastructureFanout_BroadcastPurge(t *testing.T) {
 
 	var regResp RegisterResp
 	_ = json.NewDecoder(resp.Body).Decode(&regResp)
-	tenantID := regResp.Data.TenantID
 
-	// Wait for tenant activation in database
+	// =========================================================================
+	// Step 3: Intercept AMQP Event Payload & Extract TenantID
+	// =========================================================================
+	var tenantID string
+	select {
+	case d := <-msgs:
+		var event map[string]any
+		_ = json.Unmarshal(d.Body, &event)
+
+		tID, ok := event["tenant_id"].(string)
+		if !ok || tID == "" {
+			t.Fatalf("RabbitMQ event missing tenant_id: %v", event)
+		}
+		tenantID = tID
+		t.Logf("Intercepted tenant_id='%s' from RabbitMQ", tenantID)
+	case <-time.After(10 * time.Second):
+		t.Fatalf("Timed out waiting for workspace.initiated event")
+	}
+
+	// =========================================================================
+	// Step 4: Await Activation & Warm Connection Pool Cache
+	// =========================================================================
 	db, err := sql.Open("postgres", tenantDBDSN)
 	if err != nil {
 		t.Fatalf("Failed to connect to tenant_manager_db: %v", err)
@@ -90,7 +121,8 @@ func TestE2E_InfrastructureFanout_BroadcastPurge(t *testing.T) {
 		t.Fatalf("Tenant %s failed to reach 'active' status. Final status: '%s'", tenantID, tenantStatus)
 	}
 
-	userID := regResp.Data.UserID
+	// Use safe resolution for asynchronous user ID
+	userID := resolveUserID(t, regResp, ownerEmail)
 	const e2ePassword = "e2e-test-password-123"
 	setCredentials(t, userID, tenantID, ownerEmail, e2ePassword)
 	accessToken := loginAndGetToken(t, ownerEmail, e2ePassword)
@@ -107,10 +139,7 @@ func TestE2E_InfrastructureFanout_BroadcastPurge(t *testing.T) {
 	}
 
 	// =========================================================================
-	// Step 3: Broadcast Infrastructure Changed Event Over Fanout Exchange
-	// Instruction: Publish tenant.infrastructure_changed AMQP event to company.events exchange.
-	// Architectural Invariant: Event fanout broadcasts to exclusive, auto-delete queues bound by
-	//                          all running order-service instances to purge connection cache.
+	// Step 5: Broadcast Infrastructure Changed Event Over Fanout Exchange
 	// =========================================================================
 	fanoutEvt, _ := json.Marshal(map[string]any{
 		"tenant_id": tenantID,
@@ -135,10 +164,7 @@ func TestE2E_InfrastructureFanout_BroadcastPurge(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// =========================================================================
-	// Step 4: Verify Connection Cache Purge & Re-Resolution
-	// Instruction: Issue follow-up GET /api/orders request with authorization header.
-	// Architectural Invariant: Order service detects purged cache, re-queries tenant_manager_db DSN,
-	//                          re-establishes pool, and succeeds with HTTP 200 OK.
+	// Step 6: Verify Connection Cache Purge & Re-Resolution
 	// =========================================================================
 	followUpReq, _ := http.NewRequest("GET", gatewayOrdersURL, nil)
 	followUpReq.Header.Set("Authorization", bearerHeader(accessToken))

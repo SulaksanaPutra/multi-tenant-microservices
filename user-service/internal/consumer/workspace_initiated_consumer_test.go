@@ -248,4 +248,63 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 			t.Error("expected requeue=true for transient service error")
 		}
 	})
+
+	t.Run("misrouted_routing_key_acks_and_discards", func(t *testing.T) {
+		// Simulates a ghost AMQP binding delivering a user.created message to
+		// the user_service_workspace_initiated queue. The routing key guard must
+		// discard silently with Ack — no inbox write, no user service call.
+		body, _ := json.Marshal(domain.UserCreatedEvent{
+			EventID:  "evt-misrouted-3",
+			UserID:   "usr_misrouted",
+			TenantID: "tenant-misrouted",
+			Email:    "wrong@example.com",
+		})
+
+		inboxCalled := false
+		inboxSvc := &mockInboxService{
+			claimEventFunc: func(txCtx context.Context, eventID string) (bool, error) {
+				inboxCalled = true
+				return false, nil
+			},
+		}
+
+		userSvcCalled := false
+		userSvc := &mockUserService{
+			createUserFromWorkspaceFunc: func(ctx context.Context, input service.CreateUserFromWorkspaceInput) error {
+				userSvcCalled = true
+				return nil
+			},
+		}
+
+		c := &WorkspaceInitiatedConsumer{
+			txManager:    &mockTxManager{},
+			inboxService: inboxSvc,
+			userService:  userSvc,
+		}
+
+		mockAck := &mockAcknowledger{}
+		d := rabbitmq.Delivery{
+			Acknowledger: mockAck,
+			Body:         body,
+			RoutingKey:   domain.RoutingKeyUserCreated, // misrouted!
+		}
+
+		err := c.handleDelivery(context.Background(), d)
+		if err != nil {
+			t.Fatalf("expected no error for misrouted message, got %v", err)
+		}
+		if !mockAck.ackCalled {
+			t.Error("expected ACK to drain misrouted message from queue")
+		}
+		if mockAck.nackCalled {
+			t.Error("expected no NACK for misrouted message")
+		}
+		if inboxCalled {
+			t.Error("expected inbox service NOT to be called for misrouted message")
+		}
+		if userSvcCalled {
+			t.Error("expected user service NOT to be called for misrouted message")
+		}
+	})
 }
+

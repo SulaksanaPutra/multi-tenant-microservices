@@ -145,7 +145,7 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 
 	resp, err := defaultHTTPClient.Post(gatewayRegisterURL, "application/json", bytes.NewBuffer(reqBody))
 	if err != nil {
-		t.Fatalf("HTTP POST /api/register failed: %v", err)
+		t.Fatalf("HTTP POST /api/tenants/register failed: %v", err)
 	}
 	defer resp.Body.Close()
 

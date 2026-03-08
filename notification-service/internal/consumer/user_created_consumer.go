@@ -154,6 +154,19 @@ func (c *UserCreatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) e
 }
 
 func (c *UserCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
+	// =========================================================================
+	// Routing Key Guard: contract enforcement at the consumer boundary.
+	// Rejects any message whose routing key does not match this consumer's
+	// declared contract. This defends against ghost AMQP bindings that can
+	// accumulate from topology misconfigurations, ops errors, or E2E test
+	// queue state leaking between consecutive runs.
+	// =========================================================================
+	if d.RoutingKey != domain.RoutingKeyUserCreated && d.RoutingKey != "" {
+		log.Printf("[WARN] UserCreatedConsumer: Received misrouted message with routing_key='%s' (expected '%s'). Discarding. Check AMQP queue topology for ghost bindings.", d.RoutingKey, domain.RoutingKeyUserCreated)
+		_ = d.Ack(false) // Ack to drain from queue; no valid handler exists on this consumer
+		return nil
+	}
+
 	var evt domain.UserCreatedEvent
 	if err := json.Unmarshal(d.Body, &evt); err != nil {
 		log.Printf("Error unmarshaling UserCreated payload: %v", err)

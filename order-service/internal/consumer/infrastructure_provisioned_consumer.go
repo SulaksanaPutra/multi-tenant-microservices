@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 
 	"order-service/internal/crypto"
 	"order-service/internal/domain"
@@ -150,6 +151,12 @@ func (c *InfrastructureProvisionedConsumer) handleDelivery(ctx context.Context, 
 		log.Printf("InfrastructureProvisionedConsumer Error: Bad payload: %v", err)
 		_ = d.Nack(false, false)
 		return err
+	}
+
+	if strings.TrimSpace(evt.TenantID) == "" {
+		log.Printf("InfrastructureProvisionedConsumer Error: Missing tenant_id in payload, discarding message.")
+		_ = d.Nack(false, false)
+		return errors.New("missing tenant_id in payload")
 	}
 
 	// Check delivery count to prevent infinite poison pill retry loops

@@ -51,8 +51,7 @@ type RegisterRequest struct {
 }
 
 type RegisterResponseData struct {
-	UserID   string `json:"user_id"`
-	TenantID string `json:"tenant_id"`
+	Status string `json:"status"`
 }
 
 type RegisterResponse struct {
@@ -182,14 +181,42 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 		t.Fatalf("Failed to decode response JSON: %v", err)
 	}
 
-	if regResp.Data.TenantID == "" || !strings.HasPrefix(regResp.Data.TenantID, "tnt_") {
-		t.Fatalf("Expected valid tenant_id starting with 'tnt_', got '%s'", regResp.Data.TenantID)
+	if regResp.Data.Status != "accepted" && regResp.Status != "success" {
+		t.Fatalf("Expected accepted registration status, got data.status='%s', status='%s'", regResp.Data.Status, regResp.Status)
 	}
 
-	t.Logf("2. [Tenant Service] Registration accepted via Gateway! tenant_id='%s'", regResp.Data.TenantID)
+	t.Logf("2. [Tenant Service] Registration accepted via Gateway! Response status='%s' (tenant_id sanitized from HTTP response for security)", regResp.Data.Status)
 
 	// =========================================================================
-	// Step 3: Verify PostgreSQL Control Plane Persistence
+	// Step 3: Intercept WorkspaceInitiated Event Payload & Extract TenantID
+	// Instruction: Read message from ephemeral AMQP listener channel within 15s timeout.
+	// Architectural Invariant: tenant_id is communicated via control-plane events, not public HTTP APIs.
+	// =========================================================================
+	var tenantID string
+	select {
+	case d := <-msgs:
+		var event WorkspaceInitiatedEvent
+		if err := json.Unmarshal(d.Body, &event); err != nil {
+			t.Fatalf("Failed to unmarshal WorkspaceInitiated event payload: %v", err)
+		}
+
+		if event.TenantID == "" || !strings.HasPrefix(event.TenantID, "tnt_") {
+			t.Fatalf("Expected valid tenant_id starting with 'tnt_' in AMQP event, got '%s'", event.TenantID)
+		}
+
+		if event.OwnerEmail != testEmail {
+			t.Fatalf("Event owner_email mismatch! Expected '%s', got '%s'", testEmail, event.OwnerEmail)
+		}
+
+		tenantID = event.TenantID
+		t.Logf("3. [Tenant Service] Intercepted WorkspaceInitiated event from RabbitMQ! Extracted tenant_id='%s', owner_email='%s'", tenantID, event.OwnerEmail)
+
+	case <-time.After(15 * time.Second):
+		t.Fatalf("Timed out waiting for WorkspaceInitiated RabbitMQ event")
+	}
+
+	// =========================================================================
+	// Step 4: Verify PostgreSQL Control Plane Persistence
 	// Instruction: Query tenant_manager_db public.tenants table for registered tenant_id.
 	// =========================================================================
 	db, err := sql.Open("postgres", postgresDSN)
@@ -199,7 +226,7 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 	defer db.Close()
 
 	var dbTenantName, dbTenantSlug, dbOwnerEmail string
-	err = db.QueryRow("SELECT name, slug, owner_email FROM public.tenants WHERE id = $1", regResp.Data.TenantID).Scan(&dbTenantName, &dbTenantSlug, &dbOwnerEmail)
+	err = db.QueryRow("SELECT name, slug, owner_email FROM public.tenants WHERE id = $1", tenantID).Scan(&dbTenantName, &dbTenantSlug, &dbOwnerEmail)
 	if err != nil {
 		t.Fatalf("Failed to find inserted tenant in public.tenants: %v", err)
 	}
@@ -208,11 +235,11 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 		t.Fatalf("Tenant owner_email mismatch in public.tenants! Expected '%s', got '%s'", testEmail, dbOwnerEmail)
 	}
 
-	t.Logf("3. [Tenant Service] Verified public.tenants (id='%s', owner_email='%s') record!",
-		regResp.Data.TenantID, dbOwnerEmail)
+	t.Logf("4. [Tenant Service] Verified public.tenants (id='%s', owner_email='%s') record!",
+		tenantID, dbOwnerEmail)
 
 	// =========================================================================
-	// Step 4: Verify Message Broker Exchange Status
+	// Step 5: Verify Message Broker Exchange Status
 	// Instruction: Query RabbitMQ Management REST API to verify company.events exchange existence.
 	// =========================================================================
 	rmqReq, _ := http.NewRequest("GET", rabbitmqAPI, nil)
@@ -222,32 +249,7 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 		t.Fatalf("Failed to query RabbitMQ Management API (%s): %v", rabbitmqAPI, err)
 	}
 	rmqResp.Body.Close()
-	t.Logf("4. [RabbitMQ Broker] Verified 'company.events' exchange in RabbitMQ Management UI API!")
-
-	// =========================================================================
-	// Step 5: Intercept WorkspaceInitiated Event Payload
-	// Instruction: Read message from ephemeral AMQP listener channel within 15s timeout.
-	// =========================================================================
-	select {
-	case d := <-msgs:
-		var event WorkspaceInitiatedEvent
-		if err := json.Unmarshal(d.Body, &event); err != nil {
-			t.Fatalf("Failed to unmarshal WorkspaceInitiated event payload: %v", err)
-		}
-
-		if event.TenantID != regResp.Data.TenantID {
-			t.Fatalf("Event tenant_id mismatch! Expected '%s', got '%s'", regResp.Data.TenantID, event.TenantID)
-		}
-
-		if event.OwnerEmail != testEmail {
-			t.Fatalf("Event owner_email mismatch! Expected '%s', got '%s'", testEmail, event.OwnerEmail)
-		}
-
-		t.Logf("5. [Tenant Service] Verified WorkspaceInitiated event published to RabbitMQ! tenant_id='%s', owner_email='%s'", event.TenantID, event.OwnerEmail)
-
-	case <-time.After(15 * time.Second):
-		t.Fatalf("Timed out waiting for WorkspaceInitiated RabbitMQ event")
-	}
+	t.Logf("5. [RabbitMQ Broker] Verified 'company.events' exchange in RabbitMQ Management UI API!")
 
 	// =========================================================================
 	// Step 6: Verify Database Status & Mailpit Welcome Notification
@@ -255,12 +257,12 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 	//              extract raw setup token, setup password, and issue authenticated orders request.
 	// =========================================================================
 	var tenantStatus string
-	err = db.QueryRow("SELECT status FROM public.tenants WHERE id = $1", regResp.Data.TenantID).Scan(&tenantStatus)
+	err = db.QueryRow("SELECT status FROM public.tenants WHERE id = $1", tenantID).Scan(&tenantStatus)
 	if err != nil {
 		t.Fatalf("Failed to query tenant status in public.tenants: %v", err)
 	}
 
-	t.Logf("6. [Tenant Service] Verified tenant_id='%s' record in public.tenants (status='%s')!", regResp.Data.TenantID, tenantStatus)
+	t.Logf("6. [Tenant Service] Verified tenant_id='%s' record in public.tenants (status='%s')!", tenantID, tenantStatus)
 
 	var mailpitFound bool
 	var messageID string
@@ -312,7 +314,7 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 		}
 		_ = json.Unmarshal(msgBytes, &msgDetail)
 
-		tokenRegexp := regexp.MustCompile(`token=([a-zA-Z0-9_\-]+)`)
+		tokenRegexp := regexp.MustCompile(`token=([a-zA-Z0-9_\-=]+)`)
 		matches := tokenRegexp.FindStringSubmatch(msgDetail.Text)
 		if len(matches) < 2 {
 			t.Fatalf("Failed to find setup token in welcome email text: %s", msgDetail.Text)

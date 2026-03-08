@@ -24,6 +24,18 @@ func NewInboxRepository(dbClient *postgres.Client) *InboxRepository {
 	return &InboxRepository{dbClient: dbClient}
 }
 
+func (r *InboxRepository) AcquireTenantLock(ctx context.Context, tenantID string) error {
+	if tenantID == "" {
+		return nil
+	}
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
+	const query = `SELECT pg_advisory_xact_lock(hashtext($1));`
+	if _, err := exec.ExecContext(ctx, query, tenantID); err != nil {
+		return fmt.Errorf("failed to acquire pg_advisory_xact_lock for tenant_id='%s': %w", tenantID, err)
+	}
+	return nil
+}
+
 func (r *InboxRepository) TryInsert(ctx context.Context, input CreateInboxMessageInput) (bool, error) {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	const query = `

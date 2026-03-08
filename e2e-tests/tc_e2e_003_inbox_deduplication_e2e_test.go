@@ -17,10 +17,8 @@
 package e2e_test
 
 import (
-	"bytes"
 	"database/sql"
 	"encoding/json"
-	"net/http"
 	"testing"
 	"time"
 
@@ -52,38 +50,13 @@ func TestE2E_InboxDeduplication_BarrierSafety(t *testing.T) {
 	// Instruction: Register tenant via Gateway POST /api/register and poll tenant_manager_db
 	//              until status transitions to 'active'.
 	// =========================================================================
-	ownerName, ownerEmail, tenantName, _ := generateFakeData("shared")
-	reqBody, _ := json.Marshal(RegisterReq{
-		OwnerEmail: ownerEmail,
-		OwnerName:  ownerName,
-		Plan:       "shared",
-		TenantName: tenantName,
-	})
-
-	resp, err := http.Post(gatewayRegisterURL, "application/json", bytes.NewBuffer(reqBody))
-	if err != nil || resp.StatusCode != http.StatusAccepted {
-		t.Fatalf("Failed to register tenant for deduplication test: %v", err)
-	}
-	defer resp.Body.Close()
-
-	var regResp RegisterResp
-	_ = json.NewDecoder(resp.Body).Decode(&regResp)
-	tenantID := regResp.Data.TenantID
+	tenantID, _, _, _ := registerAndActivateTenant(t)
 
 	db, err := sql.Open("postgres", tenantDBDSN)
 	if err != nil {
 		t.Fatalf("Failed to connect to tenant_manager_db: %v", err)
 	}
 	defer db.Close()
-
-	for i := 0; i < 20; i++ {
-		var status string
-		_ = db.QueryRow("SELECT status FROM public.tenants WHERE id = $1", tenantID).Scan(&status)
-		if status == "active" {
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
 
 	// =========================================================================
 	// Step 3: Publish Synthetic Duplicate AMQP Events

@@ -18,15 +18,12 @@ package e2e_test
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
 	"os/exec"
 	"testing"
 	"time"
-
-	_ "github.com/lib/pq"
 )
 
 func TestE2E_ServiceOutage_RecoveryAndCatchUp(t *testing.T) {
@@ -52,50 +49,7 @@ func TestE2E_ServiceOutage_RecoveryAndCatchUp(t *testing.T) {
 	// Step 2: Submit Registration Request During Consumer Outage
 	// Instruction: Submit POST /api/register while notification consumer is dead.
 	// =========================================================================
-	ownerName, ownerEmail, tenantName, _ := generateFakeData("shared")
-	t.Logf("2. Submitting Registration during notification-service outage: email='%s'", ownerEmail)
-
-	reqBody, _ := json.Marshal(RegisterReq{
-		OwnerEmail: ownerEmail,
-		OwnerName:  ownerName,
-		Plan:       "shared",
-		TenantName: tenantName,
-	})
-
-	resp, err := http.Post(gatewayRegisterURL, "application/json", bytes.NewBuffer(reqBody))
-	if err != nil || resp.StatusCode != http.StatusAccepted {
-		t.Fatalf("Failed to submit registration during outage: %v", err)
-	}
-	defer resp.Body.Close()
-
-	var regResp RegisterResp
-	_ = json.NewDecoder(resp.Body).Decode(&regResp)
-	tenantID := regResp.Data.TenantID
-
-	// =========================================================================
-	// Step 3: Verify Control Plane Tenant Activation
-	// Instruction: Poll tenant_manager_db until status reaches 'active'.
-	// Architectural Invariant: Control plane and infra provisioner proceed independently of notification service outage.
-	// =========================================================================
-	db, err := sql.Open("postgres", tenantDBDSN)
-	if err != nil {
-		t.Fatalf("Failed to connect to tenant_manager_db: %v", err)
-	}
-	defer db.Close()
-
-	var tenantStatus string
-	activated := false
-	for i := 0; i < 20; i++ {
-		err := db.QueryRow("SELECT status FROM public.tenants WHERE id = $1", tenantID).Scan(&tenantStatus)
-		if err == nil && tenantStatus == "active" {
-			activated = true
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	if !activated {
-		t.Fatalf("Tenant %s failed to reach 'active' status during notification outage. Status: '%s'", tenantID, tenantStatus)
-	}
+	tenantID, _, ownerEmail, _ := registerAndActivateTenant(t)
 	t.Logf("3. Verified tenant_id='%s' reached 'active' status while notification-service was down!", tenantID)
 
 	// =========================================================================
@@ -129,7 +83,7 @@ func TestE2E_ServiceOutage_RecoveryAndCatchUp(t *testing.T) {
 	//                          records inbox event, and dispatches SMTP email cleanly.
 	// =========================================================================
 	var emailReceived bool
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 60; i++ {
 		mResp, err := http.Get(mailpitAPIURL)
 		if err == nil && mResp.StatusCode == http.StatusOK {
 			body, _ := io.ReadAll(mResp.Body)

@@ -12,6 +12,7 @@ import (
 type InboxServiceRepository interface {
 	TryInsert(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error)
 	GetEventsByTenantID(ctx context.Context, tenantID string) ([]domain.InboxMessage, error)
+	AcquireTenantLock(ctx context.Context, tenantID string) error
 }
 
 type InboxService struct {
@@ -25,13 +26,19 @@ func NewInboxService(inboxRepository InboxServiceRepository) *InboxService {
 }
 
 // ClaimEvent participates in the Outer Unit-of-Work passed via txCtx.
-// It attempts to atomically insert the event into the inbox table.
+// It acquires a transactional advisory lock on tenantID (to serialize barrier checks across concurrent transactions/replicas)
+// and attempts to atomically insert the event into the inbox table.
 // Returns (isDuplicate=true, nil) if the event_id was already processed — caller should skip cleanly.
 // Returns (false, nil) if the event is new and safe to process.
 // Returns (false, err) on infrastructure failure — caller should NACK for retry.
 func (s *InboxService) ClaimEvent(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
 	if input.EventID == "" {
 		return false, nil
+	}
+	if input.TenantID != "" {
+		if err := s.inboxRepository.AcquireTenantLock(txCtx, input.TenantID); err != nil {
+			return false, fmt.Errorf("inbox service: failed to acquire tenant lock for tenant_id='%s': %w", input.TenantID, err)
+		}
 	}
 	isDuplicate, err := s.inboxRepository.TryInsert(txCtx, input)
 	if err != nil {

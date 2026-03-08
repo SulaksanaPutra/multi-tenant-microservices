@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 const (
@@ -76,12 +77,12 @@ type customJWTClaims struct {
 // --------------------------------------------------------------------------
 
 // setCredentials provisions a password for a newly registered user via the
-// internal setup-token endpoint and the POST /auth/credentials/setup flow.
+// internal setup-token endpoint and the POST /api/auth/credentials/setup flow.
 //
 // Instruction:
 //   1. Request setup token from auth-service internal endpoint (/internal/auth/setup-token).
 //   2. Retry up to 5 times with exponential backoff to handle asynchronous user creation races.
-//   3. Submit password setup payload to POST /auth/credentials/setup.
+//   3. Submit password setup payload to POST /api/auth/credentials/setup.
 //
 // Architectural Invariant:
 //   User must be fully provisioned in public.user_credentials before attempting login.
@@ -140,18 +141,18 @@ func setCredentials(t *testing.T, userID, tenantID, email, password string) {
 
 	resp, err := defaultHTTPClient.Post(authServiceURL+"/api/auth/credentials/setup", "application/json", bytes.NewBuffer(setupBody))
 	if err != nil {
-		t.Fatalf("[Auth] POST /auth/credentials/setup failed: %v", err)
+		t.Fatalf("[Auth] POST /api/auth/credentials/setup failed: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("[Auth] setCredentials: POST /auth/credentials/setup returned status %d", resp.StatusCode)
+		t.Fatalf("[Auth] setCredentials: POST /api/auth/credentials/setup returned status %d", resp.StatusCode)
 	}
 
 	t.Logf("[Auth] Credentials provisioned for email='%s' user_id='%s'", email, userID)
 }
 
-// loginAndGetToken authenticates via POST /auth/login and returns the short-lived JWT access token.
+// loginAndGetToken authenticates via POST /api/auth/login and returns the short-lived JWT access token.
 // Instruction: Calls loginAndGetTokenPair and extracts only the access token for convenience.
 func loginAndGetToken(t *testing.T, email, password string) string {
 	t.Helper()
@@ -159,9 +160,9 @@ func loginAndGetToken(t *testing.T, email, password string) string {
 	return accessToken
 }
 
-// loginAndGetTokenPair calls POST /auth/login and returns both the access token and refresh token.
+// loginAndGetTokenPair calls POST /api/auth/login and returns both the access token and refresh token.
 // Instruction:
-//   1. Submits POST /auth/login request with user email and password.
+//   1. Submits POST /api/auth/login request with user email and password.
 //   2. Decodes JSON token envelope and verifies presence of access_token and refresh_token.
 func loginAndGetTokenPair(t *testing.T, email, password string) (accessToken, refreshToken string) {
 	t.Helper()
@@ -173,12 +174,12 @@ func loginAndGetTokenPair(t *testing.T, email, password string) (accessToken, re
 
 	resp, err := defaultHTTPClient.Post(authLoginURL, "application/json", bytes.NewBuffer(body))
 	if err != nil {
-		t.Fatalf("[Auth] POST /auth/login failed: %v", err)
+		t.Fatalf("[Auth] POST /api/auth/login failed: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("[Auth] POST /auth/login returned status %d", resp.StatusCode)
+		t.Fatalf("[Auth] POST /api/auth/login returned status %d", resp.StatusCode)
 	}
 
 	var tokenResp authTokenResponse
@@ -316,3 +317,132 @@ func resolveUserID(t *testing.T, regResp RegisterResp, ownerEmail string) string
 	t.Fatalf("[Setup] Could not resolve user_id for email='%s' within 10 seconds", ownerEmail)
 	return ""
 }
+
+// resolveTenantID resolves the tenant ID for a given owner email from tenant_manager_db.
+func resolveTenantID(t *testing.T, ownerEmail string) string {
+	t.Helper()
+
+	db, err := sql.Open("postgres", tenantDBDSN)
+	if err != nil {
+		t.Fatalf("[Setup] Failed to open tenant_manager_db connection: %v", err)
+	}
+	defer db.Close()
+
+	var tenantID string
+	for i := 0; i < 20; i++ {
+		err := db.QueryRow("SELECT id FROM public.tenants WHERE owner_email = $1", ownerEmail).Scan(&tenantID)
+		if err == nil && tenantID != "" {
+			return tenantID
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	t.Fatalf("[Setup] Could not resolve tenant_id for email='%s' within 10 seconds", ownerEmail)
+	return ""
+}
+
+// registerAndActivateTenant executes the asynchronous tenant registration flow:
+// 1. Connects to RabbitMQ using rabbitmqDSN.
+// 2. Binds an ephemeral queue to company.events exchange on workspace.initiated routing key.
+// 3. Submits HTTP POST /api/tenants/register request using generateFakeData.
+// 4. Waits for the workspace.initiated event on RabbitMQ (10s timeout) and extracts tenant_id.
+// 5. Polls tenant_manager_db using waitForTenantActive until status is 'active'.
+// 6. Resolves user_id using resolveUserID.
+// 7. Returns tenantID, userID, ownerEmail, and a generated password.
+func registerAndActivateTenant(t *testing.T, plan ...string) (tenantID, userID, ownerEmail, password string) {
+	t.Helper()
+
+	planName := "shared"
+	if len(plan) > 0 && plan[0] != "" {
+		planName = plan[0]
+	}
+
+	// 1. Connect to RabbitMQ
+	rmqConn, err := amqp.Dial(rabbitmqDSN)
+	if err != nil {
+		t.Fatalf("[Setup] Failed to connect to RabbitMQ: %v", err)
+	}
+	defer rmqConn.Close()
+
+	ch, err := rmqConn.Channel()
+	if err != nil {
+		t.Fatalf("[Setup] Failed to open RabbitMQ channel: %v", err)
+	}
+	defer ch.Close()
+
+	// 2. Declare ephemeral queue bound to company.events on workspace.initiated
+	q, err := ch.QueueDeclare("", false, true, true, false, nil)
+	if err != nil {
+		t.Fatalf("[Setup] Failed to declare RabbitMQ queue: %v", err)
+	}
+	if err := ch.QueueBind(q.Name, "workspace.initiated", "company.events", false, nil); err != nil {
+		t.Fatalf("[Setup] Failed to bind RabbitMQ queue: %v", err)
+	}
+
+	msgs, err := ch.Consume(q.Name, "", true, false, false, false, nil)
+	if err != nil {
+		t.Fatalf("[Setup] Failed to consume from RabbitMQ queue: %v", err)
+	}
+
+	// 3. Submit HTTP POST /api/tenants/register
+	ownerName, ownerEmail, tenantName, _ := generateFakeData(planName)
+	t.Logf("[Setup] Submitting Registration: owner='%s', email='%s', tenant='%s', plan='%s'", ownerName, ownerEmail, tenantName, planName)
+
+	reqBody, _ := json.Marshal(RegisterReq{
+		OwnerEmail: ownerEmail,
+		OwnerName:  ownerName,
+		Plan:       planName,
+		TenantName: tenantName,
+	})
+
+	resp, err := defaultHTTPClient.Post(gatewayRegisterURL, "application/json", bytes.NewBuffer(reqBody))
+	if err != nil {
+		t.Fatalf("[Setup] HTTP POST /api/tenants/register failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("[Setup] Expected HTTP 202 Accepted, got %d", resp.StatusCode)
+	}
+
+	var regResp RegisterResp
+	if err := json.NewDecoder(resp.Body).Decode(&regResp); err != nil {
+		t.Fatalf("[Setup] Failed to decode register response: %v", err)
+	}
+
+	// 4. Wait for workspace.initiated event on RabbitMQ queue (10s timeout) and extract tenant_id
+	select {
+	case d := <-msgs:
+		var event map[string]any
+		if err := json.Unmarshal(d.Body, &event); err != nil {
+			t.Fatalf("[Setup] Failed to unmarshal RabbitMQ event payload: %v", err)
+		}
+		tID, ok := event["tenant_id"].(string)
+		if !ok || tID == "" {
+			t.Fatalf("[Setup] RabbitMQ event missing tenant_id: %v", event)
+		}
+		tenantID = tID
+		t.Logf("[Setup] Extracted tenant_id='%s' from workspace.initiated event on RabbitMQ", tenantID)
+	case <-time.After(10 * time.Second):
+		t.Fatalf("[Setup] Timed out waiting for workspace.initiated event on RabbitMQ")
+	}
+
+	// 5. Poll tenant_manager_db using waitForTenantActive until status is 'active'
+	db, err := sql.Open("postgres", tenantDBDSN)
+	if err != nil {
+		t.Fatalf("[Setup] Failed to connect to tenant_manager_db: %v", err)
+	}
+	defer db.Close()
+
+	waitForTenantActive(t, db, tenantID)
+
+	// 6. Resolve user_id using resolveUserID helper
+	userID = resolveUserID(t, regResp, ownerEmail)
+
+	// 7. Return tenantID, userID, ownerEmail, and a generated password
+	password = fmt.Sprintf("Pass_%d!", time.Now().UnixNano()%100000)
+	t.Logf("[Setup] Tenant '%s' activated (userID='%s', ownerEmail='%s')", tenantID, userID, ownerEmail)
+
+	return tenantID, userID, ownerEmail, password
+}
+
