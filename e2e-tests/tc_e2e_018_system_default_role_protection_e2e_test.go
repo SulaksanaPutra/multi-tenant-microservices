@@ -19,15 +19,11 @@ package e2e_test
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"testing"
-
-	"github.com/brianvoe/gofakeit/v6"
-	_ "github.com/lib/pq"
 )
 
 type ListRolesResp struct {
@@ -37,47 +33,8 @@ type ListRolesResp struct {
 }
 
 func TestE2E_SystemDefaultRoleProtection(t *testing.T) {
-	gofakeit.Seed(0)
-	ownerEmail := gofakeit.Email()
-	tenantName := gofakeit.Company()
+	tenantID, userID, ownerEmail, password := registerAndActivateTenant(t)
 
-	// Step 1: Register Tenant
-	regReq := RegisterReq{
-		OwnerEmail: ownerEmail,
-		OwnerName:  gofakeit.Name(),
-		Plan:       "shared",
-		TenantName: tenantName,
-	}
-	payloadBytes, _ := json.Marshal(regReq)
-
-	resp, err := defaultHTTPClient.Post(gatewayRegisterURL, "application/json", bytes.NewBuffer(payloadBytes))
-	if err != nil {
-		t.Fatalf("Failed to execute register request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusAccepted {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("Expected HTTP 202 Accepted, got %d: %s", resp.StatusCode, string(body))
-	}
-
-	var regResp RegisterResp
-	if err := json.NewDecoder(resp.Body).Decode(&regResp); err != nil {
-		t.Fatalf("Failed to decode registration response: %v", err)
-	}
-
-	tenantID := regResp.Data.TenantID
-	userID := resolveUserID(t, regResp, ownerEmail)
-
-	db, err := sql.Open("postgres", tenantDBDSN)
-	if err != nil {
-		t.Fatalf("Failed to connect to tenant_manager_db: %v", err)
-	}
-	defer db.Close()
-
-	waitForTenantActive(t, db, tenantID)
-
-	password := "AdminPass123!"
 	setCredentials(t, userID, tenantID, ownerEmail, password)
 	accessToken, _ := loginAndGetTokenPair(t, ownerEmail, password)
 

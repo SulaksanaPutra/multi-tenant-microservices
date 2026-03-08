@@ -18,12 +18,9 @@ package e2e_test
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"testing"
-
-	_ "github.com/lib/pq"
 )
 
 func TestE2E_TC_E2E_013_ImmediateSessionRevocation(t *testing.T) {
@@ -34,47 +31,13 @@ func TestE2E_TC_E2E_013_ImmediateSessionRevocation(t *testing.T) {
 	// Instruction: Register tenant via Gateway POST /api/register and poll tenant_manager_db
 	//              until status transitions to 'active'.
 	// =========================================================================
-	ownerName, ownerEmail, tenantName, _ := generateFakeData("shared")
-	t.Logf("1. Registering tenant: owner='%s', email='%s', plan='shared'", ownerName, ownerEmail)
-
-	regBody, _ := json.Marshal(RegisterReq{
-		OwnerEmail: ownerEmail,
-		OwnerName:  ownerName,
-		Plan:       "shared",
-		TenantName: tenantName,
-	})
-
-	resp, err := defaultHTTPClient.Post(gatewayRegisterURL, "application/json", bytes.NewBuffer(regBody))
-	if err != nil {
-		t.Fatalf("POST /api/register failed: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusAccepted {
-		t.Fatalf("Expected HTTP 202 Accepted, got %d", resp.StatusCode)
-	}
-
-	var regResp RegisterResp
-	if err := json.NewDecoder(resp.Body).Decode(&regResp); err != nil {
-		t.Fatalf("Failed to decode register response: %v", err)
-	}
-	tenantID := regResp.Data.TenantID
-
-	db, err := sql.Open("postgres", tenantDBDSN)
-	if err != nil {
-		t.Fatalf("Failed to connect to tenant_manager_db: %v", err)
-	}
-	defer db.Close()
-
-	waitForTenantActive(t, db, tenantID)
+	tenantID, userID, ownerEmail, password := registerAndActivateTenant(t)
 	t.Logf("2. Tenant '%s' is active.", tenantID)
-
-	userID := resolveUserID(t, regResp, ownerEmail)
 
 	// =========================================================================
 	// Step 2: Authenticate User & Obtain Access + Refresh Token Pair
 	// Instruction: Call setCredentials and loginAndGetTokenPair to retrieve active session credentials.
 	// =========================================================================
-	const password = "SecurePassword123!"
 	setCredentials(t, userID, tenantID, ownerEmail, password)
 	accessToken, refreshToken := loginAndGetTokenPair(t, ownerEmail, password)
 	t.Log("3. Credentials provisioned and login successful.")

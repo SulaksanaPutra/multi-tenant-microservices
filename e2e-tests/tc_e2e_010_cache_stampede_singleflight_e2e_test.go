@@ -16,15 +16,9 @@
 package e2e_test
 
 import (
-	"bytes"
-	"database/sql"
-	"encoding/json"
 	"net/http"
 	"sync"
 	"testing"
-	"time"
-
-	_ "github.com/lib/pq"
 )
 
 func TestE2E_CacheStampede_SingleflightCoalescing(t *testing.T) {
@@ -36,43 +30,7 @@ func TestE2E_CacheStampede_SingleflightCoalescing(t *testing.T) {
 	//              until status transitions to 'active'.
 	// Architectural Invariant: Connection cache in order-service remains cold (uninitialized).
 	// =========================================================================
-	ownerName, ownerEmail, tenantName, _ := generateFakeData("shared")
-	reqBody, _ := json.Marshal(RegisterReq{
-		OwnerEmail: ownerEmail,
-		OwnerName:  ownerName,
-		Plan:       "shared",
-		TenantName: tenantName,
-	})
-
-	resp, err := defaultHTTPClient.Post(gatewayRegisterURL, "application/json", bytes.NewBuffer(reqBody))
-	if err != nil || resp.StatusCode != http.StatusAccepted {
-		t.Fatalf("Failed to register tenant for singleflight test: %v", err)
-	}
-	defer resp.Body.Close()
-
-	var regResp RegisterResp
-	_ = json.NewDecoder(resp.Body).Decode(&regResp)
-	tenantID := regResp.Data.TenantID
-
-	db, err := sql.Open("postgres", tenantDBDSN)
-	if err != nil {
-		t.Fatalf("Failed to connect to tenant_manager_db: %v", err)
-	}
-	defer db.Close()
-
-	var tenantStatus string
-	activated := false
-	for i := 0; i < 20; i++ {
-		err := db.QueryRow("SELECT status FROM public.tenants WHERE id = $1", tenantID).Scan(&tenantStatus)
-		if err == nil && tenantStatus == "active" {
-			activated = true
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	if !activated {
-		t.Fatalf("Tenant %s failed to activate", tenantID)
-	}
+	tenantID, userID, ownerEmail, e2ePassword := registerAndActivateTenant(t)
 	t.Logf("1. Tenant tenant_id='%s' activated! Cold cache ready for stampede test.", tenantID)
 
 	// =========================================================================
@@ -80,8 +38,6 @@ func TestE2E_CacheStampede_SingleflightCoalescing(t *testing.T) {
 	// Instruction: Provision user credentials via setCredentials and perform login
 	//              to retrieve a valid RS256 JWT access token.
 	// =========================================================================
-	userID := regResp.Data.UserID
-	const e2ePassword = "e2e-test-password-123"
 	setCredentials(t, userID, tenantID, ownerEmail, e2ePassword)
 	accessToken := loginAndGetToken(t, ownerEmail, e2ePassword)
 

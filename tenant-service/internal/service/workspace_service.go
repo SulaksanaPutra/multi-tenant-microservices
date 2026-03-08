@@ -128,7 +128,7 @@ func (s *WorkspaceService) RegisterWorkspace(ctx context.Context, input Register
 	if s.outboxWorker != nil {
 		s.outboxWorker.Poke()
 	}
-	return &RegisterWorkspaceOutput{TenantID: tenantID}, nil
+	return &RegisterWorkspaceOutput{TenantID: tenantID, Status: "accepted"}, nil
 }
 
 func (s *WorkspaceService) ActivateWorkspace(ctx context.Context, tenantID string) error {

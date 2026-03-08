@@ -12,6 +12,7 @@ import (
 type mockInboxRepo struct {
 	tryInsertFunc           func(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error)
 	getEventsByTenantIDFunc func(ctx context.Context, tenantID string) ([]domain.InboxMessage, error)
+	acquireTenantLockFunc   func(ctx context.Context, tenantID string) error
 }
 
 func (m *mockInboxRepo) TryInsert(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
@@ -26,6 +27,13 @@ func (m *mockInboxRepo) GetEventsByTenantID(ctx context.Context, tenantID string
 		return m.getEventsByTenantIDFunc(ctx, tenantID)
 	}
 	return []domain.InboxMessage{}, nil
+}
+
+func (m *mockInboxRepo) AcquireTenantLock(ctx context.Context, tenantID string) error {
+	if m.acquireTenantLockFunc != nil {
+		return m.acquireTenantLockFunc(ctx, tenantID)
+	}
+	return nil
 }
 
 func TestInboxService_ClaimEvent_EmptyEventID(t *testing.T) {

@@ -19,55 +19,18 @@ package e2e_test
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"testing"
-
-	"github.com/brianvoe/gofakeit/v6"
-	_ "github.com/lib/pq"
 )
 
 func TestE2E_CrossTenantPermissionIsolationBoundary(t *testing.T) {
-	gofakeit.Seed(0)
-	db, err := sql.Open("postgres", tenantDBDSN)
-	if err != nil {
-		t.Fatalf("Failed to connect to tenant_manager_db: %v", err)
-	}
-	defer db.Close()
-
 	// -------------------------------------------------------------------------
 	// Step 1: Provision Tenant A
 	// -------------------------------------------------------------------------
-	emailA := gofakeit.Email()
-	regReqA := RegisterReq{
-		OwnerEmail: emailA,
-		OwnerName:  gofakeit.Name(),
-		Plan:       "shared",
-		TenantName: "Tenant Alpha " + gofakeit.Company(),
-	}
-	bodyA, _ := json.Marshal(regReqA)
-
-	respA, err := defaultHTTPClient.Post(gatewayRegisterURL, "application/json", bytes.NewBuffer(bodyA))
-	if err != nil {
-		t.Fatalf("Failed to register Tenant A: %v", err)
-	}
-	defer respA.Body.Close()
-
-	if respA.StatusCode != http.StatusAccepted {
-		b, _ := io.ReadAll(respA.Body)
-		t.Fatalf("Tenant A registration failed, got %d: %s", respA.StatusCode, string(b))
-	}
-
-	var regDataA RegisterResp
-	_ = json.NewDecoder(respA.Body).Decode(&regDataA)
-	tenantIDA := regDataA.Data.TenantID
-	userIDA := resolveUserID(t, regDataA, emailA)
-
-	waitForTenantActive(t, db, tenantIDA)
-	passwordA := "TenantAlpha123!"
+	tenantIDA, userIDA, emailA, passwordA := registerAndActivateTenant(t)
 	setCredentials(t, userIDA, tenantIDA, emailA, passwordA)
 	jwtA, _ := loginAndGetTokenPair(t, emailA, passwordA)
 	t.Logf("Tenant A active: ID=%s, User=%s", tenantIDA, userIDA)
@@ -75,33 +38,7 @@ func TestE2E_CrossTenantPermissionIsolationBoundary(t *testing.T) {
 	// -------------------------------------------------------------------------
 	// Step 2: Provision Tenant B
 	// -------------------------------------------------------------------------
-	emailB := gofakeit.Email()
-	regReqB := RegisterReq{
-		OwnerEmail: emailB,
-		OwnerName:  gofakeit.Name(),
-		Plan:       "shared",
-		TenantName: "Tenant Beta " + gofakeit.Company(),
-	}
-	bodyB, _ := json.Marshal(regReqB)
-
-	respB, err := defaultHTTPClient.Post(gatewayRegisterURL, "application/json", bytes.NewBuffer(bodyB))
-	if err != nil {
-		t.Fatalf("Failed to register Tenant B: %v", err)
-	}
-	defer respB.Body.Close()
-
-	if respB.StatusCode != http.StatusAccepted {
-		b, _ := io.ReadAll(respB.Body)
-		t.Fatalf("Tenant B registration failed, got %d: %s", respB.StatusCode, string(b))
-	}
-
-	var regDataB RegisterResp
-	_ = json.NewDecoder(respB.Body).Decode(&regDataB)
-	tenantIDB := regDataB.Data.TenantID
-	userIDB := resolveUserID(t, regDataB, emailB)
-
-	waitForTenantActive(t, db, tenantIDB)
-	passwordB := "TenantBeta123!"
+	tenantIDB, userIDB, emailB, passwordB := registerAndActivateTenant(t)
 	setCredentials(t, userIDB, tenantIDB, emailB, passwordB)
 	jwtB, _ := loginAndGetTokenPair(t, emailB, passwordB)
 	jwtA, _ = loginAndGetTokenPair(t, emailA, passwordA)

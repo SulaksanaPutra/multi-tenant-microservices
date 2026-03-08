@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 
 	"tenant-service/internal/domain"
 	"tenant-service/internal/infrastructure/rabbitmq"
@@ -144,6 +145,12 @@ func (c *TenantOrderDBReadyConsumer) handleDelivery(ctx context.Context, d rabbi
 		return err
 	}
 
+	if strings.TrimSpace(evt.TenantID) == "" {
+		log.Printf("TenantOrderDBReadyConsumer Error: Missing tenant_id in event payload, discarding message.")
+		_ = d.Nack(false, false)
+		return errors.New("missing tenant_id in payload")
+	}
+
 	log.Printf("TenantOrderDBReadyConsumer: Received order DB ready for tenant='%s' service='%s'",
 		evt.TenantID, evt.ServiceName)
 
@@ -172,7 +179,11 @@ func (c *TenantOrderDBReadyConsumer) handleDelivery(ctx context.Context, d rabbi
 
 	if err != nil {
 		log.Printf("TenantOrderDBReadyConsumer Error: Failed to handle infra update for tenant='%s': %v", evt.TenantID, err)
-		_ = d.Nack(false, true)
+		if errors.Is(err, service.ErrTenantIDRequired) || errors.Is(err, service.ErrServiceNameRequired) {
+			_ = d.Nack(false, false)
+		} else {
+			_ = d.Nack(false, true)
+		}
 		return err
 	}
 

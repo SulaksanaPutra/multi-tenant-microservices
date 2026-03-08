@@ -420,7 +420,53 @@ microservice-api/
 
 ---
 
-## 7. How to Run & Stop the Application
+## 7. API Reference Specification
+
+### 7.1 Client-Facing / Public Gateway APIs (Traefik Ingress `:8000`)
+
+| Service | Method & Path | Auth / Headers | Required Scope / Permission | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| **tenant-service** | `POST /api/tenants/register` | None | Public | Register new workspace & initiate provisioner workflow |
+| **auth-service** | `GET /.well-known/jwks.json` | None | Public | Public RSA key set for RS256 JWT signature verification |
+| **auth-service** | `POST /api/auth/credentials/setup` | None | Public | Setup user password via setup token |
+| **auth-service** | `POST /api/auth/login` | None | Public | User authentication & RS256 JWT access token issuance |
+| **auth-service** | `POST /api/auth/refresh` | None | Public | Refresh expired access tokens |
+| **auth-service** | `POST /api/auth/logout` | Bearer JWT | Authenticated | Revoke refresh token |
+| **auth-service** | `GET /api/auth/permissions` | Bearer JWT | Tenant Admin | List catalog of registered system permissions |
+| **auth-service** | `POST /api/auth/roles` | Bearer JWT | Tenant Admin | Create tenant-scoped custom role |
+| **auth-service** | `GET /api/auth/roles` | Bearer JWT | Tenant Admin | List available roles for tenant |
+| **auth-service** | `GET /api/auth/roles/:id` | Bearer JWT | Tenant Admin | Retrieve specific role details |
+| **auth-service** | `PUT /api/auth/roles/:id/permissions` | Bearer JWT | Tenant Admin | Update permissions linked to role |
+| **auth-service** | `DELETE /api/auth/roles/:id` | Bearer JWT | Tenant Admin | Delete custom role |
+| **auth-service** | `PUT /api/auth/users/:userID/role` | Bearer JWT | Tenant Admin | Assign role to tenant user |
+| **auth-service** | `GET /api/auth/users/:userID/role` | Bearer JWT | Tenant Admin | Retrieve user role assignment |
+| **user-service** | `GET /api/users/me` | Bearer JWT | `users:read` | Retrieve current user profile |
+| **order-service** | `GET /api/orders` | Bearer JWT | `orders:read` | List orders for isolated tenant DB |
+| **order-service** | `POST /api/orders` | Bearer JWT | `orders:create` | Create order entry in isolated tenant DB |
+| **notification-service** | `GET /api/notifications` | Bearer JWT | `notifications:read` | List user notifications |
+
+---
+
+### 7.2 Internal Control-Plane APIs (Zero-Trust Inter-Service Auth)
+
+| Service | Method & Path | Required Header | Description |
+| :--- | :--- | :--- | :--- |
+| **auth-service** | `POST /internal/auth/setup-token` | `X-Internal-Service-Token` | Generate 256-bit single-use password setup token |
+| **auth-service** | `POST /internal/auth/permissions/register` | `X-Internal-Service-Token` | Bootstrapping endpoint for domain permission registration |
+| **auth-service** | `GET /internal/auth/users/:userID/perm-version` | `X-Internal-Service-Token` | Fetch user permission version for cache invalidation |
+| **tenant-service** | `GET /internal/tenants/:id/infrastructure/:service` | `X-Internal-Service-Token` | Query tenant database infrastructure & routing metadata |
+
+---
+
+### 7.3 Health & Diagnostic Endpoints
+
+| Service | Method & Path | Auth | Description |
+| :--- | :--- | :--- | :--- |
+| **All Microservices** | `GET /health` | None | HTTP 200 OK liveness check |
+
+---
+
+## 8. How to Run & Stop the Application
 
 ### Starting Infrastructure & Services
 

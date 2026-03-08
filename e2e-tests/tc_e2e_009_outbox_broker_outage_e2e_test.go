@@ -69,9 +69,7 @@ func TestE2E_OutboxBrokerOutage_RetryAndRecovery(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	var regResp RegisterResp
-	_ = json.NewDecoder(resp.Body).Decode(&regResp)
-	tenantID := regResp.Data.TenantID
+	tenantID := resolveTenantID(t, ownerEmail)
 
 	// =========================================================================
 	// Step 3: Verify Outbox Table Event Persistence

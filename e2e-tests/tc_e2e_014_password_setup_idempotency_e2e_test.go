@@ -17,13 +17,10 @@ package e2e_test
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
 	"testing"
-
-	_ "github.com/lib/pq"
 )
 
 func TestE2E_TC_E2E_014_PasswordSetupTokenSingleUseIdempotency(t *testing.T) {
@@ -34,41 +31,8 @@ func TestE2E_TC_E2E_014_PasswordSetupTokenSingleUseIdempotency(t *testing.T) {
 	// Instruction: Register tenant via Gateway POST /api/register and poll tenant_manager_db
 	//              until status transitions to 'active'.
 	// =========================================================================
-	ownerName, ownerEmail, tenantName, _ := generateFakeData("shared")
-	t.Logf("1. Registering tenant: owner='%s', email='%s', plan='shared'", ownerName, ownerEmail)
-
-	regBody, _ := json.Marshal(RegisterReq{
-		OwnerEmail: ownerEmail,
-		OwnerName:  ownerName,
-		Plan:       "shared",
-		TenantName: tenantName,
-	})
-
-	resp, err := defaultHTTPClient.Post(gatewayRegisterURL, "application/json", bytes.NewBuffer(regBody))
-	if err != nil {
-		t.Fatalf("POST /api/register failed: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusAccepted {
-		t.Fatalf("Expected HTTP 202 Accepted, got %d", resp.StatusCode)
-	}
-
-	var regResp RegisterResp
-	if err := json.NewDecoder(resp.Body).Decode(&regResp); err != nil {
-		t.Fatalf("Failed to decode register response: %v", err)
-	}
-	tenantID := regResp.Data.TenantID
-
-	db, err := sql.Open("postgres", tenantDBDSN)
-	if err != nil {
-		t.Fatalf("Failed to connect to tenant_manager_db: %v", err)
-	}
-	defer db.Close()
-
-	waitForTenantActive(t, db, tenantID)
+	tenantID, userID, ownerEmail, _ := registerAndActivateTenant(t)
 	t.Logf("2. Tenant '%s' is active.", tenantID)
-
-	userID := resolveUserID(t, regResp, ownerEmail)
 
 	// =========================================================================
 	// Step 2: Retrieve Raw Setup Token via Internal Endpoint
@@ -121,9 +85,9 @@ func TestE2E_TC_E2E_014_PasswordSetupTokenSingleUseIdempotency(t *testing.T) {
 		"password": password,
 	})
 
-	respSetup1, err := defaultHTTPClient.Post(authServiceURL+"/auth/credentials/setup", "application/json", bytes.NewBuffer(setupPayload))
+	respSetup1, err := defaultHTTPClient.Post(authServiceURL+"/api/auth/credentials/setup", "application/json", bytes.NewBuffer(setupPayload))
 	if err != nil {
-		t.Fatalf("First POST /auth/credentials/setup failed: %v", err)
+		t.Fatalf("First POST /api/auth/credentials/setup failed: %v", err)
 	}
 	defer respSetup1.Body.Close()
 
@@ -134,13 +98,13 @@ func TestE2E_TC_E2E_014_PasswordSetupTokenSingleUseIdempotency(t *testing.T) {
 
 	// =========================================================================
 	// Step 4: Replay Attempt (Double-Spend Protection)
-	// Instruction: Resubmit the exact same token payload to POST /auth/credentials/setup.
+	// Instruction: Resubmit the exact same token payload to POST /api/auth/credentials/setup.
 	// Architectural Invariant: Auth service detects non-null used_at status and rejects attempt
 	//                          with HTTP 400 Bad Request or HTTP 409 Conflict.
 	// =========================================================================
-	respSetup2, err := defaultHTTPClient.Post(authServiceURL+"/auth/credentials/setup", "application/json", bytes.NewBuffer(setupPayload))
+	respSetup2, err := defaultHTTPClient.Post(authServiceURL+"/api/auth/credentials/setup", "application/json", bytes.NewBuffer(setupPayload))
 	if err != nil {
-		t.Fatalf("Second POST /auth/credentials/setup failed: %v", err)
+		t.Fatalf("Second POST /api/auth/credentials/setup failed: %v", err)
 	}
 	defer respSetup2.Body.Close()
 

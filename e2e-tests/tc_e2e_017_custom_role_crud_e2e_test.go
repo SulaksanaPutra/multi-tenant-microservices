@@ -25,7 +25,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/brianvoe/gofakeit/v6"
 	_ "github.com/lib/pq"
 )
 
@@ -55,50 +54,16 @@ type UpdateRolePermsReq struct {
 }
 
 func TestE2E_MultiTenant_CustomRoleCRUD_And_InstantPermissionInvalidation(t *testing.T) {
-	gofakeit.Seed(0)
-	ownerEmail := gofakeit.Email()
-	tenantName := gofakeit.Company()
-
-	// Step 1: Register Tenant
-	regReq := RegisterReq{
-		OwnerEmail: ownerEmail,
-		OwnerName:  gofakeit.Name(),
-		Plan:       "shared",
-		TenantName: tenantName,
-	}
-	payloadBytes, _ := json.Marshal(regReq)
-
-	resp, err := defaultHTTPClient.Post(gatewayRegisterURL, "application/json", bytes.NewBuffer(payloadBytes))
-	if err != nil {
-		t.Fatalf("Failed to execute register request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusAccepted {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("Expected HTTP 202 Accepted, got %d: %s", resp.StatusCode, string(body))
-	}
-
-	var regResp RegisterResp
-	if err := json.NewDecoder(resp.Body).Decode(&regResp); err != nil {
-		t.Fatalf("Failed to decode registration response: %v", err)
-	}
-
-	tenantID := regResp.Data.TenantID
-	userID := resolveUserID(t, regResp, ownerEmail)
+	tenantID, userID, ownerEmail, password := registerAndActivateTenant(t)
 	t.Logf("Registered tenantID: %s, userID: %s", tenantID, userID)
 
-	// Step 2: Poll until tenant is active
 	db, err := sql.Open("postgres", tenantDBDSN)
 	if err != nil {
 		t.Fatalf("Failed to connect to tenant_manager_db: %v", err)
 	}
 	defer db.Close()
 
-	waitForTenantActive(t, db, tenantID)
-
 	// Step 3: Provision credentials & Login to get initial JWT (perm_version = 1)
-	password := "SecretPass123!"
 	setCredentials(t, userID, tenantID, ownerEmail, password)
 	initialToken, _ := loginAndGetTokenPair(t, ownerEmail, password)
 	t.Logf("Acquired initial access token (perm_version = 1)")
@@ -130,6 +95,23 @@ func TestE2E_MultiTenant_CustomRoleCRUD_And_InstantPermissionInvalidation(t *tes
 	_ = json.NewDecoder(roleResp.Body).Decode(&roleData)
 	roleID := roleData.Data.ID
 	t.Logf("Created custom role ID: %s", roleID)
+
+	// Step 4B: Assign created custom role to user
+	assignReqBody, _ := json.Marshal(map[string]string{"role_id": roleID})
+	assignReqURL := fmt.Sprintf("http://localhost:8000/api/auth/users/%s/role", userID)
+	assignReq, _ := http.NewRequest(http.MethodPut, assignReqURL, bytes.NewBuffer(assignReqBody))
+	assignReq.Header.Set("Content-Type", "application/json")
+	assignReq.Header.Set("Authorization", "Bearer "+initialToken)
+
+	assignResp, err := defaultHTTPClient.Do(assignReq)
+	if err != nil {
+		t.Fatalf("Failed to execute assign user role request: %v", err)
+	}
+	assignResp.Body.Close()
+	if assignResp.StatusCode != http.StatusOK {
+		t.Fatalf("Expected HTTP 200 OK for role assignment, got %d", assignResp.StatusCode)
+	}
+	t.Logf("Assigned custom role %s to user %s", roleID, userID)
 
 	// Step 5: Update Role Permissions via PUT /api/roles/:id/permissions
 	// This triggers user permission version batch incrementing in auth-service.

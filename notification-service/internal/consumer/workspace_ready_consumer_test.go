@@ -8,6 +8,7 @@ import (
 
 	"notification-service/internal/domain"
 	"notification-service/internal/infrastructure/rabbitmq"
+	"notification-service/internal/repository"
 	"notification-service/internal/service"
 )
 
@@ -169,3 +170,57 @@ func TestWorkspaceReadyConsumer_HandleDelivery_NoEmailWhenBarrierNotMet(t *testi
 		t.Error("expected ACK when barrier not met (not an error condition)")
 	}
 }
+
+func TestWorkspaceReadyConsumer_HandleDelivery_MisroutedRoutingKey_AcksAndDiscards(t *testing.T) {
+	// Simulates a ghost AMQP binding delivering a user.created message to
+	// the notification_service_workspace_ready queue. The routing key guard must
+	// discard silently with Ack — no inbox write, no notification service call.
+	body, _ := json.Marshal(domain.UserCreatedEvent{
+		EventID:  "evt-misrouted-2",
+		UserID:   "usr_999",
+		TenantID: "tenant-77",
+		Email:    "user@example.com",
+	})
+
+	inboxCalled := false
+	inbox := &mockInboxService{
+		claimEventFunc: func(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
+			inboxCalled = true
+			return false, nil
+		},
+	}
+
+	notifCalled := false
+	notifSvc := &mockNotificationService{
+		processEventAndTrySendWelcomeFunc: func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
+			notifCalled = true
+			return nil, nil
+		},
+	}
+
+	c := newWorkspaceReadyConsumer(&mockTxManager{}, inbox, notifSvc, nil, &mockMailer{})
+	mockAck := &mockAcknowledger{}
+	d := rabbitmq.Delivery{
+		Acknowledger: mockAck,
+		Body:         body,
+		RoutingKey:   domain.RoutingKeyUserCreated, // misrouted!
+	}
+
+	err := c.handleDelivery(context.Background(), d)
+	if err != nil {
+		t.Fatalf("expected no error for misrouted message, got %v", err)
+	}
+	if !mockAck.ackCalled {
+		t.Error("expected ACK to drain misrouted message from queue")
+	}
+	if mockAck.nackCalled {
+		t.Error("expected no NACK for misrouted message")
+	}
+	if inboxCalled {
+		t.Error("expected inbox service NOT to be called for misrouted message")
+	}
+	if notifCalled {
+		t.Error("expected notification service NOT to be called for misrouted message")
+	}
+}
+

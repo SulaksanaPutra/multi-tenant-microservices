@@ -304,3 +304,56 @@ func TestUserCreatedConsumer_HandleDelivery_NoEmailWhenBarrierNotMet(t *testing.
 		t.Error("expected ACK when barrier not met (not an error)")
 	}
 }
+
+func TestUserCreatedConsumer_HandleDelivery_MisroutedRoutingKey_AcksAndDiscards(t *testing.T) {
+	// Simulates a ghost AMQP binding delivering a workspace.ready message to
+	// the notification_service_user_created queue. The routing key guard must
+	// discard silently with Ack — no inbox write, no notification service call.
+	body, _ := json.Marshal(domain.WorkspaceReadyEvent{
+		EventID:    "evt-misrouted-1",
+		TenantID:   "tenant-99",
+		OwnerEmail: "owner@example.com",
+	})
+
+	inboxCalled := false
+	inbox := &mockInboxService{
+		claimEventFunc: func(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
+			inboxCalled = true
+			return false, nil
+		},
+	}
+
+	notifCalled := false
+	notifSvc := &mockNotificationService{
+		processEventAndTrySendWelcomeFunc: func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
+			notifCalled = true
+			return nil, nil
+		},
+	}
+
+	c := newUserCreatedConsumer(&mockTxManager{}, inbox, notifSvc, nil, &mockMailer{})
+	mockAck := &mockAcknowledger{}
+	d := rabbitmq.Delivery{
+		Acknowledger: mockAck,
+		Body:         body,
+		RoutingKey:   domain.RoutingKeyWorkspaceReady, // misrouted!
+	}
+
+	err := c.handleDelivery(context.Background(), d)
+	if err != nil {
+		t.Fatalf("expected no error for misrouted message, got %v", err)
+	}
+	if !mockAck.ackCalled {
+		t.Error("expected ACK to drain misrouted message from queue")
+	}
+	if mockAck.nackCalled {
+		t.Error("expected no NACK for misrouted message")
+	}
+	if inboxCalled {
+		t.Error("expected inbox service NOT to be called for misrouted message")
+	}
+	if notifCalled {
+		t.Error("expected notification service NOT to be called for misrouted message")
+	}
+}
+
