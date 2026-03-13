@@ -495,3 +495,23 @@ microservice-api/
 (cd auth-service && docker compose down) && \
 (cd infrastructure && docker compose down)
 ```
+
+### Resetting Database & Volumes (Clean State Reset)
+
+To completely wipe all databases, stored volumes, RabbitMQ queues/state, and dynamic dedicated tenant DB containers for a clean restart:
+
+```bash
+# 1. Stop microservices and remove local volumes
+(cd notification-service && docker compose down -v) && \
+(cd order-service && docker compose down -v) && \
+(cd user-service && docker compose down -v) && \
+(cd tenant-service && docker compose down -v) && \
+(cd auth-service && docker compose down -v)
+
+# 2. Stop infrastructure and wipe shared database/message broker volumes
+(cd infrastructure && docker compose down -v)
+
+# 3. Remove dynamically provisioned dedicated tenant DB containers & volumes (if any)
+docker rm -fv $(docker ps -aq --filter name=postgres-tenant-) 2>/dev/null || true
+```
+
