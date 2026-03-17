@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"user-service/internal/handler"
 	"user-service/internal/infrastructure/authclient"
 	"user-service/internal/infrastructure/postgres"
 	"user-service/internal/infrastructure/rabbitmq"
@@ -40,7 +41,8 @@ func main() {
 	go func() {
 		if err := permRegistrar.Register(context.Background(), "user-service", []authclient.PermissionItem{
 			{Name: "users:read", Description: "Read user profiles"},
-			{Name: "users:update", Description: "Update user profiles"},
+			{Name: "users:write", Description: "Update user profiles"},
+			{Name: "users:roles:manage", Description: "Manage tenant user roles and role definitions"},
 		}); err != nil {
 			log.Printf("User Service: Warning — startup permission registration deferred: %v", err)
 		}
@@ -76,9 +78,11 @@ func main() {
 	defer workerCancel()
 	wRunner.start(workerCtx)
 
-	// Initialize Domain Services
+	// Initialize Domain Services & Clients
 	inboxService := service.NewInboxService(inboxRepository)
 	userService := service.NewUserService(userRepository, outboxRepository)
+	authClient := authclient.NewAuthClient(authServiceURL)
+	userHandler := handler.NewUserHandler(userService, authClient)
 
 	// Register & Start Inbound Queue Consumers Collection
 	cRunner, err := registerConsumers(txManager, rmqClient, inboxService, userService)
@@ -93,7 +97,7 @@ func main() {
 	}
 
 	// Register HTTP Router
-	httpRouter := newRouter()
+	httpRouter := newRouter(userHandler)
 	httpServer := &http.Server{
 		Addr:    ":" + httpPort,
 		Handler: httpRouter,

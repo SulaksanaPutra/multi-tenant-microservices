@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>4. Notifications Center</title>
+</head>
+<body>
+    <div id="nav-container"></div>
+
+    <h2>Tenant Notifications Center</h2>
+    <p>Protected by <code>RequireJWT</code> token verification and <code>notifications:read</code> permission.</p>
+
+    <div style="border: 1px solid #ccc; padding: 15px; max-width: 800px;">
+        <h3>My Tenant Notification Logs (`GET /api/notifications`)</h3>
+        <button id="btn-fetch-notifications">Fetch Notifications</button>
+        <br><br>
+        <div id="notifications-container">
+            <pre style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Click button to load notification history)</pre>
+        </div>
+    </div>
+
+    <script src="/nav.js"></script>
+    <script>
+        renderNavHeader("notifications");
+
+        function getAuthHeader() {
+            const token = getJWTToken();
+            return token ? { "Authorization": "Bearer " + token } : {};
+        }
+
+        document.getElementById("btn-fetch-notifications").addEventListener("click", async function() {
+            const container = document.getElementById("notifications-container");
+            container.innerHTML = "<pre style='background:#f4f4f4; padding:10px; border:1px solid #ccc;'>Fetching notifications...</pre>";
+
+            try {
+                const res = await fetch("/api/notifications", { headers: getAuthHeader() });
+                const data = await res.json();
+
+                if (res.ok && data.data) {
+                    if (data.data.length === 0) {
+                        container.innerHTML = "<p>No notifications found for this tenant.</p>";
+                        return;
+                    }
+                    let html = "<table border='1' cellpadding='8' style='border-collapse:collapse; width:100%;'><tr><th>ID</th><th>Recipient</th><th>Subject</th><th>Status</th><th>Sent At</th></tr>";
+                    data.data.forEach(n => {
+                        html += `<tr><td>${n.id}</td><td>${n.recipient_email}</td><td>${n.subject}</td><td><strong>${n.status}</strong></td><td>${new Date(n.created_at).toLocaleString()}</td></tr>`;
+                    });
+                    html += "</table>";
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = `<pre style='background:#f4f4f4; padding:10px; border:1px solid #ccc;'>${JSON.stringify(data, null, 2)}</pre>`;
+                }
+            } catch (err) {
+                container.innerHTML = `<pre style='background:#f4f4f4; padding:10px; border:1px solid #ccc;'>Error: ${err.message}</pre>`;
+            }
+        });
+    </script>
+</body>
+</html>

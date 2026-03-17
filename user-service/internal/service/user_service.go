@@ -17,6 +17,8 @@ import (
 var (
 	ErrTenantIDRequired = errors.New("user service: tenant_id is required")
 	ErrEmailRequired    = errors.New("user service: owner_email is required")
+	ErrUserIDRequired   = errors.New("user service: user_id is required")
+	ErrUserNameRequired = errors.New("user service: name is required")
 )
 
 type CreateUserFromWorkspaceInput struct {
@@ -26,9 +28,17 @@ type CreateUserFromWorkspaceInput struct {
 	OwnerName  string
 }
 
+type UpdateUserServiceInput struct {
+	UserID string
+	Name   string
+}
+
 // UserRepository is the consumer-side interface expected by UserService.
 type UserRepository interface {
 	CreateUser(ctx context.Context, input repository.CreateUserInput) error
+	UpdateUser(ctx context.Context, input repository.UpdateUserInput) error
+	GetUserByID(ctx context.Context, userID string) (*domain.User, error)
+	ListUsers(ctx context.Context) ([]domain.User, error)
 }
 
 // OutboxRepository is the consumer-side interface expected by UserService.
@@ -51,7 +61,7 @@ func NewUserService(
 	}
 }
 
-func (s *UserService) CreateUserFromWorkspace(ctx context.Context, input CreateUserFromWorkspaceInput) error {
+func (userService *UserService) CreateUserFromWorkspace(ctx context.Context, input CreateUserFromWorkspaceInput) error {
 	if input.TenantID == "" {
 		return ErrTenantIDRequired
 	}
@@ -66,11 +76,11 @@ func (s *UserService) CreateUserFromWorkspace(ctx context.Context, input CreateU
 		Name:  input.OwnerName,
 	}
 
-	if err := s.userRepository.CreateUser(ctx, userInput); err != nil {
-		return fmt.Errorf("failed to create user: %w", err)
+	if err := userService.userRepository.CreateUser(ctx, userInput); err != nil {
+		return fmt.Errorf("user service: failed to create user: %w", err)
 	}
 
-	if s.outboxRepository != nil {
+	if userService.outboxRepository != nil {
 		outboxEventID := uuid.New().String()
 		userCreatedEvt := domain.UserCreatedEvent{
 			EventID:   outboxEventID,
@@ -82,7 +92,7 @@ func (s *UserService) CreateUserFromWorkspace(ctx context.Context, input CreateU
 		}
 		payloadBytes, err := json.Marshal(userCreatedEvt)
 		if err != nil {
-			return fmt.Errorf("failed to marshal UserCreated event: %w", err)
+			return fmt.Errorf("user service: failed to marshal UserCreated event: %w", err)
 		}
 
 		outboxInput := repository.CreateOutboxMessageInput{
@@ -94,8 +104,8 @@ func (s *UserService) CreateUserFromWorkspace(ctx context.Context, input CreateU
 			Payload:       payloadBytes,
 		}
 
-		if err := s.outboxRepository.CreateOutboxMessage(ctx, outboxInput); err != nil {
-			return fmt.Errorf("failed to create user outbox message: %w", err)
+		if err := userService.outboxRepository.CreateOutboxMessage(ctx, outboxInput); err != nil {
+			return fmt.Errorf("user service: failed to create user outbox message: %w", err)
 		}
 	}
 
@@ -104,3 +114,26 @@ func (s *UserService) CreateUserFromWorkspace(ctx context.Context, input CreateU
 	return nil
 }
 
+func (userService *UserService) UpdateUser(ctx context.Context, input UpdateUserServiceInput) error {
+	if input.UserID == "" {
+		return ErrUserIDRequired
+	}
+	if input.Name == "" {
+		return ErrUserNameRequired
+	}
+	return userService.userRepository.UpdateUser(ctx, repository.UpdateUserInput{
+		ID:   input.UserID,
+		Name: input.Name,
+	})
+}
+
+func (userService *UserService) GetUserByID(ctx context.Context, userID string) (*domain.User, error) {
+	if userID == "" {
+		return nil, ErrUserIDRequired
+	}
+	return userService.userRepository.GetUserByID(ctx, userID)
+}
+
+func (userService *UserService) ListUsers(ctx context.Context) ([]domain.User, error) {
+	return userService.userRepository.ListUsers(ctx)
+}

@@ -290,6 +290,38 @@ This document serves as the authoritative technical test specification and archi
 
 ---
 
+### 3.19 Test Case TC-E2E-020: User Profile Management & Listing
+* **Test File**: [`./tc_e2e_020_user_profile_management_e2e_test.go`](./tc_e2e_020_user_profile_management_e2e_test.go)
+* **Objective**: Validate user listing within tenant boundaries (`GET /api/users`) and profile updating (`PUT /api/users/me`).
+* **Architectural Scope**: `user-service`, Traefik Gateway.
+* **Expected Guarantee**: Users can list tenant members and modify their own profile name securely under verified JWT token claims.
+
+---
+
+### 3.20 Test Case TC-E2E-021: Tenant Control Plane Management & Isolation Plan Upgrade
+* **Test File**: [`./tc_e2e_021_tenant_management_and_plan_upgrade_e2e_test.go`](./tc_e2e_021_tenant_management_and_plan_upgrade_e2e_test.go)
+* **Objective**: Validate tenant profile listing (`GET /api/tenants`), metadata modification (`PUT /api/tenants?tenant_id=...`), plan switching (`PUT /api/tenants/plan?tenant_id=...`), and cross-tenant parameter tampering prevention (`403 Forbidden`).
+* **Architectural Scope**: `tenant-service`, Control Plane Database (`tenant_manager_db`).
+* **Expected Guarantee**: Tenant admins can retrieve and update their tenant profile/plan while parameter mismatch attempts are blocked with 403 Forbidden.
+
+---
+
+### 3.21 Test Case TC-E2E-022: User Role Assignment & System Permissions Catalog
+* **Test File**: [`./tc_e2e_022_user_role_assignment_and_permissions_e2e_test.go`](./tc_e2e_022_user_role_assignment_and_permissions_e2e_test.go)
+* **Objective**: Validate fetching system permissions catalog (`GET /api/users/permissions`), creating custom tenant roles (`POST /api/users/roles`), listing roles (`GET /api/users/roles`), and assigning roles to users (`PUT /api/users/:user_id/role`).
+* **Architectural Scope**: `user-service`, `auth-service`.
+* **Expected Guarantee**: System permissions catalog is inspectable and can be composed into custom tenant roles and assigned to users.
+
+---
+
+### 3.22 Test Case TC-E2E-023: Notification Center Log Retrieval
+* **Test File**: [`./tc_e2e_023_notification_center_e2e_test.go`](./tc_e2e_023_notification_center_e2e_test.go)
+* **Objective**: Validate token-gated retrieval of tenant notification logs (`GET /api/notifications`).
+* **Architectural Scope**: `notification-service`.
+* **Expected Guarantee**: Authenticated users with `notifications:read` permission can retrieve notification dispatch logs.
+
+---
+
 ## 4. Execution Procedures & Verification Commands
 
 To execute the full automated test suite against active local Docker infrastructure:

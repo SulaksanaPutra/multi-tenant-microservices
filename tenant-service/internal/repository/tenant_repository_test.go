@@ -178,3 +178,68 @@ func TestTenantRepository_GetTenantByID_Query(t *testing.T) {
 		t.Errorf("expected wrapped query error message, got: %v", err)
 	}
 }
+
+func TestTenantRepository_UpdateTenant_Success(t *testing.T) {
+	var capturedQuery string
+	var capturedArgs []any
+
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+			capturedQuery = query
+			capturedArgs = args
+			return testutil.MockResult{RowsAffectedVal: 1}, nil
+		},
+	}
+
+	repo := NewTenantRepository(&postgres.Client{})
+	ctx := txcontext.WithExecutor(context.Background(), mockExec)
+
+	err := repo.UpdateTenant(ctx, UpdateTenantInput{
+		ID:         "t-100",
+		Name:       "Updated Name",
+		Slug:       "updated-slug",
+		OwnerEmail: "owner@example.com",
+		OwnerName:  "Owner Name",
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+
+	if !strings.Contains(capturedQuery, "UPDATE public.tenants") {
+		t.Errorf("expected query to contain UPDATE, got %s", capturedQuery)
+	}
+	if len(capturedArgs) != 5 || capturedArgs[0] != "t-100" {
+		t.Errorf("unexpected captured args: %v", capturedArgs)
+	}
+}
+
+func TestTenantRepository_UpdateTenantPlan_Success(t *testing.T) {
+	var capturedQuery string
+	var capturedArgs []any
+
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+			capturedQuery = query
+			capturedArgs = args
+			return testutil.MockResult{RowsAffectedVal: 1}, nil
+		},
+	}
+
+	repo := NewTenantRepository(&postgres.Client{})
+	ctx := txcontext.WithExecutor(context.Background(), mockExec)
+
+	err := repo.UpdateTenantPlan(ctx, UpdateTenantPlanInput{
+		ID:   "t-100",
+		Plan: "dedicated",
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+
+	if !strings.Contains(capturedQuery, "SET plan = $2") {
+		t.Errorf("expected query to contain SET plan, got %s", capturedQuery)
+	}
+	if len(capturedArgs) != 2 || capturedArgs[0] != "t-100" || capturedArgs[1] != "dedicated" {
+		t.Errorf("unexpected captured args: %v", capturedArgs)
+	}
+}

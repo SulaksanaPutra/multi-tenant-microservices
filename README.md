@@ -332,6 +332,7 @@ This repository contains comprehensive technical design deep-dives located in th
 | 17 | [How Do We Isolate Authentication and Token Issuance in a Standalone Microservice?](docs/17-how-do-we-isolate-authentication-and-jwt-token-issuance-standalone-auth-service.md) | RS256 Asymmetric Key Verification, Opaque Refresh Token Rotation & Stage 1 Scaffolding Scope |
 | 18 | [How Do We Design Multi-Tenant RBAC with Domain-Distributed Permission Ownership?](docs/18-how-do-we-design-multi-tenant-rbac-with-domain-distributed-permission-ownership.md) | Hybrid Centralized Permission Registry, Tenant-Scoped Custom Roles, JWT Claim Enrichment & Startup Registration |
 | 19 | [How Do We Achieve Instant Revocation in Stateless RS256 JWTs via Version Caching?](docs/19-how-do-we-achieve-instant-jwt-revocation-with-perm-version-caching.md) | Stateless JWT Claims, Token Bloat Math, `perm_version` Claim & Local In-Memory VersionCache Enforcement |
+| 20 | [How Do We Design User-Tenant Session Binding and Zero-Trust Token Context Derivation?](docs/20-how-do-we-design-user-tenant-session-binding-and-zero-trust-token-context-derivation.md) | 1-to-1 Active Session Claims, Eliminating Client-Side tenant_id Exposure, IDOR Protection & Future Multi-Workspace Switching |
 
 ---
 
@@ -427,6 +428,9 @@ microservice-api/
 | Service | Method & Path | Auth / Headers | Required Scope / Permission | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | **tenant-service** | `POST /api/tenants/register` | None | Public | Register new workspace & initiate provisioner workflow |
+| **tenant-service** | `GET /api/tenants/me` | Bearer JWT | `tenants:read` | Retrieve authenticated tenant workspace profile metadata |
+| **tenant-service** | `PUT /api/tenants/me` | Bearer JWT | `tenants:write` | Update tenant metadata (name, slug, owner info) |
+| **tenant-service** | `PUT /api/tenants/me/plan` | Bearer JWT | `tenants:write` | Upgrade/downgrade tenant isolation plan (`shared` / `dedicated`) |
 | **auth-service** | `GET /.well-known/jwks.json` | None | Public | Public RSA key set for RS256 JWT signature verification |
 | **auth-service** | `POST /api/auth/credentials/setup` | None | Public | Setup user password via setup token |
 | **auth-service** | `POST /api/auth/login` | None | Public | User authentication & RS256 JWT access token issuance |
@@ -440,7 +444,13 @@ microservice-api/
 | **auth-service** | `DELETE /api/auth/roles/:id` | Bearer JWT | Tenant Admin | Delete custom role |
 | **auth-service** | `PUT /api/auth/users/:userID/role` | Bearer JWT | Tenant Admin | Assign role to tenant user |
 | **auth-service** | `GET /api/auth/users/:userID/role` | Bearer JWT | Tenant Admin | Retrieve user role assignment |
+| **user-service** | `GET /api/users` | Bearer JWT | `users:read` | List users belonging to caller's tenant |
 | **user-service** | `GET /api/users/me` | Bearer JWT | `users:read` | Retrieve current user profile |
+| **user-service** | `PUT /api/users/me` | Bearer JWT | `users:write` | Update current user profile details |
+| **user-service** | `GET /api/users/:user_id/role` | Bearer JWT | `users:read` | Retrieve user role assignment |
+| **user-service** | `PUT /api/users/:user_id/role` | Bearer JWT | `users:roles:manage` | Assign role to user |
+| **user-service** | `POST /api/users/roles` | Bearer JWT | `users:roles:manage` | Create tenant-scoped custom role using system permissions |
+| **user-service** | `GET /api/users/roles` | Bearer JWT | `users:roles:manage` | List available roles for tenant |
 | **order-service** | `GET /api/orders` | Bearer JWT | `orders:read` | List orders for isolated tenant DB |
 | **order-service** | `POST /api/orders` | Bearer JWT | `orders:create` | Create order entry in isolated tenant DB |
 | **notification-service** | `GET /api/notifications` | Bearer JWT | `notifications:read` | List user notifications |

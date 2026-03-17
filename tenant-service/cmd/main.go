@@ -40,8 +40,7 @@ func main() {
 	go func() {
 		if err := permRegistrar.Register(context.Background(), "tenant-service", []authclient.PermissionItem{
 			{Name: "tenants:read", Description: "Read tenant workspace details"},
-			{Name: "tenants:update", Description: "Update tenant workspace details"},
-			{Name: "tenants:plan.change", Description: "Upgrade or downgrade tenant plan"},
+			{Name: "tenants:write", Description: "Update tenant workspace details and plan"},
 		}); err != nil {
 			log.Printf("Tenant Service: Warning — startup permission registration deferred: %v", err)
 		}
