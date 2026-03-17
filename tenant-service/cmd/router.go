@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"os"
 
 	"tenant-service/internal/handler"
 	"tenant-service/internal/middleware"
@@ -18,9 +19,24 @@ func newRouter(txManager *txcontext.SQLTxManager, workspaceService *service.Work
 
 	workspaceHandler := handler.NewWorkspaceHandler(txManager, workspaceService)
 	internalTenantHandler := handler.NewInternalTenantHandler(tenantInfrastructureService)
+	tenantHandler := handler.NewTenantHandler(workspaceService)
 
 	// Public registration endpoint
 	r.POST("/api/tenants/register", workspaceHandler.RegisterWorkspace)
+
+	publicKeyPEM := os.Getenv("AUTH_JWT_PUBLIC_KEY_PEM")
+	if publicKeyPEM != "" {
+		authServiceURL := os.Getenv("AUTH_SERVICE_URL")
+		versionCache := middleware.NewVersionCache(authServiceURL, internalToken)
+
+		api := r.Group("/api/tenants")
+		api.Use(middleware.RequireJWT(publicKeyPEM, versionCache))
+		{
+			api.GET("/me", middleware.RequirePermission("tenants:read"), tenantHandler.GetTenantMe)
+			api.PUT("/me", middleware.RequirePermission("tenants:write"), tenantHandler.UpdateTenantMe)
+			api.PUT("/me/plan", middleware.RequirePermission("tenants:write"), tenantHandler.ChangeTenantPlanMe)
+		}
+	}
 
 	// Protected Internal Control Plane routing endpoints (Zero-Trust)
 	internal := r.Group("/internal/tenants")

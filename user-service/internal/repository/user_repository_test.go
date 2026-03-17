@@ -82,10 +82,87 @@ func TestUserRepository_CreateUser_Error(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 
-	if !strings.Contains(err.Error(), "failed to insert user record into public.users") {
-		t.Errorf("expected error message to contain 'failed to insert user record into public.users', got: %v", err)
+	if !strings.Contains(err.Error(), "user repository: failed to insert user record into public.users") {
+		t.Errorf("expected error message to contain 'user repository: failed to insert user record into public.users', got: %v", err)
 	}
 	if !errors.Is(err, dbErr) {
 		t.Errorf("expected wrapped error to be dbErr, got %v", err)
+	}
+}
+
+func TestUserRepository_UpdateUser_Success(t *testing.T) {
+	var capturedQuery string
+	var capturedArgs []any
+
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+			capturedQuery = query
+			capturedArgs = args
+			return &testutil.MockResult{RowsAffectedVal: 1}, nil
+		},
+	}
+
+	userRepository := NewUserRepository(&postgres.Client{})
+	ctx := txcontext.WithExecutor(context.Background(), mockExec)
+
+	err := userRepository.UpdateUser(ctx, UpdateUserInput{ID: "usr_123", Name: "Updated Name"})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+
+	if !strings.Contains(capturedQuery, "UPDATE public.users") {
+		t.Errorf("expected query to contain UPDATE, got %s", capturedQuery)
+	}
+	if len(capturedArgs) != 2 || capturedArgs[0] != "usr_123" || capturedArgs[1] != "Updated Name" {
+		t.Errorf("unexpected query args: %v", capturedArgs)
+	}
+}
+
+func TestUserRepository_UpdateUser_NotFound(t *testing.T) {
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+			return &testutil.MockResult{RowsAffectedVal: 0}, nil
+		},
+	}
+
+	userRepository := NewUserRepository(&postgres.Client{})
+	ctx := txcontext.WithExecutor(context.Background(), mockExec)
+
+	err := userRepository.UpdateUser(ctx, UpdateUserInput{ID: "usr_missing", Name: "Name"})
+	if err == nil {
+		t.Fatal("expected error for non-existent user, got nil")
+	}
+}
+
+func TestUserRepository_GetUserByID_Error(t *testing.T) {
+	mockExec := &testutil.MockDBExecutor{
+		QueryRowContextFn: func(ctx context.Context, query string, args ...any) *sql.Row {
+			return testutil.GetDummyRow(ctx)
+		},
+	}
+
+	userRepository := NewUserRepository(&postgres.Client{})
+	ctx := txcontext.WithExecutor(context.Background(), mockExec)
+
+	_, err := userRepository.GetUserByID(ctx, "usr_123")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestUserRepository_ListUsers_Error(t *testing.T) {
+	dbErr := errors.New("db error")
+	mockExec := &testutil.MockDBExecutor{
+		QueryContextFn: func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+			return nil, dbErr
+		},
+	}
+
+	userRepository := NewUserRepository(&postgres.Client{})
+	ctx := txcontext.WithExecutor(context.Background(), mockExec)
+
+	_, err := userRepository.ListUsers(ctx)
+	if err == nil || !errors.Is(err, dbErr) {
+		t.Fatalf("expected error wrapping dbErr, got %v", err)
 	}
 }

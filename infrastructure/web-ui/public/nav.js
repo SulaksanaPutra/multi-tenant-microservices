@@ -61,14 +61,17 @@ function renderNavHeader(activeTabId) {
     const hasToken = !!getJWTToken();
 
     const navHtml = `
-        <h1>Multi-Tenant Microservices Flow Demonstration</h1>
-        <p>Routed through Traefik Gateway (port 8000). Authenticated via RS256 JWT.</p>
+        <h1>Multi-Tenant Microservices Platform Dashboard</h1>
+        <p>Routed through Traefik Gateway (port 8000). Authenticated via RS256 JWT Token.</p>
         <hr>
-        <nav style="margin-bottom: 20px;">
-            <a href="/index.html" style="${activeTabId==='register'?'font-weight:bold;':''}">1. Register & Auth (Control Plane)</a> | 
-            <a href="/mailbox.html" style="${activeTabId==='mailbox'?'font-weight:bold;':''}">2. Dev Mailpit Inbox</a> | 
-            <a href="/orders.html" style="${activeTabId==='orders'?'font-weight:bold;':''}">3. Orders (Data Plane) ${hasToken ? '🔒 [JWT Active]' : '⚠️ [No JWT]'}</a> | 
-            <a href="/registry.html" style="${activeTabId==='registry'?'font-weight:bold;':''}">4. Session Registry (${count})</a>
+        <nav style="margin-bottom: 20px; line-height: 1.8;">
+            <a href="/index.html" style="${activeTabId==='register'?'font-weight:bold;':''}">1. Auth & Register</a> | 
+            <a href="/users.html" style="${activeTabId==='users'?'font-weight:bold;':''}">2. Users & Roles ${hasToken ? '🔒' : '⚠️'}</a> | 
+            <a href="/tenant.html" style="${activeTabId==='tenant'?'font-weight:bold;':''}">3. Tenant Info & Plan ${hasToken ? '🔒' : '⚠️'}</a> | 
+            <a href="/notifications.html" style="${activeTabId==='notifications'?'font-weight:bold;':''}">4. Notifications ${hasToken ? '🔒' : '⚠️'}</a> | 
+            <a href="/orders.html" style="${activeTabId==='orders'?'font-weight:bold;':''}">5. Orders (Data Plane) ${hasToken ? '🔒' : '⚠️'}</a> | 
+            <a href="/mailbox.html" style="${activeTabId==='mailbox'?'font-weight:bold;':''}">6. Dev Mailpit Inbox</a> | 
+            <a href="/registry.html" style="${activeTabId==='registry'?'font-weight:bold;':''}">7. Session Registry (${count})</a>
         </nav>
         <hr>
     `;

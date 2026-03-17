@@ -33,11 +33,26 @@ type RegisterWorkspaceOutput struct {
 	Status   string
 }
 
+type UpdateTenantServiceInput struct {
+	TenantID   string
+	Name       string
+	Slug       string
+	OwnerEmail string
+	OwnerName  string
+}
+
+type ChangeTenantPlanInput struct {
+	TenantID string
+	Plan     string
+}
+
 // TenantRepository is the consumer-side interface expected by WorkspaceService.
 type TenantRepository interface {
 	CreateTenant(ctx context.Context, input repository.CreateTenantInput) error
 	GetTenantByID(ctx context.Context, tenantID string) (*domain.Tenant, error)
 	ActivateTenant(ctx context.Context, tenantID string) error
+	UpdateTenant(ctx context.Context, input repository.UpdateTenantInput) error
+	UpdateTenantPlan(ctx context.Context, input repository.UpdateTenantPlanInput) error
 }
 
 // OutboxRepository is the consumer-side interface expected by WorkspaceService.
@@ -70,7 +85,7 @@ func NewWorkspaceService(params WorkspaceServiceParams) *WorkspaceService {
 	}
 }
 
-func (s *WorkspaceService) RegisterWorkspace(ctx context.Context, input RegisterWorkspaceInput) (*RegisterWorkspaceOutput, error) {
+func (workspaceService *WorkspaceService) RegisterWorkspace(ctx context.Context, input RegisterWorkspaceInput) (*RegisterWorkspaceOutput, error) {
 	if strings.TrimSpace(input.OwnerEmail) == "" {
 		return nil, ErrOwnerEmailRequired
 	}
@@ -96,10 +111,10 @@ func (s *WorkspaceService) RegisterWorkspace(ctx context.Context, input Register
 	}
 	payloadBytes, err := json.Marshal(evt)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal WorkspaceInitiated event: %w", err)
+		return nil, fmt.Errorf("workspace service: failed to marshal WorkspaceInitiated event: %w", err)
 	}
 
-	if err := s.tenantRepository.CreateTenant(ctx, repository.CreateTenantInput{
+	if err := workspaceService.tenantRepository.CreateTenant(ctx, repository.CreateTenantInput{
 		ID:         tenantID,
 		Name:       input.TenantName,
 		Slug:       slug,
@@ -107,7 +122,7 @@ func (s *WorkspaceService) RegisterWorkspace(ctx context.Context, input Register
 		OwnerName:  input.OwnerName,
 		Plan:       plan.String(),
 	}); err != nil {
-		return nil, fmt.Errorf("failed to create tenant record: %w", err)
+		return nil, fmt.Errorf("workspace service: failed to create tenant record: %w", err)
 	}
 
 	outboxInput := repository.CreateOutboxMessageInput{
@@ -118,30 +133,30 @@ func (s *WorkspaceService) RegisterWorkspace(ctx context.Context, input Register
 		EventType:     "workspace.initiated",
 		Payload:       payloadBytes,
 	}
-	if err := s.outboxRepository.CreateOutboxMessage(ctx, outboxInput); err != nil {
-		return nil, fmt.Errorf("failed to stage workspace.initiated outbox event: %w", err)
+	if err := workspaceService.outboxRepository.CreateOutboxMessage(ctx, outboxInput); err != nil {
+		return nil, fmt.Errorf("workspace service: failed to stage workspace.initiated outbox event: %w", err)
 	}
 
 	log.Printf("WorkspaceService: Registered tenant_id='%s' slug='%s' plan='%s' outbox_id='%s'",
 		tenantID, slug, plan, outboxID)
 
-	if s.outboxWorker != nil {
-		s.outboxWorker.Poke()
+	if workspaceService.outboxWorker != nil {
+		workspaceService.outboxWorker.Poke()
 	}
 	return &RegisterWorkspaceOutput{TenantID: tenantID, Status: "accepted"}, nil
 }
 
-func (s *WorkspaceService) ActivateWorkspace(ctx context.Context, tenantID string) error {
+func (workspaceService *WorkspaceService) ActivateWorkspace(ctx context.Context, tenantID string) error {
 	if strings.TrimSpace(tenantID) == "" {
 		return ErrTenantIDRequired
 	}
 
-	tenant, err := s.tenantRepository.GetTenantByID(ctx, tenantID)
+	tenant, err := workspaceService.tenantRepository.GetTenantByID(ctx, tenantID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return fmt.Errorf("%w: %s", ErrTenantNotFound, tenantID)
 		}
-		return fmt.Errorf("failed to fetch tenant for activation: %w", err)
+		return fmt.Errorf("workspace service: failed to fetch tenant for activation: %w", err)
 	}
 	if tenant == nil {
 		return fmt.Errorf("%w: %s", ErrTenantNotFound, tenantID)
@@ -155,11 +170,11 @@ func (s *WorkspaceService) ActivateWorkspace(ctx context.Context, tenantID strin
 	}
 	payloadBytes, err := json.Marshal(readyEvt)
 	if err != nil {
-		return fmt.Errorf("failed to marshal WorkspaceReady event: %w", err)
+		return fmt.Errorf("workspace service: failed to marshal WorkspaceReady event: %w", err)
 	}
 
-	if err := s.tenantRepository.ActivateTenant(ctx, tenantID); err != nil {
-		return fmt.Errorf("failed to activate tenant: %w", err)
+	if err := workspaceService.tenantRepository.ActivateTenant(ctx, tenantID); err != nil {
+		return fmt.Errorf("workspace service: failed to activate tenant: %w", err)
 	}
 
 	outboxInput := repository.CreateOutboxMessageInput{
@@ -170,13 +185,73 @@ func (s *WorkspaceService) ActivateWorkspace(ctx context.Context, tenantID strin
 		EventType:     "workspace.ready",
 		Payload:       payloadBytes,
 	}
-	if err := s.outboxRepository.CreateOutboxMessage(ctx, outboxInput); err != nil {
-		return fmt.Errorf("failed to stage workspace.ready outbox event: %w", err)
+	if err := workspaceService.outboxRepository.CreateOutboxMessage(ctx, outboxInput); err != nil {
+		return fmt.Errorf("workspace service: failed to stage workspace.ready outbox event: %w", err)
 	}
 
 	log.Printf("WorkspaceService: Workspace ACTIVE for tenant_id='%s' — WorkspaceReady staged.", tenantID)
-	if s.outboxWorker != nil {
-		s.outboxWorker.Poke()
+	if workspaceService.outboxWorker != nil {
+		workspaceService.outboxWorker.Poke()
 	}
 	return nil
+}
+
+func (workspaceService *WorkspaceService) GetTenantByID(ctx context.Context, tenantID string) (*domain.Tenant, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, ErrTenantIDRequired
+	}
+	return workspaceService.tenantRepository.GetTenantByID(ctx, tenantID)
+}
+
+func (workspaceService *WorkspaceService) ListTenants(ctx context.Context, tenantID string) ([]domain.Tenant, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, ErrTenantIDRequired
+	}
+	tenant, err := workspaceService.tenantRepository.GetTenantByID(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("workspace service: failed to list tenant: %w", err)
+	}
+	if tenant == nil {
+		return []domain.Tenant{}, nil
+	}
+	return []domain.Tenant{*tenant}, nil
+}
+
+func (workspaceService *WorkspaceService) UpdateTenant(ctx context.Context, input UpdateTenantServiceInput) error {
+	if strings.TrimSpace(input.TenantID) == "" {
+		return ErrTenantIDRequired
+	}
+	if strings.TrimSpace(input.Name) == "" {
+		return ErrTenantNameRequired
+	}
+	if strings.TrimSpace(input.OwnerEmail) == "" {
+		return ErrOwnerEmailRequired
+	}
+	slug := input.Slug
+	if slug == "" {
+		slug = httputil.SanitizeSlug(input.Name)
+	}
+
+	return workspaceService.tenantRepository.UpdateTenant(ctx, repository.UpdateTenantInput{
+		ID:         input.TenantID,
+		Name:       input.Name,
+		Slug:       slug,
+		OwnerEmail: input.OwnerEmail,
+		OwnerName:  input.OwnerName,
+	})
+}
+
+func (workspaceService *WorkspaceService) ChangeTenantPlan(ctx context.Context, input ChangeTenantPlanInput) error {
+	if strings.TrimSpace(input.TenantID) == "" {
+		return ErrTenantIDRequired
+	}
+	p := domain.Plan(strings.ToLower(input.Plan))
+	if !p.IsValid() {
+		return fmt.Errorf("%w: '%s' (must be '%s' or '%s')", ErrInvalidPlan, input.Plan, domain.PlanShared, domain.PlanDedicated)
+	}
+
+	return workspaceService.tenantRepository.UpdateTenantPlan(ctx, repository.UpdateTenantPlanInput{
+		ID:   input.TenantID,
+		Plan: p.String(),
+	})
 }

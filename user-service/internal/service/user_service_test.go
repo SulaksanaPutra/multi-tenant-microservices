@@ -14,7 +14,10 @@ import (
 )
 
 type mockUserRepository struct {
-	createUserFunc func(ctx context.Context, input repository.CreateUserInput) error
+	createUserFunc  func(ctx context.Context, input repository.CreateUserInput) error
+	updateUserFunc  func(ctx context.Context, input repository.UpdateUserInput) error
+	getUserByIDFunc func(ctx context.Context, userID string) (*domain.User, error)
+	listUsersFunc   func(ctx context.Context) ([]domain.User, error)
 }
 
 func (m *mockUserRepository) CreateUser(ctx context.Context, input repository.CreateUserInput) error {
@@ -22,6 +25,27 @@ func (m *mockUserRepository) CreateUser(ctx context.Context, input repository.Cr
 		return m.createUserFunc(ctx, input)
 	}
 	return nil
+}
+
+func (m *mockUserRepository) UpdateUser(ctx context.Context, input repository.UpdateUserInput) error {
+	if m.updateUserFunc != nil {
+		return m.updateUserFunc(ctx, input)
+	}
+	return nil
+}
+
+func (m *mockUserRepository) GetUserByID(ctx context.Context, userID string) (*domain.User, error) {
+	if m.getUserByIDFunc != nil {
+		return m.getUserByIDFunc(ctx, userID)
+	}
+	return nil, nil
+}
+
+func (m *mockUserRepository) ListUsers(ctx context.Context) ([]domain.User, error) {
+	if m.listUsersFunc != nil {
+		return m.listUsersFunc(ctx)
+	}
+	return nil, nil
 }
 
 type mockOutboxRepository struct {
@@ -183,6 +207,86 @@ func TestUserService_CreateUserFromWorkspace_OutboxRepoError(t *testing.T) {
 	err := svc.CreateUserFromWorkspace(context.Background(), input)
 	if err == nil || !errors.Is(err, expectedErr) {
 		t.Errorf("expected error wrapping '%v', got '%v'", expectedErr, err)
+	}
+}
+
+func TestUserService_UpdateUser(t *testing.T) {
+	t.Run("validation missing user_id", func(t *testing.T) {
+		userService := NewUserService(&mockUserRepository{}, nil)
+		err := userService.UpdateUser(context.Background(), UpdateUserServiceInput{UserID: "", Name: "Alice"})
+		if !errors.Is(err, ErrUserIDRequired) {
+			t.Errorf("expected ErrUserIDRequired, got %v", err)
+		}
+	})
+
+	t.Run("validation missing name", func(t *testing.T) {
+		userService := NewUserService(&mockUserRepository{}, nil)
+		err := userService.UpdateUser(context.Background(), UpdateUserServiceInput{UserID: "usr_1", Name: ""})
+		if !errors.Is(err, ErrUserNameRequired) {
+			t.Errorf("expected ErrUserNameRequired, got %v", err)
+		}
+	})
+
+	t.Run("success", func(t *testing.T) {
+		updated := false
+		mockRepo := &mockUserRepository{
+			updateUserFunc: func(ctx context.Context, input repository.UpdateUserInput) error {
+				if input.ID == "usr_1" && input.Name == "Alice Smith" {
+					updated = true
+				}
+				return nil
+			},
+		}
+		userService := NewUserService(mockRepo, nil)
+		err := userService.UpdateUser(context.Background(), UpdateUserServiceInput{UserID: "usr_1", Name: "Alice Smith"})
+		if err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+		if !updated {
+			t.Error("expected UpdateUser to be called")
+		}
+	})
+}
+
+func TestUserService_GetUserByID(t *testing.T) {
+	t.Run("missing user_id", func(t *testing.T) {
+		userService := NewUserService(&mockUserRepository{}, nil)
+		_, err := userService.GetUserByID(context.Background(), "")
+		if !errors.Is(err, ErrUserIDRequired) {
+			t.Errorf("expected ErrUserIDRequired, got %v", err)
+		}
+	})
+
+	t.Run("success", func(t *testing.T) {
+		mockRepo := &mockUserRepository{
+			getUserByIDFunc: func(ctx context.Context, userID string) (*domain.User, error) {
+				return &domain.User{ID: userID, Name: "Bob"}, nil
+			},
+		}
+		userService := NewUserService(mockRepo, nil)
+		u, err := userService.GetUserByID(context.Background(), "usr_2")
+		if err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+		if u.ID != "usr_2" || u.Name != "Bob" {
+			t.Errorf("unexpected user returned: %+v", u)
+		}
+	})
+}
+
+func TestUserService_ListUsers(t *testing.T) {
+	mockRepo := &mockUserRepository{
+		listUsersFunc: func(ctx context.Context) ([]domain.User, error) {
+			return []domain.User{{ID: "usr_1"}, {ID: "usr_2"}}, nil
+		},
+	}
+	userService := NewUserService(mockRepo, nil)
+	users, err := userService.ListUsers(context.Background())
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if len(users) != 2 {
+		t.Fatalf("expected 2 users, got %d", len(users))
 	}
 }
 

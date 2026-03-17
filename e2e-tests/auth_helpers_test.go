@@ -35,6 +35,7 @@ import (
 )
 
 const (
+	gatewayBaseURL = "http://localhost:8000"
 	authServiceURL = "http://localhost:8085"
 	authLoginURL   = authServiceURL + "/api/auth/login"
 	authRefreshURL = authServiceURL + "/api/auth/refresh"

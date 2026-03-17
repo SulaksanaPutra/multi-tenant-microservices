@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2. Users & Roles Management</title>
+</head>
+<body>
+    <div id="nav-container"></div>
+
+    <h2>User Profile & RBAC Role Management</h2>
+    <p>Protected by <code>RequireJWT</code> token verification and permission checks.</p>
+
+    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+        <!-- UPDATE MY PROFILE -->
+        <div style="flex: 1; min-width: 300px; border: 1px solid #ccc; padding: 15px;">
+            <h3>Update My Profile (`PUT /api/users/me`)</h3>
+            <form id="update-me-form">
+                <div style="margin-bottom: 10px;">
+                    <label>New Name:</label><br>
+                    <input type="text" id="update-me-name" placeholder="John Updated" style="width: 90%;" required>
+                </div>
+                <button type="submit">Update Profile</button>
+            </form>
+            <h4>Output:</h4>
+            <pre id="update-me-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting action...)</pre>
+        </div>
+
+        <!-- CREATE CUSTOM ROLE -->
+        <div style="flex: 1; min-width: 300px; border: 1px solid #ccc; padding: 15px;">
+            <h3>Create Custom Role (`POST /api/users/roles`)</h3>
+            <form id="create-role-form">
+                <div style="margin-bottom: 10px;">
+                    <label>Role Name:</label><br>
+                    <input type="text" id="role-name" placeholder="editor" style="width: 90%;" required>
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <label>Description:</label><br>
+                    <input type="text" id="role-desc" placeholder="Editor access" style="width: 90%;">
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <label>Permissions (comma separated):</label><br>
+                    <input type="text" id="role-perms" placeholder="orders:read, users:read" style="width: 90%;">
+                </div>
+                <button type="submit">Create Role</button>
+            </form>
+            <h4>Output:</h4>
+            <pre id="create-role-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting action...)</pre>
+        </div>
+    </div>
+
+    <br>
+
+    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+        <!-- LIST USERS & ASSIGN ROLE -->
+        <div style="flex: 1; min-width: 400px; border: 1px solid #ccc; padding: 15px;">
+            <h3>Users List (`GET /api/users`) & Role Assignment</h3>
+            <button id="btn-fetch-users">Fetch Users List</button>
+            <br><br>
+            <div id="users-table-container"></div>
+            <br>
+            <h4>Assign Role to User (`PUT /api/users/:user_id/role`)</h4>
+            <form id="assign-role-form">
+                <div style="margin-bottom: 10px;">
+                    <label>Target User ID:</label><br>
+                    <input type="text" id="assign-user-id" placeholder="usr_..." style="width: 90%;" required>
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <label>Role ID (UUID):</label><br>
+                    <input type="text" id="assign-role-id" placeholder="Role UUID" style="width: 90%;" required>
+                </div>
+                <button type="submit">Assign Role</button>
+            </form>
+            <h4>Output:</h4>
+            <pre id="assign-role-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting action...)</pre>
+        </div>
+
+        <!-- LIST ROLES & PERMISSIONS CATALOG -->
+        <div style="flex: 1; min-width: 300px; border: 1px solid #ccc; padding: 15px;">
+            <h3>Roles & Permissions Catalog</h3>
+            <button id="btn-fetch-roles">Fetch Tenant Roles</button>
+            <button id="btn-fetch-perms">Fetch Available Permissions (`GET /api/users/permissions`)</button>
+            <br><br>
+            <h4>Roles Output:</h4>
+            <pre id="roles-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc; max-height: 200px; overflow-y: auto;">(Click button to fetch roles)</pre>
+            <h4>Permissions Catalog:</h4>
+            <pre id="perms-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc; max-height: 200px; overflow-y: auto;">(Click button to fetch available permissions)</pre>
+        </div>
+    </div>
+
+    <script src="/nav.js"></script>
+    <script>
+        renderNavHeader("users");
+
+        function getAuthHeader() {
+            const token = getJWTToken();
+            return token ? { "Authorization": "Bearer " + token } : {};
+        }
+
+        document.getElementById("update-me-form").addEventListener("submit", async function(e) {
+            e.preventDefault();
+            const out = document.getElementById("update-me-output");
+            out.textContent = "Updating user profile...";
+            const name = document.getElementById("update-me-name").value.trim();
+
+            try {
+                const res = await fetch("/api/users/me", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json", ...getAuthHeader() },
+                    body: JSON.stringify({ name })
+                });
+                const data = await res.json();
+                out.textContent = JSON.stringify(data, null, 2);
+            } catch (err) {
+                out.textContent = "Error: " + err.message;
+            }
+        });
+
+        document.getElementById("create-role-form").addEventListener("submit", async function(e) {
+            e.preventDefault();
+            const out = document.getElementById("create-role-output");
+            out.textContent = "Creating custom role...";
+            const name = document.getElementById("role-name").value.trim();
+            const description = document.getElementById("role-desc").value.trim();
+            const rawPerms = document.getElementById("role-perms").value.trim();
+            const permissions = rawPerms ? rawPerms.split(",").map(p => p.trim()) : [];
+
+            try {
+                const res = await fetch("/api/users/roles", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", ...getAuthHeader() },
+                    body: JSON.stringify({ name, description, permissions })
+                });
+                const data = await res.json();
+                out.textContent = JSON.stringify(data, null, 2);
+            } catch (err) {
+                out.textContent = "Error: " + err.message;
+            }
+        });
+
+        document.getElementById("btn-fetch-users").addEventListener("click", async function() {
+            const container = document.getElementById("users-table-container");
+            container.innerHTML = "Fetching users...";
+
+            try {
+                const res = await fetch("/api/users", { headers: getAuthHeader() });
+                const data = await res.json();
+                if (res.ok && data.data) {
+                    let html = "<table border='1' cellpadding='5' style='border-collapse:collapse; width:100%;'><tr><th>ID</th><th>Email</th><th>Name</th></tr>";
+                    data.data.forEach(u => {
+                        html += `<tr><td>${u.ID}</td><td>${u.Email}</td><td>${u.Name}</td></tr>`;
+                    });
+                    html += "</table>";
+                    container.innerHTML = html;
+                } else {
+                    container.textContent = JSON.stringify(data, null, 2);
+                }
+            } catch (err) {
+                container.textContent = "Error: " + err.message;
+            }
+        });
+
+        document.getElementById("btn-fetch-roles").addEventListener("click", async function() {
+            const out = document.getElementById("roles-output");
+            out.textContent = "Fetching roles...";
+
+            try {
+                const res = await fetch("/api/users/roles", { headers: getAuthHeader() });
+                const data = await res.json();
+                out.textContent = JSON.stringify(data, null, 2);
+            } catch (err) {
+                out.textContent = "Error: " + err.message;
+            }
+        });
+
+        document.getElementById("btn-fetch-perms").addEventListener("click", async function() {
+            const out = document.getElementById("perms-output");
+            out.textContent = "Fetching permissions catalog...";
+
+            try {
+                const res = await fetch("/api/users/permissions", { headers: getAuthHeader() });
+                const data = await res.json();
+                out.textContent = JSON.stringify(data, null, 2);
+            } catch (err) {
+                out.textContent = "Error: " + err.message;
+            }
+        });
+
+        document.getElementById("assign-role-form").addEventListener("submit", async function(e) {
+            e.preventDefault();
+            const out = document.getElementById("assign-role-output");
+            out.textContent = "Assigning role...";
+            const userID = document.getElementById("assign-user-id").value.trim();
+            const roleID = document.getElementById("assign-role-id").value.trim();
+
+            try {
+                const res = await fetch(`/api/users/${userID}/role`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json", ...getAuthHeader() },
+                    body: JSON.stringify({ role_id: roleID })
+                });
+                const data = await res.json();
+                out.textContent = JSON.stringify(data, null, 2);
+            } catch (err) {
+                out.textContent = "Error: " + err.message;
+            }
+        });
+    </script>
+</body>
+</html>
