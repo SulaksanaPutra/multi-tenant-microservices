@@ -26,12 +26,12 @@ func NewAuthClient(authServiceURL string) *AuthClient {
 }
 
 type Role struct {
-	ID          string   `json:"id"`
-	TenantID    *string  `json:"tenant_id,omitempty"`
-	Name        string   `json:"name"`
-	Description string   `json:"description,omitempty"`
-	IsSystem    bool     `json:"is_system"`
-	Permissions []string `json:"permissions,omitempty"`
+	ID          string                  `json:"id"`
+	TenantID    *string                 `json:"tenant_id,omitempty"`
+	Name        string                  `json:"name"`
+	Description string                  `json:"description,omitempty"`
+	IsSystem    bool                    `json:"is_system"`
+	Permissions []PermissionCatalogItem `json:"permissions,omitempty"`
 }
 
 type PermissionCatalogItem struct {

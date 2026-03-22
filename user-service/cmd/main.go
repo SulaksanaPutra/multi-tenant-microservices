@@ -79,10 +79,10 @@ func main() {
 	wRunner.start(workerCtx)
 
 	// Initialize Domain Services & Clients
-	inboxService := service.NewInboxService(inboxRepository)
-	userService := service.NewUserService(userRepository, outboxRepository)
 	authClient := authclient.NewAuthClient(authServiceURL)
-	userHandler := handler.NewUserHandler(userService, authClient)
+	inboxService := service.NewInboxService(inboxRepository)
+	userService := service.NewUserService(userRepository, outboxRepository, authClient)
+	userHandler := handler.NewUserHandler(userService)
 
 	// Register & Start Inbound Queue Consumers Collection
 	cRunner, err := registerConsumers(txManager, rmqClient, inboxService, userService)

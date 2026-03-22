@@ -83,5 +83,5 @@ func TestUserProfileManagementE2E(t *testing.T) {
 		t.Fatalf("PUT /api/users/me expected status 200, got %d", resp.StatusCode)
 	}
 
-	t.Log("[TC-E2E-020] ✅ Successfully verified User Profile Management APIs!")
+	t.Log("[TC-E2E-020] Successfully verified User Profile Management APIs!")
 }

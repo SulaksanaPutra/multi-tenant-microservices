@@ -16,6 +16,7 @@ package e2e_test
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"testing"
 )
@@ -69,7 +70,8 @@ func TestUserRoleAssignmentAndPermissionsE2E(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		t.Fatalf("POST /api/users/roles expected 201/200, got %d", resp.StatusCode)
+		respBody, _ := io.ReadAll(resp.Body)
+		t.Fatalf("POST /api/users/roles expected 201/200, got %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	var createdRole struct {
@@ -137,5 +139,5 @@ func TestUserRoleAssignmentAndPermissionsE2E(t *testing.T) {
 		t.Fatalf("GET /api/users/:user_id/role expected status 200, got %d", resp.StatusCode)
 	}
 
-	t.Log("[TC-E2E-022] ✅ Successfully verified User Role Assignment & Permissions APIs!")
+	t.Log("[TC-E2E-022] Successfully verified User Role Assignment & Permissions APIs!")
 }

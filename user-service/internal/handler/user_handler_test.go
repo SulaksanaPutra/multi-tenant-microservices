@@ -16,9 +16,14 @@ import (
 )
 
 type mockUserService struct {
-	listUsersFn   func(ctx context.Context) ([]domain.User, error)
-	updateUserFn  func(ctx context.Context, input service.UpdateUserServiceInput) error
-	getUserByIDFn func(ctx context.Context, userID string) (*domain.User, error)
+	listUsersFn       func(ctx context.Context) ([]domain.User, error)
+	updateUserFn      func(ctx context.Context, input service.UpdateUserServiceInput) error
+	getUserByIDFn     func(ctx context.Context, userID string) (*domain.User, error)
+	assignUserRoleFn  func(ctx context.Context, authToken, userID, roleID string) (*authclient.UserRoleResponse, error)
+	getUserRoleFn     func(ctx context.Context, authToken, userID string) (*authclient.UserRoleResponse, error)
+	createRoleFn      func(ctx context.Context, authToken string, input authclient.CreateRoleInput) (*authclient.Role, error)
+	listRolesFn       func(ctx context.Context, authToken string) ([]authclient.Role, error)
+	listPermissionsFn func(ctx context.Context, authToken string) ([]authclient.PermissionCatalogItem, error)
 }
 
 func (m *mockUserService) ListUsers(ctx context.Context) ([]domain.User, error) {
@@ -42,43 +47,35 @@ func (m *mockUserService) GetUserByID(ctx context.Context, userID string) (*doma
 	return nil, nil
 }
 
-type mockAuthClient struct {
-	assignUserRoleFn  func(ctx context.Context, authToken, userID, roleID string) (*authclient.UserRoleResponse, error)
-	getUserRoleFn     func(ctx context.Context, authToken, userID string) (*authclient.UserRoleResponse, error)
-	createRoleFn      func(ctx context.Context, authToken string, input authclient.CreateRoleInput) (*authclient.Role, error)
-	listRolesFn       func(ctx context.Context, authToken string) ([]authclient.Role, error)
-	listPermissionsFn func(ctx context.Context, authToken string) ([]authclient.PermissionCatalogItem, error)
-}
-
-func (m *mockAuthClient) AssignUserRole(ctx context.Context, authToken, userID, roleID string) (*authclient.UserRoleResponse, error) {
+func (m *mockUserService) AssignUserRole(ctx context.Context, authToken, userID, roleID string) (*authclient.UserRoleResponse, error) {
 	if m.assignUserRoleFn != nil {
 		return m.assignUserRoleFn(ctx, authToken, userID, roleID)
 	}
 	return nil, nil
 }
 
-func (m *mockAuthClient) GetUserRole(ctx context.Context, authToken, userID string) (*authclient.UserRoleResponse, error) {
+func (m *mockUserService) GetUserRole(ctx context.Context, authToken, userID string) (*authclient.UserRoleResponse, error) {
 	if m.getUserRoleFn != nil {
 		return m.getUserRoleFn(ctx, authToken, userID)
 	}
 	return nil, nil
 }
 
-func (m *mockAuthClient) CreateRole(ctx context.Context, authToken string, input authclient.CreateRoleInput) (*authclient.Role, error) {
+func (m *mockUserService) CreateRole(ctx context.Context, authToken string, input authclient.CreateRoleInput) (*authclient.Role, error) {
 	if m.createRoleFn != nil {
 		return m.createRoleFn(ctx, authToken, input)
 	}
 	return nil, nil
 }
 
-func (m *mockAuthClient) ListRoles(ctx context.Context, authToken string) ([]authclient.Role, error) {
+func (m *mockUserService) ListRoles(ctx context.Context, authToken string) ([]authclient.Role, error) {
 	if m.listRolesFn != nil {
 		return m.listRolesFn(ctx, authToken)
 	}
 	return nil, nil
 }
 
-func (m *mockAuthClient) ListPermissions(ctx context.Context, authToken string) ([]authclient.PermissionCatalogItem, error) {
+func (m *mockUserService) ListPermissions(ctx context.Context, authToken string) ([]authclient.PermissionCatalogItem, error) {
 	if m.listPermissionsFn != nil {
 		return m.listPermissionsFn(ctx, authToken)
 	}
@@ -111,7 +108,7 @@ func TestUserHandler_ListUsers(t *testing.T) {
 			}, nil
 		},
 	}
-	userHandler := NewUserHandler(mockSvc, &mockAuthClient{})
+	userHandler := NewUserHandler(mockSvc)
 	r := setupTestRouter(userHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/users", nil)
@@ -133,7 +130,7 @@ func TestUserHandler_UpdateMe(t *testing.T) {
 			return nil
 		},
 	}
-	userHandler := NewUserHandler(mockSvc, &mockAuthClient{})
+	userHandler := NewUserHandler(mockSvc)
 	r := setupTestRouter(userHandler)
 
 	body, _ := json.Marshal(UpdateUserRequest{Name: "Jane Doe"})
@@ -152,7 +149,7 @@ func TestUserHandler_UpdateMe(t *testing.T) {
 
 func TestUserHandler_AssignUserRole(t *testing.T) {
 	assigned := false
-	mockAuth := &mockAuthClient{
+	mockSvc := &mockUserService{
 		assignUserRoleFn: func(ctx context.Context, authToken, userID, roleID string) (*authclient.UserRoleResponse, error) {
 			if userID == "usr_456" && roleID == "role_admin" {
 				assigned = true
@@ -160,7 +157,7 @@ func TestUserHandler_AssignUserRole(t *testing.T) {
 			return &authclient.UserRoleResponse{UserID: userID, RoleID: roleID}, nil
 		},
 	}
-	userHandler := NewUserHandler(&mockUserService{}, mockAuth)
+	userHandler := NewUserHandler(mockSvc)
 	r := setupTestRouter(userHandler)
 
 	body, _ := json.Marshal(AssignRoleRequest{RoleID: "role_admin"})
@@ -178,12 +175,12 @@ func TestUserHandler_AssignUserRole(t *testing.T) {
 }
 
 func TestUserHandler_GetUserRole(t *testing.T) {
-	mockAuth := &mockAuthClient{
+	mockSvc := &mockUserService{
 		getUserRoleFn: func(ctx context.Context, authToken, userID string) (*authclient.UserRoleResponse, error) {
 			return &authclient.UserRoleResponse{UserID: userID, RoleName: "admin"}, nil
 		},
 	}
-	userHandler := NewUserHandler(&mockUserService{}, mockAuth)
+	userHandler := NewUserHandler(mockSvc)
 	r := setupTestRouter(userHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/users/usr_789/role", nil)
@@ -197,7 +194,7 @@ func TestUserHandler_GetUserRole(t *testing.T) {
 
 func TestUserHandler_CreateRole(t *testing.T) {
 	created := false
-	mockAuth := &mockAuthClient{
+	mockSvc := &mockUserService{
 		createRoleFn: func(ctx context.Context, authToken string, input authclient.CreateRoleInput) (*authclient.Role, error) {
 			if input.Name == "editor" {
 				created = true
@@ -205,7 +202,7 @@ func TestUserHandler_CreateRole(t *testing.T) {
 			return &authclient.Role{ID: "role_999", Name: "editor"}, nil
 		},
 	}
-	userHandler := NewUserHandler(&mockUserService{}, mockAuth)
+	userHandler := NewUserHandler(mockSvc)
 	r := setupTestRouter(userHandler)
 
 	body, _ := json.Marshal(CreateRoleRequest{Name: "editor", Description: "Editor role", Permissions: []string{"users:read"}})
@@ -223,12 +220,12 @@ func TestUserHandler_CreateRole(t *testing.T) {
 }
 
 func TestUserHandler_ListRoles(t *testing.T) {
-	mockAuth := &mockAuthClient{
+	mockSvc := &mockUserService{
 		listRolesFn: func(ctx context.Context, authToken string) ([]authclient.Role, error) {
 			return []authclient.Role{{ID: "r1", Name: "admin"}}, nil
 		},
 	}
-	userHandler := NewUserHandler(&mockUserService{}, mockAuth)
+	userHandler := NewUserHandler(mockSvc)
 	r := setupTestRouter(userHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/users/roles", nil)
@@ -241,12 +238,12 @@ func TestUserHandler_ListRoles(t *testing.T) {
 }
 
 func TestUserHandler_ListPermissions(t *testing.T) {
-	mockAuth := &mockAuthClient{
+	mockSvc := &mockUserService{
 		listPermissionsFn: func(ctx context.Context, authToken string) ([]authclient.PermissionCatalogItem, error) {
 			return []authclient.PermissionCatalogItem{{ID: "p1", Name: "users:read"}}, nil
 		},
 	}
-	userHandler := NewUserHandler(&mockUserService{}, mockAuth)
+	userHandler := NewUserHandler(mockSvc)
 	r := setupTestRouter(userHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/users/permissions", nil)

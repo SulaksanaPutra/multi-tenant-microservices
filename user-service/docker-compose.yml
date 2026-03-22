@@ -17,6 +17,12 @@ services:
 
     ports:
       - "${PORT:-8081}:${PORT:-8081}"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=microservice-network"
+      - "traefik.http.routers.user-service.rule=PathPrefix(`/api/users`)"
+      - "traefik.http.routers.user-service.entrypoints=web"
+      - "traefik.http.services.user-service.loadbalancer.server.port=${PORT:-8081}"
     networks:
       - microservice-network
 
