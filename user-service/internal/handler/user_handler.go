@@ -16,9 +16,6 @@ type UserServiceInterface interface {
 	ListUsers(ctx context.Context) ([]domain.User, error)
 	UpdateUser(ctx context.Context, input service.UpdateUserServiceInput) error
 	GetUserByID(ctx context.Context, userID string) (*domain.User, error)
-}
-
-type AuthClientInterface interface {
 	AssignUserRole(ctx context.Context, authToken, userID, roleID string) (*authclient.UserRoleResponse, error)
 	GetUserRole(ctx context.Context, authToken, userID string) (*authclient.UserRoleResponse, error)
 	CreateRole(ctx context.Context, authToken string, input authclient.CreateRoleInput) (*authclient.Role, error)
@@ -28,13 +25,11 @@ type AuthClientInterface interface {
 
 type UserHandler struct {
 	userService UserServiceInterface
-	authClient  AuthClientInterface
 }
 
-func NewUserHandler(userService UserServiceInterface, authClient AuthClientInterface) *UserHandler {
+func NewUserHandler(userService UserServiceInterface) *UserHandler {
 	return &UserHandler{
 		userService: userService,
-		authClient:  authClient,
 	}
 }
 
@@ -98,7 +93,7 @@ func (userHandler *UserHandler) GetUserRole(c *gin.Context) {
 	}
 
 	authToken := c.GetHeader("Authorization")
-	res, err := userHandler.authClient.GetUserRole(c.Request.Context(), authToken, targetUserID)
+	res, err := userHandler.userService.GetUserRole(c.Request.Context(), authToken, targetUserID)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, "user handler: failed to get user role: "+err.Error())
 		return
@@ -121,7 +116,7 @@ func (userHandler *UserHandler) AssignUserRole(c *gin.Context) {
 	}
 
 	authToken := c.GetHeader("Authorization")
-	res, err := userHandler.authClient.AssignUserRole(c.Request.Context(), authToken, targetUserID, req.RoleID)
+	res, err := userHandler.userService.AssignUserRole(c.Request.Context(), authToken, targetUserID, req.RoleID)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, "user handler: failed to assign user role: "+err.Error())
 		return
@@ -144,7 +139,7 @@ func (userHandler *UserHandler) CreateRole(c *gin.Context) {
 		Permissions: req.Permissions,
 	}
 
-	res, err := userHandler.authClient.CreateRole(c.Request.Context(), authToken, input)
+	res, err := userHandler.userService.CreateRole(c.Request.Context(), authToken, input)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, "user handler: failed to create role: "+err.Error())
 		return
@@ -155,7 +150,7 @@ func (userHandler *UserHandler) CreateRole(c *gin.Context) {
 
 func (userHandler *UserHandler) ListRoles(c *gin.Context) {
 	authToken := c.GetHeader("Authorization")
-	roles, err := userHandler.authClient.ListRoles(c.Request.Context(), authToken)
+	roles, err := userHandler.userService.ListRoles(c.Request.Context(), authToken)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, "user handler: failed to list roles: "+err.Error())
 		return
@@ -166,7 +161,7 @@ func (userHandler *UserHandler) ListRoles(c *gin.Context) {
 
 func (userHandler *UserHandler) ListPermissions(c *gin.Context) {
 	authToken := c.GetHeader("Authorization")
-	perms, err := userHandler.authClient.ListPermissions(c.Request.Context(), authToken)
+	perms, err := userHandler.userService.ListPermissions(c.Request.Context(), authToken)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, "user handler: failed to list permissions: "+err.Error())
 		return

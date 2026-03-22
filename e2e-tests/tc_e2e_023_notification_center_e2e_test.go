@@ -62,5 +62,5 @@ func TestNotificationCenterE2E(t *testing.T) {
 	}
 
 	t.Logf("[TC-E2E-023] Retrieved %d notification records for tenant_id='%s'", len(notificationsResp.Data), tenantID)
-	t.Log("[TC-E2E-023] ✅ Successfully verified Notification Center APIs!")
+	t.Log("[TC-E2E-023] Successfully verified Notification Center APIs!")
 }

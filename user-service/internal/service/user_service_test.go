@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"user-service/internal/domain"
+	"user-service/internal/infrastructure/authclient"
 	"user-service/internal/repository"
 )
 
@@ -59,8 +60,51 @@ func (m *mockOutboxRepository) CreateOutboxMessage(ctx context.Context, input re
 	return nil
 }
 
+type mockRoleClient struct {
+	assignUserRoleFn  func(ctx context.Context, authToken, userID, roleID string) (*authclient.UserRoleResponse, error)
+	getUserRoleFn     func(ctx context.Context, authToken, userID string) (*authclient.UserRoleResponse, error)
+	createRoleFn      func(ctx context.Context, authToken string, input authclient.CreateRoleInput) (*authclient.Role, error)
+	listRolesFn       func(ctx context.Context, authToken string) ([]authclient.Role, error)
+	listPermissionsFn func(ctx context.Context, authToken string) ([]authclient.PermissionCatalogItem, error)
+}
+
+func (m *mockRoleClient) AssignUserRole(ctx context.Context, authToken, userID, roleID string) (*authclient.UserRoleResponse, error) {
+	if m.assignUserRoleFn != nil {
+		return m.assignUserRoleFn(ctx, authToken, userID, roleID)
+	}
+	return nil, nil
+}
+
+func (m *mockRoleClient) GetUserRole(ctx context.Context, authToken, userID string) (*authclient.UserRoleResponse, error) {
+	if m.getUserRoleFn != nil {
+		return m.getUserRoleFn(ctx, authToken, userID)
+	}
+	return nil, nil
+}
+
+func (m *mockRoleClient) CreateRole(ctx context.Context, authToken string, input authclient.CreateRoleInput) (*authclient.Role, error) {
+	if m.createRoleFn != nil {
+		return m.createRoleFn(ctx, authToken, input)
+	}
+	return nil, nil
+}
+
+func (m *mockRoleClient) ListRoles(ctx context.Context, authToken string) ([]authclient.Role, error) {
+	if m.listRolesFn != nil {
+		return m.listRolesFn(ctx, authToken)
+	}
+	return nil, nil
+}
+
+func (m *mockRoleClient) ListPermissions(ctx context.Context, authToken string) ([]authclient.PermissionCatalogItem, error) {
+	if m.listPermissionsFn != nil {
+		return m.listPermissionsFn(ctx, authToken)
+	}
+	return nil, nil
+}
+
 func TestUserService_CreateUserFromWorkspace_Validation(t *testing.T) {
-	svc := NewUserService(&mockUserRepository{}, &mockOutboxRepository{})
+	svc := NewUserService(&mockUserRepository{}, &mockOutboxRepository{}, nil)
 
 	tests := []struct {
 		name    string
@@ -115,7 +159,7 @@ func TestUserService_CreateUserFromWorkspace_Success(t *testing.T) {
 		},
 	}
 
-	svc := NewUserService(userRepo, outboxRepo)
+	svc := NewUserService(userRepo, outboxRepo, nil)
 
 	input := CreateUserFromWorkspaceInput{
 		EventID:    "evt-123",
@@ -147,8 +191,7 @@ func TestUserService_CreateUserFromWorkspace_NilOutboxRepo(t *testing.T) {
 		},
 	}
 
-	// outboxRepository is nil
-	svc := NewUserService(userRepo, nil)
+	svc := NewUserService(userRepo, nil, nil)
 
 	input := CreateUserFromWorkspaceInput{
 		EventID:    "evt-123",
@@ -175,7 +218,7 @@ func TestUserService_CreateUserFromWorkspace_UserRepoError(t *testing.T) {
 		},
 	}
 
-	svc := NewUserService(userRepo, nil)
+	svc := NewUserService(userRepo, nil, nil)
 
 	input := CreateUserFromWorkspaceInput{
 		TenantID:   "tenant-123",
@@ -197,7 +240,7 @@ func TestUserService_CreateUserFromWorkspace_OutboxRepoError(t *testing.T) {
 		},
 	}
 
-	svc := NewUserService(userRepo, outboxRepo)
+	svc := NewUserService(userRepo, outboxRepo, nil)
 
 	input := CreateUserFromWorkspaceInput{
 		TenantID:   "tenant-123",
@@ -212,7 +255,7 @@ func TestUserService_CreateUserFromWorkspace_OutboxRepoError(t *testing.T) {
 
 func TestUserService_UpdateUser(t *testing.T) {
 	t.Run("validation missing user_id", func(t *testing.T) {
-		userService := NewUserService(&mockUserRepository{}, nil)
+		userService := NewUserService(&mockUserRepository{}, nil, nil)
 		err := userService.UpdateUser(context.Background(), UpdateUserServiceInput{UserID: "", Name: "Alice"})
 		if !errors.Is(err, ErrUserIDRequired) {
 			t.Errorf("expected ErrUserIDRequired, got %v", err)
@@ -220,7 +263,7 @@ func TestUserService_UpdateUser(t *testing.T) {
 	})
 
 	t.Run("validation missing name", func(t *testing.T) {
-		userService := NewUserService(&mockUserRepository{}, nil)
+		userService := NewUserService(&mockUserRepository{}, nil, nil)
 		err := userService.UpdateUser(context.Background(), UpdateUserServiceInput{UserID: "usr_1", Name: ""})
 		if !errors.Is(err, ErrUserNameRequired) {
 			t.Errorf("expected ErrUserNameRequired, got %v", err)
@@ -237,7 +280,7 @@ func TestUserService_UpdateUser(t *testing.T) {
 				return nil
 			},
 		}
-		userService := NewUserService(mockRepo, nil)
+		userService := NewUserService(mockRepo, nil, nil)
 		err := userService.UpdateUser(context.Background(), UpdateUserServiceInput{UserID: "usr_1", Name: "Alice Smith"})
 		if err != nil {
 			t.Fatalf("expected nil error, got %v", err)
@@ -250,7 +293,7 @@ func TestUserService_UpdateUser(t *testing.T) {
 
 func TestUserService_GetUserByID(t *testing.T) {
 	t.Run("missing user_id", func(t *testing.T) {
-		userService := NewUserService(&mockUserRepository{}, nil)
+		userService := NewUserService(&mockUserRepository{}, nil, nil)
 		_, err := userService.GetUserByID(context.Background(), "")
 		if !errors.Is(err, ErrUserIDRequired) {
 			t.Errorf("expected ErrUserIDRequired, got %v", err)
@@ -263,7 +306,7 @@ func TestUserService_GetUserByID(t *testing.T) {
 				return &domain.User{ID: userID, Name: "Bob"}, nil
 			},
 		}
-		userService := NewUserService(mockRepo, nil)
+		userService := NewUserService(mockRepo, nil, nil)
 		u, err := userService.GetUserByID(context.Background(), "usr_2")
 		if err != nil {
 			t.Fatalf("expected nil error, got %v", err)
@@ -280,7 +323,7 @@ func TestUserService_ListUsers(t *testing.T) {
 			return []domain.User{{ID: "usr_1"}, {ID: "usr_2"}}, nil
 		},
 	}
-	userService := NewUserService(mockRepo, nil)
+	userService := NewUserService(mockRepo, nil, nil)
 	users, err := userService.ListUsers(context.Background())
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
@@ -288,6 +331,55 @@ func TestUserService_ListUsers(t *testing.T) {
 	if len(users) != 2 {
 		t.Fatalf("expected 2 users, got %d", len(users))
 	}
+}
+
+func TestUserService_RoleDelegation(t *testing.T) {
+	t.Run("nil role client returns error", func(t *testing.T) {
+		userService := NewUserService(&mockUserRepository{}, nil, nil)
+		_, err := userService.AssignUserRole(context.Background(), "token", "u1", "r1")
+		if err == nil {
+			t.Error("expected error when roleClient is nil")
+		}
+	})
+
+	t.Run("successful delegation to role client", func(t *testing.T) {
+		mockRole := &mockRoleClient{
+			assignUserRoleFn: func(ctx context.Context, authToken, userID, roleID string) (*authclient.UserRoleResponse, error) {
+				return &authclient.UserRoleResponse{UserID: userID, RoleID: roleID}, nil
+			},
+			getUserRoleFn: func(ctx context.Context, authToken, userID string) (*authclient.UserRoleResponse, error) {
+				return &authclient.UserRoleResponse{UserID: userID, RoleName: "admin"}, nil
+			},
+			createRoleFn: func(ctx context.Context, authToken string, input authclient.CreateRoleInput) (*authclient.Role, error) {
+				return &authclient.Role{ID: "r1", Name: input.Name}, nil
+			},
+			listRolesFn: func(ctx context.Context, authToken string) ([]authclient.Role, error) {
+				return []authclient.Role{{ID: "r1"}}, nil
+			},
+			listPermissionsFn: func(ctx context.Context, authToken string) ([]authclient.PermissionCatalogItem, error) {
+				return []authclient.PermissionCatalogItem{{ID: "p1"}}, nil
+			},
+		}
+
+		userService := NewUserService(&mockUserRepository{}, nil, mockRole)
+		ctx := context.Background()
+
+		if _, err := userService.AssignUserRole(ctx, "t", "u1", "r1"); err != nil {
+			t.Errorf("AssignUserRole failed: %v", err)
+		}
+		if _, err := userService.GetUserRole(ctx, "t", "u1"); err != nil {
+			t.Errorf("GetUserRole failed: %v", err)
+		}
+		if _, err := userService.CreateRole(ctx, "t", authclient.CreateRoleInput{Name: "role"}); err != nil {
+			t.Errorf("CreateRole failed: %v", err)
+		}
+		if _, err := userService.ListRoles(ctx, "t"); err != nil {
+			t.Errorf("ListRoles failed: %v", err)
+		}
+		if _, err := userService.ListPermissions(ctx, "t"); err != nil {
+			t.Errorf("ListPermissions failed: %v", err)
+		}
+	})
 }
 
 func TestUserService_ErrorContractInvariants(t *testing.T) {

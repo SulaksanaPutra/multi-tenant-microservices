@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 
@@ -67,6 +68,9 @@ func (s *RoleService) CreateRole(ctx context.Context, input CreateRoleInput) (*d
 
 	created, err := s.roleRepo.CreateRole(ctx, role)
 	if err != nil {
+		if errors.Is(err, domain.ErrRoleAlreadyExists) {
+			return s.roleRepo.FindRoleByName(ctx, &input.TenantID, input.Name)
+		}
 		return nil, err
 	}
 

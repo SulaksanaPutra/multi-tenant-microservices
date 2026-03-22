@@ -107,5 +107,5 @@ func TestTenantManagementAndPlanUpgradeE2E(t *testing.T) {
 		t.Fatalf("PUT /api/tenants/me/plan expected status 200, got %d", resp.StatusCode)
 	}
 
-	t.Log("[TC-E2E-021] ✅ Successfully verified Zero-Trust Tenant Control Plane & Plan Management APIs!")
+	t.Log("[TC-E2E-021] Successfully verified Zero-Trust Tenant Control Plane & Plan Management APIs!")
 }

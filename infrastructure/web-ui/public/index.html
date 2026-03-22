@@ -1,10 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>1. Register Tenant - Multi-Tenant Flow</title>
 </head>
+
 <body>
     <div id="nav-container"></div>
 
@@ -37,7 +39,8 @@
         <button type="submit">Submit Registration</button>
     </form>
     <h3>Response Output:</h3>
-    <pre id="register-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
+    <pre id="register-output"
+        style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
 
     <hr style="margin: 30px 0;">
 
@@ -56,12 +59,14 @@
                 </div>
                 <div style="margin-bottom: 10px;">
                     <label>New Password:</label><br>
-                    <input type="password" id="cred-password" placeholder="Min 8 characters" style="width: 90%;" required>
+                    <input type="password" id="cred-password" placeholder="Min 8 characters" style="width: 90%;"
+                        required>
                 </div>
                 <button type="submit">Activate Account & Set Password</button>
             </form>
             <h4>Result:</h4>
-            <pre id="set-cred-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
+            <pre id="set-cred-output"
+                style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
         </div>
 
         <!-- LOGIN FORM -->
@@ -81,7 +86,8 @@
                 <button type="submit">Login & Save Token</button>
             </form>
             <h4>Result:</h4>
-            <pre id="login-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
+            <pre id="login-output"
+                style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
         </div>
     </div>
 
@@ -89,7 +95,7 @@
     <script>
         renderNavHeader("register");
 
-        document.getElementById("register-form").addEventListener("submit", async function(e) {
+        document.getElementById("register-form").addEventListener("submit", async function (e) {
             e.preventDefault();
             const outputEl = document.getElementById("register-output");
             outputEl.textContent = "Submitting registration request...";
@@ -134,7 +140,7 @@
             }
         });
 
-        document.getElementById("set-cred-form").addEventListener("submit", async function(e) {
+        document.getElementById("set-cred-form").addEventListener("submit", async function (e) {
             e.preventDefault();
             const outputEl = document.getElementById("set-cred-output");
             outputEl.textContent = "Activating account and setting password...";
@@ -157,7 +163,7 @@
             }
         });
 
-        document.getElementById("login-form").addEventListener("submit", async function(e) {
+        document.getElementById("login-form").addEventListener("submit", async function (e) {
             e.preventDefault();
             const outputEl = document.getElementById("login-output");
             outputEl.textContent = "Logging in...";
@@ -179,7 +185,7 @@
                 if (response.ok && data.data && data.data.access_token) {
                     saveJWTToken(data.data.access_token);
                     renderNavHeader("register");
-                    outputEl.textContent += "\n\n✅ JWT Access Token saved to session!";
+                    outputEl.textContent += "\n\nJWT Access Token saved to session!";
                 }
             } catch (err) {
                 outputEl.textContent = "Network Error: " + err.message;
@@ -187,4 +193,5 @@
         });
     </script>
 </body>
+
 </html>

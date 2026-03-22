@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"user-service/internal/domain"
+	"user-service/internal/infrastructure/authclient"
 	"user-service/internal/repository"
 )
 
@@ -46,18 +47,30 @@ type OutboxRepository interface {
 	CreateOutboxMessage(ctx context.Context, input repository.CreateOutboxMessageInput) error
 }
 
+// RoleClient is the consumer-side interface expected by UserService for RBAC operations.
+type RoleClient interface {
+	AssignUserRole(ctx context.Context, authToken, userID, roleID string) (*authclient.UserRoleResponse, error)
+	GetUserRole(ctx context.Context, authToken, userID string) (*authclient.UserRoleResponse, error)
+	CreateRole(ctx context.Context, authToken string, input authclient.CreateRoleInput) (*authclient.Role, error)
+	ListRoles(ctx context.Context, authToken string) ([]authclient.Role, error)
+	ListPermissions(ctx context.Context, authToken string) ([]authclient.PermissionCatalogItem, error)
+}
+
 type UserService struct {
 	userRepository   UserRepository
 	outboxRepository OutboxRepository
+	roleClient       RoleClient
 }
 
 func NewUserService(
 	userRepository UserRepository,
 	outboxRepository OutboxRepository,
+	roleClient RoleClient,
 ) *UserService {
 	return &UserService{
 		userRepository:   userRepository,
 		outboxRepository: outboxRepository,
+		roleClient:       roleClient,
 	}
 }
 
@@ -136,4 +149,39 @@ func (userService *UserService) GetUserByID(ctx context.Context, userID string) 
 
 func (userService *UserService) ListUsers(ctx context.Context) ([]domain.User, error) {
 	return userService.userRepository.ListUsers(ctx)
+}
+
+func (userService *UserService) AssignUserRole(ctx context.Context, authToken, userID, roleID string) (*authclient.UserRoleResponse, error) {
+	if userService.roleClient == nil {
+		return nil, fmt.Errorf("user service: role client not configured")
+	}
+	return userService.roleClient.AssignUserRole(ctx, authToken, userID, roleID)
+}
+
+func (userService *UserService) GetUserRole(ctx context.Context, authToken, userID string) (*authclient.UserRoleResponse, error) {
+	if userService.roleClient == nil {
+		return nil, fmt.Errorf("user service: role client not configured")
+	}
+	return userService.roleClient.GetUserRole(ctx, authToken, userID)
+}
+
+func (userService *UserService) CreateRole(ctx context.Context, authToken string, input authclient.CreateRoleInput) (*authclient.Role, error) {
+	if userService.roleClient == nil {
+		return nil, fmt.Errorf("user service: role client not configured")
+	}
+	return userService.roleClient.CreateRole(ctx, authToken, input)
+}
+
+func (userService *UserService) ListRoles(ctx context.Context, authToken string) ([]authclient.Role, error) {
+	if userService.roleClient == nil {
+		return nil, fmt.Errorf("user service: role client not configured")
+	}
+	return userService.roleClient.ListRoles(ctx, authToken)
+}
+
+func (userService *UserService) ListPermissions(ctx context.Context, authToken string) ([]authclient.PermissionCatalogItem, error) {
+	if userService.roleClient == nil {
+		return nil, fmt.Errorf("user service: role client not configured")
+	}
+	return userService.roleClient.ListPermissions(ctx, authToken)
 }
