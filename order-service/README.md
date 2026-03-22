@@ -30,11 +30,11 @@ For system-wide architectural rules, layer boundaries, and unit-of-work patterns
 ## Key Interfaces & APIs
 
 ### HTTP Endpoints (Port 8084)
-| Method | Endpoint | Auth | Description |
-| :--- | :--- | :--- | :--- |
-| `POST` | `/api/orders` | Bearer `<JWT>` | Create a new order for authenticated tenant |
-| `GET` | `/api/orders` | Bearer `<JWT>` | List orders for authenticated tenant |
-| `GET` | `/health` | None | Health check endpoint |
+| Method | Endpoint | Auth | Required Scope | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `POST` | `/api/orders` | Bearer `<JWT>` | `orders:create` | Create a new order for authenticated tenant |
+| `GET` | `/api/orders` | Bearer `<JWT>` | `orders:read` | List orders for authenticated tenant |
+| `GET` | `/health` | None | None | Health check endpoint |
 
 ### AMQP Consumer Subscriptions
 | Event Key | Exchange | Action / Responsibility |
@@ -48,8 +48,8 @@ For system-wide architectural rules, layer boundaries, and unit-of-work patterns
 
 ```bash
 # Run unit & repository tests
-go test -v ./order-service/...
+go test -v ./...
 
-# Lint check
-golangci-lint run ./order-service/...
+# Repomix packing for LLM analysis
+npx repomix
 ```

@@ -34,6 +34,12 @@ The consumer closure opens `txManager.WithTransaction` strictly for inbox dedupl
 
 ## Key Interfaces & AMQP Subscriptions
 
+### HTTP Endpoints (Port 8083)
+| Method | Endpoint | Auth | Required Scope | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `GET` | `/api/notifications` | Bearer `<JWT>` | `notifications:read` | List notification audit records for caller's tenant |
+| `GET` | `/health` | None | None | Health check endpoint |
+
 ### AMQP Consumer Subscriptions
 | Event Key | Exchange | Action / Responsibility |
 | :--- | :--- | :--- |
@@ -50,8 +56,8 @@ The consumer closure opens `txManager.WithTransaction` strictly for inbox dedupl
 
 ```bash
 # Run unit & repository tests
-go test -v ./notification-service/...
+go test -v ./...
 
-# Lint check
-golangci-lint run ./notification-service/...
+# Repomix packing for LLM analysis
+npx repomix
 ```

@@ -1,6 +1,6 @@
 # auth-service (API / Domain Service - Auth Plane)
 
-`auth-service` is the centralized authentication authority responsible for user password setup, bcrypt credential verification, RS256 JWT access token signing, opaque refresh token rotation, and central RBAC permission registration.
+`auth-service` is the centralized authentication authority responsible for user password setup, bcrypt credential verification, RS256 JWT access token signing, opaque refresh token rotation, multi-tenant custom role management, and central RBAC permission registration.
 
 ---
 
@@ -8,7 +8,7 @@
 
 - **Category:** Archetype A (API / Domain Service - Auth Plane)
 - **Layout:** `cmd/` -> `internal/{handler, service, repository, domain, crypto, middleware}`
-- **Responsibilities:** User credential store (`auth_db`), asymmetric RS256 JWT signing, refresh token revocation, single-use setup tokens, and domain permission registration.
+- **Responsibilities:** User credential store (`auth_db`), asymmetric RS256 JWT signing, refresh token revocation, single-use setup tokens, central role/permission management, and domain permission registration.
 
 For system-wide architectural rules, layer boundaries, and unit-of-work patterns, see [Clean Architecture Standards](../docs/00-clean-architecture-standards-and-layer-hierarchy.md).
 
@@ -19,10 +19,12 @@ For system-wide architectural rules, layer boundaries, and unit-of-work patterns
 ### 1. Asymmetric RS256 JWT & Token Security
 - **Asymmetric Signing:** Signs short-lived access tokens (15-min TTL) using RS256 RSA private keys. Publishes RSA public key via `/.well-known/jwks.json` so domain services verify tokens in-memory with zero network calls.
 - **Refresh Token Rotation:** Issues 7-day opaque refresh tokens. Persists SHA-256 hashes of refresh tokens in `auth_db.refresh_tokens` for instant revocation on logout.
-- **Password Setup Link:** Generates single-use setup tokens for newly provisioned workspace users (`POST /internal/auth/setup-token`). Setup token SHA-256 hashes are stored in `auth_db.setup_tokens` until consumed via `POST /auth/credentials/setup`.
+- **Password Setup Link:** Generates single-use setup tokens for newly provisioned workspace users (`POST /internal/auth/setup-token`). Setup token SHA-256 hashes are stored in `auth_db.setup_tokens` until consumed via `POST /api/auth/credentials/setup`.
 
-### 2. Multi-Tenant RBAC & Domain Permission Registration
-Domain services register their required permissions (e.g. `orders:create`, `orders:read`) with `auth-service` upon startup via `POST /internal/permissions/register`. `auth-service` acts as an opaque central policy registry without needing domain business logic.
+### 2. Multi-Tenant RBAC & Instant Revocation
+- **Domain Permission Registration:** Domain services register their required permissions (e.g. `orders:create`, `orders:read`, `users:roles:manage`) with `auth-service` upon startup via `POST /internal/permissions/register`. `auth-service` acts as an opaque central policy registry.
+- **Tenant-Scoped Custom Roles:** Enforces `UNIQUE (tenant_id, name)` and protects system default roles (`admin`, `viewer`).
+- **Instant Revocation via Permission Version Bumping:** Updating role permissions or assigning roles to users batch-increments `user_permission_versions.version` in `auth_db`, instantly invalidating cached JWT permissions across microservices.
 
 ---
 
@@ -35,8 +37,14 @@ Domain services register their required permissions (e.g. `orders:create`, `orde
 | `POST` | `/api/auth/login` | None | Authenticate email/password → return RS256 JWT & refresh token |
 | `POST` | `/api/auth/refresh` | None | Rotate refresh token → issue new RS256 JWT |
 | `POST` | `/api/auth/logout` | JWT Bearer | Revoke refresh token |
-| `GET` | `/api/auth/permissions` | JWT Bearer | Tenant Admin API to list available system permissions |
-| `POST` | `/api/auth/roles` | JWT Bearer | Create role with assigned permissions |
+| `GET` | `/api/auth/permissions` | JWT Bearer | List catalog of registered system permissions |
+| `POST` | `/api/auth/roles` | JWT Bearer | Create tenant-scoped custom role |
+| `GET` | `/api/auth/roles` | JWT Bearer | List available roles for tenant |
+| `GET` | `/api/auth/roles/:id` | JWT Bearer | Retrieve specific role details |
+| `PUT` | `/api/auth/roles/:id/permissions` | JWT Bearer | Update permissions linked to role |
+| `DELETE` | `/api/auth/roles/:id` | JWT Bearer | Delete custom role |
+| `PUT` | `/api/auth/users/:userID/role` | JWT Bearer | Assign role to tenant user |
+| `GET` | `/api/auth/users/:userID/role` | JWT Bearer | Retrieve user role assignment |
 | `POST` | `/internal/auth/setup-token` | `X-Internal-Service-Token` | Internal endpoint for setup token generation |
 | `POST` | `/internal/auth/permissions/register` | `X-Internal-Service-Token` | Internal domain permission startup registration |
 | `GET` | `/internal/auth/users/:userID/perm-version` | `X-Internal-Service-Token` | Internal query for user permission version |
@@ -54,8 +62,8 @@ openssl rsa -in private.pem -pubout -out public.pem
 
 # Populate AUTH_JWT_PRIVATE_KEY_PEM in .env
 # Run unit & repository tests
-go test -v ./auth-service/...
+go test -v ./...
 
-# Lint check
-golangci-lint run ./auth-service/...
+# Repomix packing for LLM analysis
+npx repomix
 ```
