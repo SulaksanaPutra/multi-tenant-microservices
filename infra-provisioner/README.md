@@ -45,8 +45,8 @@ Configured with AMQP `QoS prefetch count = 1` to ensure sequential, resource-awa
 
 ```bash
 # Run unit tests
-go test -v ./infra-provisioner/...
+go test -v ./...
 
-# Lint check
-golangci-lint run ./infra-provisioner/...
+# Repomix packing for LLM analysis
+npx repomix
 ```

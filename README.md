@@ -191,28 +191,33 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
 
 ---
 
-### 2.5 Tenant Admin Role & Permission Management (`/api/roles` & `/api/users/:userID/role`)
+### 2.5 Domain Service Role & Permission Management (`/api/users/roles` & `/api/users/:user_id/role`)
 
 ```text
 +-----------------------------------------------------------------------------------+
-|              Tenant Admin Custom Role & Permission Management Flow                |
+|      Clean Architecture Domain Service Role & Permission Management Flow          |
 +-----------------------------------------------------------------------------------+
 
-[ Tenant Admin Client ]
-          │  1. POST /api/roles { "tenant_id": "...", "name": "editor" }
-          │  2. PUT /api/roles/:id/permissions { "permission_ids": ["perm_1", "perm_2"] }
-          │  3. PUT /api/users/:userID/role { "tenant_id": "...", "role_id": "..." }
+[ Client / Tenant Admin ]
+          │  POST /api/users/roles or PUT /api/users/:user_id/role (Bearer <JWT>)
+          ▼
+  [ user-service :8081 ]
+          │  1. UserHandler (Layer 1 Entry Point): Parses request & Bearer token
+          │  2. Calls Layer 2: userService.AssignUserRole(ctx, authToken, userID, roleID)
+          │  3. UserService (Layer 2 Core): Validates domain invariants & calls RoleClient
+          │  4. AuthClient (Layer 3 Outbound Adapter): Issues HTTP request to auth-service:8085
           ▼
   [ auth-service :8085 ]
-          │  1. Enforces tenant-scoped role uniqueness: UNIQUE (tenant_id, name)
-          │  2. Protects platform system roles (is_system = true) from modification
-          │  3. Atomically batch-increments user_permission_versions.version for all
-          │     assigned users when role permissions change
+          │  1. RequirePermission("users:roles:manage") middleware check
+          │  2. Enforces tenant-scoped role uniqueness: UNIQUE (tenant_id, name)
+          │  3. Protects system roles (is_system = true) from mutation
+          │  4. Atomically batch-increments user_permission_versions.version for assigned users
           ▼
   [ auth_db.roles / role_permissions / user_roles / user_permission_versions ]
 ```
 
-* **Tenant-Scoped Custom Roles:** Tenant admins compose custom roles for their workspace. System default roles (`admin`, `viewer`) are seeded automatically and protected from mutation (`is_system = true`).
+* **Strict Clean Architecture Layering:** `UserHandler` (Layer 1) maintains a single dependency on `UserService` (Layer 2). `UserService` consumes the `RoleClient` outbound port interface, implemented by `authclient.AuthClient` (Layer 3 Driven Adapter).
+* **Tenant-Scoped Custom Roles:** Tenant admins compose custom roles using domain-registered permissions. System default roles (`admin`, `viewer`) are seeded automatically and protected from mutation (`is_system = true`).
 * **Near-Instant Permission Revocation:** Updating role permissions increments `user_permission_versions.version` in a single batch, invalidating cached JWT permissions across downstream microservices.
 
 ---
@@ -370,7 +375,8 @@ microservice-api/
 ├── user-service/                 # User Identity Service
 │   ├── cmd/main.go               # Port 8081 - User Profile & Event Consumer
 │   ├── internal/
-│   │   ├── infrastructure/       # AuthClient PermissionRegistrar (users:read/update)
+│   │   ├── service/              # Layer 2 Core (UserService & RoleClient port interface)
+│   │   ├── infrastructure/       # Layer 3 AuthClient Driven Adapter & PermissionRegistrar
 │   │   └── middleware/           # RequireJWT & RequirePermission RBAC
 │   └── Dockerfile
 │
