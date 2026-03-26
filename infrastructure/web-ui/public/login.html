@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 4: Login - Multi-Tenant Flow</title>
+</head>
+
+<body>
+    <div id="nav-container"></div>
+
+    <!-- TUTORIAL NOTE (GRAY) -->
+    <div style="padding:10px; background:#f0f0f0; border:1px solid #ccc; margin-bottom:15px; color:#333;">
+        <strong>Step 4: Login (Get RS256 JWT Token)</strong><br>
+        • <strong>What you can do here:</strong> Authenticate with your email and password (`POST /api/auth/login`) to receive an RS256 JWT Access Token.<br>
+        • <strong>What to do next:</strong> Click "Login & Proceed to User Management". If your account belongs to multiple workspaces, pick one in the selection dialog. The resulting JWT token is saved to your session (silently exchanged for a single workspace), unlocking Users & Roles, Orders, and Notifications.
+    </div>
+
+    <h2>Step 4: Login (Get RS256 JWT Token)</h2>
+    <p>Submits credentials to <code>auth-service</code> via Traefik Gateway.</p>
+
+    <div id="lock-warning" style="display:none; padding:10px; background:#fff3cd; border:1px solid #ffeeba; color:#856404; margin-bottom:15px;">
+        <strong>Access Warning:</strong> You have not completed password setup yet. Please complete <a href="/setup-password.html">Setup Password</a> first.
+    </div>
+
+    <div style="border: 1px solid #ccc; padding: 15px; margin-bottom: 20px; background: #fff;">
+        <form id="login-form" class="responsive-split" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 220px;">
+                <label for="login-email">Email:</label><br>
+                <input type="email" id="login-email" placeholder="john@example.com" value="john@example.com" style="width: 100%; margin-top: 4px;" required>
+            </div>
+            <div style="flex: 1; min-width: 200px;">
+                <label for="login-password">Password:</label><br>
+                <input type="text" id="login-password" value="password123" style="width: 100%; margin-top: 4px;" required>
+            </div>
+            <div>
+                <button type="submit" style="padding: 6px 14px; white-space: nowrap;">Login & Proceed -></button>
+            </div>
+        </form>
+
+    </div>
+
+    <!-- WORKSPACE SELECTION MODAL -->
+    <dialog id="workspace-modal" style="border:1px solid #ccc; padding:20px; width:480px; max-width:90%;">
+        <h3 style="margin-top:0;">Select a Workspace</h3>
+        <p style="margin-bottom:12px; font-size:0.9rem; color:#555;">Your account is associated with multiple workspaces. Choose which workspace to enter:</p>
+        <div id="workspace-options" style="display:flex; flex-direction:column; gap:8px; margin-bottom:15px;"></div>
+        <div style="text-align:right; display:flex; gap:8px; justify-content:flex-end;">
+            <button type="button" id="workspace-modal-cancel" style="padding:6px 14px;">Cancel</button>
+            <button type="button" id="workspace-select-btn" style="padding:6px 14px; background:#0d6efd; color:white; border:none; border-radius:3px; cursor:pointer;">Enter Workspace -></button>
+        </div>
+    </dialog>
+
+    <h3>Result Output & JWT Claims:</h3>
+    <pre id="login-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
+
+    <script src="/nav.js"></script>
+    <script>
+        renderNavHeader("login");
+
+        if (!isPasswordSet()) {
+            document.getElementById("lock-warning").style.display = "block";
+        }
+
+        const tenants = getSavedTenants();
+        if (tenants.length > 0 && tenants[0].owner_email) {
+            document.getElementById("login-email").value = tenants[0].owner_email;
+        }
+
+        let pendingExchangeToken = "";
+        let availableWorkspaces = [];
+
+        function getTenantLabel(tenantId) {
+            const t = getSavedTenants().find(item => item.tenant_id === tenantId);
+            return (t && t.tenant_name) ? t.tenant_name : tenantId;
+        }
+
+        function workspaceDisplayName(ws) {
+            // Prefer API-provided enrichment (tenant_name / tenant_slug / tenant_plan).
+            if (ws.tenant_name) {
+                let label = ws.tenant_name;
+                if (ws.tenant_slug) label += ` (${ws.tenant_slug})`;
+                if (ws.tenant_plan) label += ` — [${ws.tenant_plan}]`;
+                return `${label} · ${ws.tenant_id}`;
+            }
+            const label = getTenantLabel(ws.tenant_id);
+            return (label === ws.tenant_id) ? ws.tenant_id : `${label} (${ws.tenant_id})`;
+        }
+
+        async function exchangeWorkspaceToken(exchangeToken, tenantId) {
+            const response = await fetch("/api/auth/select-tenant", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    exchange_token: exchangeToken,
+                    tenant_id: tenantId
+                })
+            });
+            return await response.json();
+        }
+
+        function finalizeLogin(displayData, tokenData) {
+            saveJWTToken(tokenData.access_token);
+            renderNavHeader("login");
+
+            const parsedClaims = parseJWTToken(tokenData.access_token);
+            const outputEl = document.getElementById("login-output");
+            outputEl.textContent = "Login Successful! RS256 JWT Token Issued & Saved.\n\n" +
+                "=== DECODED JWT CLAIMS ===\n" +
+                JSON.stringify(parsedClaims, null, 2) + "\n\n" +
+                "=== FULL RESPONSE ===\n" +
+                JSON.stringify(displayData, null, 2) + "\n\nRedirecting to User Management in 1.5 seconds...";
+
+            setTimeout(() => {
+                window.location.href = "/users.html";
+            }, 1500);
+        }
+
+        async function completeWorkspaceSelection(exchangeToken, tenantId) {
+            const outputEl = document.getElementById("login-output");
+            outputEl.textContent = "Exchanging workspace token for " + tenantId + "...";
+
+            try {
+                const exchangeData = await exchangeWorkspaceToken(exchangeToken, tenantId);
+                if (exchangeData.data && exchangeData.data.access_token) {
+                    finalizeLogin(exchangeData, exchangeData.data);
+                } else {
+                    outputEl.textContent = JSON.stringify(exchangeData, null, 2);
+                }
+            } catch (err) {
+                outputEl.textContent = "Network Error: " + err.message;
+            }
+        }
+
+        function openWorkspaceModal(loginResponse) {
+            const optionsEl = document.getElementById("workspace-options");
+            optionsEl.innerHTML = availableWorkspaces.map((ws, idx) => `
+                <label style="display:flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid #ccc; border-radius:4px; cursor:pointer; background:#fff;">
+                    <input type="radio" name="workspace-radio" value="${ws.tenant_id}" ${idx === 0 ? 'checked' : ''}>
+                    <span><strong>${workspaceDisplayName(ws)}</strong></span>
+                </label>
+            `).join("");
+            document.getElementById("login-output").textContent =
+                "Multiple Workspaces Found! Please select a workspace from the dialog.\n\n" +
+                JSON.stringify(loginResponse, null, 2);
+            document.getElementById("workspace-modal").showModal();
+        }
+
+        document.getElementById("login-form").addEventListener("submit", async function (e) {
+            e.preventDefault();
+            const outputEl = document.getElementById("login-output");
+            outputEl.textContent = "Logging in...";
+
+            const payload = {
+                email: document.getElementById("login-email").value.trim(),
+                password: document.getElementById("login-password").value
+            };
+
+            try {
+                const response = await fetch("/api/auth/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+
+                if (response.ok && data.data) {
+                    if (data.data.status === "SELECT_WORKSPACE") {
+                        pendingExchangeToken = data.data.exchange_token;
+                        availableWorkspaces = data.data.workspaces || [];
+
+                        if (availableWorkspaces.length === 1) {
+                            // Silent auto-exchange: single workspace, no modal.
+                            await completeWorkspaceSelection(pendingExchangeToken, availableWorkspaces[0].tenant_id);
+                        } else if (availableWorkspaces.length > 1) {
+                            openWorkspaceModal(data);
+                        } else {
+                            outputEl.textContent = "SELECT_WORKSPACE returned with no workspaces:\n\n" + JSON.stringify(data, null, 2);
+                        }
+                        return;
+                    }
+
+                    // Legacy direct-token response (backend fallback).
+                    const tokenData = data.data.token_pair || data.data;
+                    if (tokenData.access_token) {
+                        finalizeLogin(data, tokenData);
+                    }
+                } else {
+                    outputEl.textContent = JSON.stringify(data, null, 2);
+                }
+            } catch (err) {
+                outputEl.textContent = "Network Error: " + err.message;
+            }
+        });
+
+        document.getElementById("workspace-select-btn").addEventListener("click", function () {
+            const selectedRadio = document.querySelector('input[name="workspace-radio"]:checked');
+            if (!selectedRadio || !pendingExchangeToken) return;
+            document.getElementById("workspace-modal").close();
+            completeWorkspaceSelection(pendingExchangeToken, selectedRadio.value);
+        });
+
+        document.getElementById("workspace-modal-cancel").addEventListener("click", function () {
+            document.getElementById("workspace-modal").close();
+        });
+    </script>
+</body>
+
+</html>
