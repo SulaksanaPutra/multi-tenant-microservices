@@ -295,6 +295,79 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
 
 ---
 
+### 2.8 Unified Identity & Workspace Selection (`POST /api/auth/login` + `POST /api/auth/select-tenant`)
+
+**Data Model (Slack / GitHub / Vercel Paradigm):**
+
+```text
+ user_db.public.users                  auth_db.public.user_credentials        auth_db.public.user_tenant_memberships
+ ┌──────────────────────────┐          ┌───────────────────────────────────┐  ┌─────────────────────────────────────────┐
+ │ id          PK           │          │ user_id         PK                │  │ user_id    FK ────────────────────┐     │
+ │ email       UNIQUE       │          │ email           UNIQUE (1/email)  │  │ tenant_id                         │     │
+ │ name                     │          │ password_hash   (bcrypt)          │  │ created_at                        │     │
+ │ created_at / updated_at  │          │ created_at / updated_at           │  │ PRIMARY KEY (user_id, tenant_id)  │     │
+ └──────────────────────────┘          └───────────────────────────────────┘  └─────────────────────────────────────────┘
+                                           │  NO tenant_id column!              │
+                                           │  (global identity,                 │
+                                           │   not tenant-scoped)               │
+                                           ▼                                    ▼
+                                  Credential.TenantID = ""              resolved at ISSUANCE time
+                                  when read from DB                     via GetUserMemberships()
+```
+
+**Login flow — workspace selection (single or multiple):**
+
+```text
+[ Client ] ────► POST /api/auth/login { "email", "password" }
+                      │
+                      ▼
+              [ auth-service ]
+                      │ 1. FindByEmail()      -> 1 global credential row (tenant_id = "" << intentional)
+                      │ 2. bcrypt.CompareHashAndPassword()  -- fail? -> 401 Invalid Credentials
+                      │ 3. GetUserMemberships(user_id)
+                      │      SELECT tenant_id FROM user_tenant_memberships WHERE user_id = $1
+                      │
+                      ├──────────────────────┬──────────────────────
+                      ▼                      ▼
+              0 memberships           1+ memberships
+                      │                      │
+                      ▼                      ▼
+                401 No Tenant        create single-use EXCHANGE TOKEN
+                  Membership          (10 min TTL, saved in password_setup_tokens)
+                                         │
+                                         ▼
+return { status: "SELECT_WORKSPACE",
+                                   exchange_token,
+                                   workspaces: [ {tenant_id, tenant_name, tenant_slug, tenant_plan}, ... ] }
+                                         │
+                                         ▼
+                             [ Client ] ──► POST /api/auth/select-tenant
+                                    { exchange_token, tenant_id }
+                                         │
+                                         ▼
+                                [ auth-service ]
+                                  • validate exchange token (hash / used / expiry)
+                                  • verify tenant_id ∈ GetUserMemberships(user_id)
+                                  • MarkTokenUsed()
+                                  • issuePair(tenant)
+                                         │
+                                         ▼
+                                return { access_token,
+                                  refresh_token (bound to tenant) }
+```
+
+The client completes the flow: with **one** workspace it exchanges the token silently; with **multiple** it presents a workspace-selection modal. The workspace list is enriched server-side by `auth-service` (best-effort, zero-trust `GET /internal/tenants/:id/profile` on tenant-service) with `tenant_name`/`tenant_slug`/`tenant_plan`, with a fallback to raw `tenant_id` if the lookup fails.
+
+**Why `user_credentials` has no `tenant_id` (intentional, not a bug):**
+
+* `user_credentials` is a **global identity row** (1 per email); the `tenant_id` column was deliberately removed in the Unified Identity migration.
+* Tenants live in `user_tenant_memberships`; the credential row itself is tenant-agnostic.
+* `Credential.TenantID` is a **working value set at issuance time**, never persisted. The source of truth is `GetUserMemberships()`.
+* Every issuance path must resolve the tenant before `issuePair()`: SelectWorkspace (explicit `tenant_id`, re-verified against memberships), RefreshToken (reads `refresh_tokens.tenant_id` bound at issuance), and SetupPassword. `Login` never issues directly — it always returns an exchange token for the client to exchange via `select-tenant`.
+* ⚠️ **Footgun:** any path that issues a token without resolving the tenant mints a tenant-less JWT — this was the refresh bug, now fixed by binding `tenant_id` onto the refresh-token row and by making `issuePair` take the tenant as an explicit parameter.
+
+---
+
 ## 3. Microservice Layer Hierarchy & Documentation Topology
 
 This workspace enforces strict **Clean Architecture boundaries** across all microservices. The documentation follows a **2-Tier Macro/Micro Model**:
@@ -338,6 +411,7 @@ This repository contains comprehensive technical design deep-dives located in th
 | 18 | [How Do We Design Multi-Tenant RBAC with Domain-Distributed Permission Ownership?](docs/18-how-do-we-design-multi-tenant-rbac-with-domain-distributed-permission-ownership.md) | Hybrid Centralized Permission Registry, Tenant-Scoped Custom Roles, JWT Claim Enrichment & Startup Registration |
 | 19 | [How Do We Achieve Instant Revocation in Stateless RS256 JWTs via Version Caching?](docs/19-how-do-we-achieve-instant-jwt-revocation-with-perm-version-caching.md) | Stateless JWT Claims, Token Bloat Math, `perm_version` Claim & Local In-Memory VersionCache Enforcement |
 | 20 | [How Do We Design User-Tenant Session Binding and Zero-Trust Token Context Derivation?](docs/20-how-do-we-design-user-tenant-session-binding-and-zero-trust-token-context-derivation.md) | 1-to-1 Active Session Claims, Eliminating Client-Side tenant_id Exposure, IDOR Protection & Future Multi-Workspace Switching |
+| 21 | [How Do We Implement Unified Identity and Workspace Selection?](docs/21-how-do-we-implement-unified-identity-and-workspace-selection.md) | Global Identity per Email, `user_tenant_memberships`, Exchange-Token Workspace Selection & Tenant-Bound Refresh Tokens |
 
 ---
 
@@ -471,6 +545,7 @@ microservice-api/
 | **auth-service** | `POST /internal/auth/permissions/register` | `X-Internal-Service-Token` | Bootstrapping endpoint for domain permission registration |
 | **auth-service** | `GET /internal/auth/users/:userID/perm-version` | `X-Internal-Service-Token` | Fetch user permission version for cache invalidation |
 | **tenant-service** | `GET /internal/tenants/:id/infrastructure/:service` | `X-Internal-Service-Token` | Query tenant database infrastructure & routing metadata |
+| **tenant-service** | `GET /internal/tenants/:id/profile` | `X-Internal-Service-Token` | Query tenant control-plane metadata (name/slug/plan) for auth-service workspace enrichment |
 
 ---
 
@@ -487,8 +562,11 @@ microservice-api/
 ### Starting Infrastructure & Services
 
 ```bash
-# 1. Start Shared Infrastructure & Infra Provisioner
-(cd infrastructure && docker compose up -d)
+# 1. Start Shared Infrastructure, Infra Provisioner & Web UI
+#    Note: web-ui embeds its static assets (public/*) into the Go binary at build
+#    time via //go:embed, so use --build whenever you edit any public/* file —
+#    otherwise the container keeps serving the previously baked image.
+(cd infrastructure && docker compose up -d --build)
 
 # 2. Start Microservices
 (cd auth-service && docker compose up -d --build) && \
@@ -529,5 +607,8 @@ To completely wipe all databases, stored volumes, RabbitMQ queues/state, and dyn
 
 # 3. Remove dynamically provisioned dedicated tenant DB containers & volumes (if any)
 docker rm -fv $(docker ps -aq --filter name=postgres-tenant-) 2>/dev/null || true
+
+# 4. Purge Mailpit inbox (mock email messages persist independently of containers)
+curl -s -X DELETE "http://localhost:${MAILPIT_DASHBOARD_PORT:-8025}/api/v1/messages" -o /dev/null || true
 ```
 

@@ -3,28 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>4. Session Registry - Multi-Tenant Flow</title>
+    <title>Step 8: Access Registry - Multi-Tenant Flow</title>
 </head>
 <body>
     <div id="nav-container"></div>
 
-    <h2>Session Tenant Registry</h2>
-    <p>List of tenants registered in this server session (stored in browser <code>localStorage</code>).</p>
-    <table border="1" cellpadding="8" cellspacing="0" id="tenant-registry-table">
-        <thead>
-            <tr>
-                <th>Tenant ID</th>
-                <th>Tenant Name</th>
-                <th>Plan</th>
-                <th>Status</th>
-                <th>Owner Email</th>
-                <th>Registered At</th>
-            </tr>
-        </thead>
-        <tbody id="tenant-registry-body">
-            <!-- Dynamically populated -->
-        </tbody>
-    </table>
+    <!-- TUTORIAL NOTE (GRAY) -->
+    <div style="padding:10px; background:#f0f0f0; border:1px solid #ccc; margin-bottom:15px; color:#333;">
+        <strong>Step 8: Access Registry & Session History</strong><br>
+        • <strong>What you can see here:</strong> Every user discovered in this server session, and each workspace they can access. Workspaces are marked when they have been accessed and when they are the currently active one.
+    </div>
+
+    <h2>Access Registry (Users &rarr; Workspaces)</h2>
+    <div id="active-session-banner" style="border:1px solid #ccc; padding:12px 15px; margin-bottom:20px;">
+        <!-- Active session summary -->
+    </div>
+
+    <div class="table-responsive">
+        <table border="1" cellpadding="8" cellspacing="0" id="access-registry-table" style="width:100%;">
+            <thead>
+                <tr>
+                    <th>Workspace Name</th>
+                    <th>Tenant ID</th>
+                    <th>Plan</th>
+                    <th>Status</th>
+                    <th>Access History</th>
+                </tr>
+            </thead>
+            <tbody id="access-registry-body">
+                <!-- Dynamically populated -->
+            </tbody>
+        </table>
+    </div>
     <br>
     <button type="button" onclick="clearLocalState()">Clear Local State Manually</button>
 
@@ -34,35 +44,140 @@
         renderRegistry();
 
         function renderRegistry() {
-            const bodyEl = document.getElementById("tenant-registry-body");
+            const token = getJWTToken();
             const tenants = getSavedTenants();
+            const sessions = getSavedSessions();
 
-            if (tenants.length === 0) {
-                bodyEl.innerHTML = `<tr><td colspan="6"><em>No tenants registered in this session yet.</em></td></tr>`;
+            renderActiveBanner(token, tenants, sessions);
+
+            const owners = [...new Set(tenants.map(t => t.owner_email).filter(Boolean))];
+            const sessionEmails = [...new Set(sessions.map(s => s.email))];
+            const users = [...new Set([...owners, ...sessionEmails])].sort();
+
+            const bodyEl = document.getElementById("access-registry-body");
+
+            if (users.length === 0) {
+                bodyEl.innerHTML = `<tr><td colspan="5"><em>No users or workspaces in this session yet.</em></td></tr>`;
                 return;
             }
 
             let html = "";
-            tenants.forEach(t => {
-                const statusColor = (t.status === "READY") ? "green" : "#b58100";
-                html += `<tr>
-                    <td><code>${t.tenant_id}</code></td>
-                    <td><b>${t.tenant_name}</b></td>
-                    <td>${t.plan}</td>
-                    <td><span style="font-weight:bold; color:${statusColor}">${t.status || 'PROVISIONING'}</span></td>
-                    <td>${t.owner_email || 'N/A'}</td>
-                    <td>${t.registered_at || 'N/A'}</td>
-                </tr>`;
+            users.forEach(email => {
+                const rows = workspaceRowsForUser(email, tenants, sessions, token);
+                if (rows.length === 0) return;
+
+                const accessedCount = rows.filter(r => r.accessed).length;
+                const activeCount = rows.filter(r => r.active).length;
+                html += `
+                    <tr style="background:#f0f0f0;">
+                        <td colspan="5" style="font-weight:bold; font-size:1.02rem;">
+                            &#128100; ${escapeHtml(email)}
+                            <span style="font-weight:normal; color:#555;">
+                                &mdash; ${rows.length} workspace(s)
+                                ${activeCount ? `, <b>${activeCount} active</b>` : ''}
+                            </span>
+                        </td>
+                    </tr>`;
+                rows.forEach(r => {
+                    const accessedBadge = r.accessed
+                        ? `<span style="font-weight:bold; color:#1a7f37; border:1px solid #1a7f37; border-radius:3px; padding:1px 6px;">Accessed</span>`
+                        : `<span style="color:#999;">Never accessed</span>`;
+                    const activeBadge = r.active
+                        ? `<span style="font-weight:bold; color:#b00; border:1px solid #b00; border-radius:3px; padding:1px 6px; margin-left:6px;">&#10003; ACTIVE</span>`
+                        : "";
+                    const statusColor = (r.status === "READY" || r.status === "ACTIVE") ? "green" : "#b58100";
+                    html += `<tr>
+                        <td><b>${escapeHtml(r.tenant_name)}</b>${activeBadge}</td>
+                        <td><code>${escapeHtml(r.tenant_id)}</code></td>
+                        <td>${escapeHtml(r.plan)}</td>
+                        <td><span style="font-weight:bold; color:${statusColor}">${escapeHtml(r.status || 'PROVISIONING')}</span></td>
+                        <td>${accessedBadge}</td>
+                    </tr>`;
+                });
             });
+
             bodyEl.innerHTML = html;
         }
 
+        function renderActiveBanner(token, tenants, sessions) {
+            const bannerEl = document.getElementById("active-session-banner");
+            if (!token) {
+                bannerEl.innerHTML = `<div style="color:#b58100;">No active JWT token in this session. Complete <a href="/login.html">Step 4: Login</a> to issue a token.</div>`;
+                return;
+            }
+
+            const claims = parseJWTToken(token);
+            const email = (claims && (claims.email || claims.sub)) || "unknown";
+            const tenantId = (claims && claims.tenant_id) || "unknown_tenant";
+            const tenant = tenants.find(t => t.tenant_id === tenantId);
+            const name = (tenant && tenant.tenant_name) || claims.tenant_name || tenantId;
+
+            bannerEl.innerHTML = `
+                <div><strong style="color:#1a7f37;">[ACTIVE SESSION]</strong>
+                    <button style="margin-left:10px;" onclick="revokeToken()">Logout / Purge Token</button>
+                    <button style="margin-left:6px;" onclick="clearAllSessions()">Purge All Sessions</button>
+                </div>
+                <div style="margin-top:6px;">User: <code>${escapeHtml(email)}</code> &nbsp;|&nbsp; Workspace: <b>${escapeHtml(name)}</b> &nbsp;|&nbsp; Tenant ID: <code>${escapeHtml(tenantId)}</code></div>
+            `;
+        }
+
+        function workspaceRowsForUser(email, tenants, sessions, token) {
+            const rows = {};
+
+            tenants.filter(t => t.owner_email === email).forEach(t => {
+                if (!rows[t.tenant_id]) {
+                    rows[t.tenant_id] = {
+                        tenant_id: t.tenant_id,
+                        tenant_name: t.tenant_name,
+                        plan: t.plan,
+                        status: t.status,
+                        accessed: false,
+                        active: false
+                    };
+                }
+            });
+
+            sessions.filter(s => s.email === email).forEach(s => {
+                if (!rows[s.tenant_id]) {
+                    rows[s.tenant_id] = {
+                        tenant_id: s.tenant_id,
+                        tenant_name: s.tenant_id,
+                        plan: "N/A",
+                        status: "ACCESSED",
+                        accessed: true,
+                        active: s.token === token
+                    };
+                } else {
+                    rows[s.tenant_id].accessed = true;
+                    if (s.token === token) rows[s.tenant_id].active = true;
+                }
+            });
+
+            return Object.values(rows).sort((a, b) => a.tenant_name.localeCompare(b.tenant_name));
+        }
+
+        function revokeToken() {
+            saveJWTToken("");
+            renderNavHeader("registry");
+            renderRegistry();
+        }
+
         function clearLocalState() {
-            if (confirm("Are you sure you want to clear all session tenants?")) {
-                localStorage.removeItem(STORAGE_KEY_TENANTS);
+            if (confirm("Are you sure you want to clear all session tenants and tokens?")) {
+                localStorage.clear();
+                localStorage.setItem(STORAGE_KEY_SESSION, CURRENT_SESSION_ID);
+                localStorage.setItem(STORAGE_KEY_TENANTS, JSON.stringify([]));
                 renderNavHeader("registry");
                 renderRegistry();
             }
+        }
+
+        function escapeHtml(value) {
+            return String(value == null ? "" : value)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;");
         }
     </script>
 </body>
