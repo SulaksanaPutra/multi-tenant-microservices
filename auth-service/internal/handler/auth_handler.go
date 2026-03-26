@@ -15,7 +15,8 @@ import (
 
 type AuthService interface {
 	SetupPassword(ctx context.Context, input service.SetupPasswordInput) (*service.TokenPair, error)
-	Login(ctx context.Context, input service.LoginInput) (*service.TokenPair, error)
+	Login(ctx context.Context, input service.LoginInput) (*service.LoginOutput, error)
+	SelectWorkspace(ctx context.Context, input service.SelectWorkspaceInput) (*service.TokenPair, error)
 	RefreshToken(ctx context.Context, input service.RefreshTokenInput) (*service.TokenPair, error)
 	Logout(ctx context.Context, input service.LogoutInput) error
 }
@@ -30,10 +31,25 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
+type SelectTenantRequest struct {
+	ExchangeToken string `json:"exchange_token" binding:"required"`
+	TenantID      string `json:"tenant_id"      binding:"required"`
+}
+
+type WorkspaceInfo struct {
+	TenantID   string `json:"tenant_id"`
+	TenantName string `json:"tenant_name,omitempty"`
+	TenantSlug string `json:"tenant_slug,omitempty"`
+	TenantPlan string `json:"tenant_plan,omitempty"`
+}
+
 type LoginResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	ExpiresIn    int    `json:"expires_in"`
+	Status        string          `json:"status,omitempty"`
+	AccessToken   string          `json:"access_token,omitempty"`
+	RefreshToken  string          `json:"refresh_token,omitempty"`
+	ExpiresIn     int             `json:"expires_in,omitempty"`
+	ExchangeToken string          `json:"exchange_token,omitempty"`
+	Workspaces    []WorkspaceInfo `json:"workspaces,omitempty"`
 }
 
 type RefreshTokenRequest struct {
@@ -98,7 +114,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	pair, err := h.authService.Login(c.Request.Context(), service.LoginInput{
+	res, err := h.authService.Login(c.Request.Context(), service.LoginInput{
 		Email:    req.Email,
 		Password: req.Password,
 	})
@@ -111,7 +127,56 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	if res.Status == domain.LoginStatusSelectWorkspace {
+		workspaceResponses := make([]WorkspaceInfo, 0, len(res.Workspaces))
+		for _, ws := range res.Workspaces {
+			workspaceResponses = append(workspaceResponses, WorkspaceInfo{
+				TenantID:   ws.TenantID,
+				TenantName: ws.TenantName,
+				TenantSlug: ws.TenantSlug,
+				TenantPlan: ws.TenantPlan,
+			})
+		}
+		httputil.WriteSuccess(c, http.StatusOK, "Multiple workspace accounts found. Please select a workspace.", LoginResponse{
+			Status:        res.Status,
+			ExchangeToken: res.ExchangeToken,
+			Workspaces:    workspaceResponses,
+		})
+		return
+	}
+
 	httputil.WriteSuccess(c, http.StatusOK, "Login successful", LoginResponse{
+		AccessToken:  res.TokenPair.AccessToken,
+		RefreshToken: res.TokenPair.RefreshToken,
+		ExpiresIn:    res.TokenPair.ExpiresIn,
+	})
+}
+
+func (h *AuthHandler) SelectTenant(c *gin.Context) {
+	var req SelectTenantRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httputil.WriteValidationError(c, err)
+		return
+	}
+
+	pair, err := h.authService.SelectWorkspace(c.Request.Context(), service.SelectWorkspaceInput{
+		ExchangeToken: req.ExchangeToken,
+		TenantID:      req.TenantID,
+	})
+	if err != nil {
+		if errors.Is(err, domain.ErrTokenNotFound) ||
+			errors.Is(err, domain.ErrTokenExpired) ||
+			errors.Is(err, domain.ErrTokenAlreadyUsed) ||
+			errors.Is(err, domain.ErrTenantIDRequired) ||
+			errors.Is(err, domain.ErrTenantMembershipNotFound) {
+			httputil.WriteError(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	httputil.WriteSuccess(c, http.StatusOK, "Workspace selection successful", LoginResponse{
 		AccessToken:  pair.AccessToken,
 		RefreshToken: pair.RefreshToken,
 		ExpiresIn:    pair.ExpiresIn,

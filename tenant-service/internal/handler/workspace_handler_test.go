@@ -196,7 +196,7 @@ func TestRegisterWorkspace_Success(t *testing.T) {
 
 func TestInternalTenantHandler_MissingParams(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	h := NewInternalTenantHandler(&mockTenantInfrastructureService{})
+	h := NewInternalTenantHandler(&mockTenantInfrastructureService{}, nil)
 
 	r := gin.New()
 	r.GET("/infrastructure", h.GetServiceInfrastructure)
@@ -228,7 +228,7 @@ func TestInternalTenantHandler_Success(t *testing.T) {
 		},
 	}
 
-	h := NewInternalTenantHandler(infraSvc)
+	h := NewInternalTenantHandler(infraSvc, nil)
 	r := gin.New()
 	r.GET("/tenants/:tenant_id/infrastructure/:service_name", h.GetServiceInfrastructure)
 

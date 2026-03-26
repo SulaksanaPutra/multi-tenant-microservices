@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"testing"
 	"time"
 
@@ -15,18 +16,53 @@ import (
 	"auth-service/internal/service"
 )
 
+type mockProvider struct {
+	profiles map[string]*service.TenantProfile
+	err      error
+}
+
+func (m *mockProvider) GetTenantProfile(_ context.Context, tenantID string) (*service.TenantProfile, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.profiles[tenantID], nil
+}
+
 type mockCredentialRepo struct {
-	creds map[string]*domain.Credential
+	creds       map[string]*domain.Credential
+	memberships map[string][]string
 }
 
 func (m *mockCredentialRepo) UpsertCredential(_ context.Context, input repository.UpsertCredentialInput) error {
 	m.creds[input.Email] = &domain.Credential{
 		UserID:       input.UserID,
-		TenantID:     input.TenantID,
 		Email:        input.Email,
 		PasswordHash: input.PasswordHash,
 	}
+	if input.TenantID != "" {
+		_ = m.AddMembership(nil, input.UserID, input.TenantID)
+	}
 	return nil
+}
+
+func (m *mockCredentialRepo) AddMembership(_ context.Context, userID, tenantID string) error {
+	if m.memberships == nil {
+		m.memberships = make(map[string][]string)
+	}
+	for _, t := range m.memberships[userID] {
+		if t == tenantID {
+			return nil
+		}
+	}
+	m.memberships[userID] = append(m.memberships[userID], tenantID)
+	return nil
+}
+
+func (m *mockCredentialRepo) GetUserMemberships(_ context.Context, userID string) ([]string, error) {
+	if m.memberships == nil {
+		return nil, nil
+	}
+	return m.memberships[userID], nil
 }
 
 func (m *mockCredentialRepo) FindByEmail(_ context.Context, email string) (*domain.Credential, error) {
@@ -53,6 +89,7 @@ func (m *mockTokenRepo) CreateRefreshToken(_ context.Context, input repository.C
 	m.tokens[input.TokenHash] = &domain.RefreshToken{
 		ID:        "rt_id",
 		UserID:    input.UserID,
+		TenantID:  input.TenantID,
 		TokenHash: input.TokenHash,
 		ExpiresAt: input.ExpiresAt,
 	}
@@ -115,22 +152,27 @@ func (m *mockSetupTokenRepo) MarkTokenUsed(_ context.Context, tokenHash string) 
 	return domain.ErrTokenNotFound
 }
 
-func setupAuthService(t *testing.T) (*service.AuthService, *service.InternalAuthService, *mockCredentialRepo, *mockTokenRepo, *mockSetupTokenRepo) {
+func testRSAPrivateKey(t *testing.T) string {
 	t.Helper()
 	privateKey, _ := rsa.GenerateKey(rand.Reader, 2048)
 	der := x509.MarshalPKCS1PrivateKey(privateKey)
-	pemStr := string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: der}))
+	return string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: der}))
+}
+
+func setupAuthService(t *testing.T) (*service.AuthService, *service.InternalAuthService, *mockCredentialRepo, *mockTokenRepo, *mockSetupTokenRepo) {
+	t.Helper()
+	pemStr := testRSAPrivateKey(t)
 
 	jwtMgr, err := crypto.NewJWTManager(pemStr)
 	if err != nil {
 		t.Fatalf("failed to init JWTManager: %v", err)
 	}
 
-	credRepo := &mockCredentialRepo{creds: make(map[string]*domain.Credential)}
+	credRepo := &mockCredentialRepo{creds: make(map[string]*domain.Credential), memberships: make(map[string][]string)}
 	tokenRepo := &mockTokenRepo{tokens: make(map[string]*domain.RefreshToken)}
 	setupRepo := &mockSetupTokenRepo{tokens: make(map[string]*domain.PasswordSetupToken)}
-	svc := service.NewAuthService(credRepo, tokenRepo, setupRepo, jwtMgr, nil)
-	internalSvc := service.NewInternalAuthService(setupRepo)
+	svc := service.NewAuthService(credRepo, tokenRepo, setupRepo, jwtMgr, nil, nil)
+	internalSvc := service.NewInternalAuthService(setupRepo, credRepo)
 	return svc, internalSvc, credRepo, tokenRepo, setupRepo
 }
 
@@ -155,16 +197,46 @@ func TestAuthService_SetupPasswordAndLogin(t *testing.T) {
 		t.Fatalf("SetupPassword failed: %v", err)
 	}
 
-	// Test Login Success
-	loginPair, err := svc.Login(ctx, service.LoginInput{
+	// Test Login always resolves through workspace selection (exchange token)
+	loginRes, err := svc.Login(ctx, service.LoginInput{
 		Email:    "user@example.com",
 		Password: "secretpassword",
 	})
 	if err != nil {
 		t.Fatalf("Login failed: %v", err)
 	}
-	if loginPair.AccessToken == "" || loginPair.RefreshToken == "" {
-		t.Errorf("expected tokens in response pair")
+	if loginRes.Status != domain.LoginStatusSelectWorkspace {
+		t.Errorf("expected status SELECT_WORKSPACE, got %q", loginRes.Status)
+	}
+	if loginRes.ExchangeToken == "" {
+		t.Errorf("expected a non-empty exchange token")
+	}
+	if len(loginRes.Workspaces) != 1 || loginRes.Workspaces[0].TenantID != "tnt_200" {
+		t.Errorf("expected single workspace tnt_200, got %+v", loginRes.Workspaces)
+	}
+	if loginRes.TokenPair != nil {
+		t.Errorf("expected no direct token pair until workspace is selected")
+	}
+
+	// Test Workspace Selection issues a token pair for a member workspace
+	pairFromExchange, err := svc.SelectWorkspace(ctx, service.SelectWorkspaceInput{
+		ExchangeToken: loginRes.ExchangeToken,
+		TenantID:      "tnt_200",
+	})
+	if err != nil {
+		t.Fatalf("SelectWorkspace failed: %v", err)
+	}
+	if pairFromExchange.AccessToken == "" || pairFromExchange.RefreshToken == "" {
+		t.Errorf("expected tokens in workspace-selection response pair")
+	}
+
+	// Test Workspace Selection rejects a non-member tenant
+	_, err = svc.SelectWorkspace(ctx, service.SelectWorkspaceInput{
+		ExchangeToken: loginRes.ExchangeToken,
+		TenantID:      "tnt_evil",
+	})
+	if err == nil {
+		t.Errorf("expected error when selecting a tenant the user does not belong to")
 	}
 
 	// Test Login Failure (Wrong password)
@@ -233,15 +305,119 @@ func TestAuthService_CreatePasswordSetupTokenAndSetupPassword(t *testing.T) {
 		t.Errorf("expected error when reusing setup token")
 	}
 
-	// Login with newly setup password should succeed
-	loginPair, err := svc.Login(ctx, service.LoginInput{
+	// Login with newly setup password should resolve through workspace selection
+	loginRes, err := svc.Login(ctx, service.LoginInput{
 		Email:    "setup@example.com",
 		Password: "newpassword123",
 	})
 	if err != nil {
 		t.Fatalf("Login with setup password failed: %v", err)
 	}
-	if loginPair.AccessToken == "" {
-		t.Errorf("expected access token from login")
+	if loginRes.Status != domain.LoginStatusSelectWorkspace {
+		t.Errorf("expected status SELECT_WORKSPACE, got %q", loginRes.Status)
+	}
+	if loginRes.ExchangeToken == "" {
+		t.Errorf("expected a non-empty exchange token")
+	}
+	if len(loginRes.Workspaces) != 1 || loginRes.Workspaces[0].TenantID != "tnt_setup_200" {
+		t.Errorf("expected single workspace tnt_setup_200, got %+v", loginRes.Workspaces)
+	}
+
+	exchangePair, err := svc.SelectWorkspace(ctx, service.SelectWorkspaceInput{
+		ExchangeToken: loginRes.ExchangeToken,
+		TenantID:      "tnt_setup_200",
+	})
+	if err != nil {
+		t.Fatalf("SelectWorkspace failed: %v", err)
+	}
+	if exchangePair.AccessToken == "" {
+		t.Errorf("expected access token from workspace selection")
+	}
+}
+
+func setupAuthServiceWithProfile(t *testing.T, provider service.TenantProfileProvider) (*service.AuthService, *service.InternalAuthService, *mockCredentialRepo, *mockTokenRepo, *mockSetupTokenRepo) {
+	t.Helper()
+	jwtMgr, err := crypto.NewJWTManager(testRSAPrivateKey(t))
+	if err != nil {
+		t.Fatalf("failed to init JWTManager: %v", err)
+	}
+
+	credRepo := &mockCredentialRepo{creds: make(map[string]*domain.Credential), memberships: make(map[string][]string)}
+	tokenRepo := &mockTokenRepo{tokens: make(map[string]*domain.RefreshToken)}
+	setupRepo := &mockSetupTokenRepo{tokens: make(map[string]*domain.PasswordSetupToken)}
+	svc := service.NewAuthService(credRepo, tokenRepo, setupRepo, jwtMgr, nil, provider)
+	internalSvc := service.NewInternalAuthService(setupRepo, credRepo)
+	return svc, internalSvc, credRepo, tokenRepo, setupRepo
+}
+
+func TestAuthService_Login_EnrichesWorkspacesWithTenantProfile(t *testing.T) {
+	svc, internalSvc, _, _, _ := setupAuthServiceWithProfile(t, &mockProvider{
+		profiles: map[string]*service.TenantProfile{
+			"tnt_enrich_200": {TenantID: "tnt_enrich_200", Name: "Acme Corp", Slug: "acme-corp", Plan: "business"},
+		},
+	})
+	ctx := context.Background()
+
+	rawToken, err := internalSvc.CreatePasswordSetupToken(ctx, service.InternalCreateSetupTokenInput{
+		UserID:   "usr_enrich_100",
+		TenantID: "tnt_enrich_200",
+		Email:    "enrich@example.com",
+	})
+	if err != nil {
+		t.Fatalf("CreatePasswordSetupToken failed: %v", err)
+	}
+
+	if _, err := svc.SetupPassword(ctx, service.SetupPasswordInput{Token: rawToken, Password: "secretpassword"}); err != nil {
+		t.Fatalf("SetupPassword failed: %v", err)
+	}
+
+	loginRes, err := svc.Login(ctx, service.LoginInput{
+		Email:    "enrich@example.com",
+		Password: "secretpassword",
+	})
+	if err != nil {
+		t.Fatalf("Login failed: %v", err)
+	}
+
+	if len(loginRes.Workspaces) != 1 {
+		t.Fatalf("expected 1 workspace, got %d", len(loginRes.Workspaces))
+	}
+	ws := loginRes.Workspaces[0]
+	if ws.TenantID != "tnt_enrich_200" || ws.TenantName != "Acme Corp" || ws.TenantSlug != "acme-corp" || ws.TenantPlan != "business" {
+		t.Errorf("expected enriched workspace, got %+v", ws)
+	}
+}
+
+func TestAuthService_Login_EnrichmentFallsBackOnProviderError(t *testing.T) {
+	svc, internalSvc, _, _, _ := setupAuthServiceWithProfile(t, &mockProvider{
+		err: errors.New("tenant-service unreachable"),
+	})
+	ctx := context.Background()
+
+	rawToken, err := internalSvc.CreatePasswordSetupToken(ctx, service.InternalCreateSetupTokenInput{
+		UserID:   "usr_fb_100",
+		TenantID: "tnt_fb_200",
+		Email:    "fallback@example.com",
+	})
+	if err != nil {
+		t.Fatalf("CreatePasswordSetupToken failed: %v", err)
+	}
+
+	if _, err := svc.SetupPassword(ctx, service.SetupPasswordInput{Token: rawToken, Password: "secretpassword"}); err != nil {
+		t.Fatalf("SetupPassword failed: %v", err)
+	}
+
+	loginRes, err := svc.Login(ctx, service.LoginInput{
+		Email:    "fallback@example.com",
+		Password: "secretpassword",
+	})
+	if err != nil {
+		t.Fatalf("login must succeed despite enrichment failure: %v", err)
+	}
+	if len(loginRes.Workspaces) != 1 || loginRes.Workspaces[0].TenantID != "tnt_fb_200" {
+		t.Fatalf("expected fallback workspace tnt_fb_200, got %+v", loginRes.Workspaces)
+	}
+	if loginRes.Workspaces[0].TenantName != "" || loginRes.Workspaces[0].TenantSlug != "" || loginRes.Workspaces[0].TenantPlan != "" {
+		t.Errorf("expected empty enrichment on provider error, got %+v", loginRes.Workspaces[0])
 	}
 }

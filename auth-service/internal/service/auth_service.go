@@ -20,6 +20,7 @@ type CredentialRepository interface {
 	UpsertCredential(ctx context.Context, input repository.UpsertCredentialInput) error
 	FindByEmail(ctx context.Context, email string) (*domain.Credential, error)
 	FindByUserID(ctx context.Context, userID string) (*domain.Credential, error)
+	GetUserMemberships(ctx context.Context, userID string) ([]string, error)
 }
 
 // TokenRepository is the consumer-side interface expected by AuthService.
@@ -47,6 +48,21 @@ type RoleSeeder interface {
 	SeedDefaultRolesForTenant(ctx context.Context, tenantID string, adminUserID string) error
 }
 
+// TenantProfileProvider is the consumer-side interface for enriching workspace
+// listings with tenant metadata (name/slug/plan) at login time. Implementations
+// must be best-effort: failures are tolerated so login never depends on it.
+type TenantProfileProvider interface {
+	GetTenantProfile(ctx context.Context, tenantID string) (*TenantProfile, error)
+}
+
+// TenantProfile carries control-plane metadata for a single workspace.
+type TenantProfile struct {
+	TenantID string
+	Name     string
+	Slug     string
+	Plan     string
+}
+
 type SetupPasswordInput struct {
 	Token    string
 	Password string
@@ -55,6 +71,25 @@ type SetupPasswordInput struct {
 type LoginInput struct {
 	Email    string
 	Password string
+}
+
+type WorkspaceInfo struct {
+	TenantID   string
+	TenantName string
+	TenantSlug string
+	TenantPlan string
+}
+
+type LoginOutput struct {
+	Status        string // domain.LoginStatusSuccess or domain.LoginStatusSelectWorkspace
+	TokenPair     *TokenPair
+	ExchangeToken string
+	Workspaces    []WorkspaceInfo
+}
+
+type SelectWorkspaceInput struct {
+	ExchangeToken string
+	TenantID      string
 }
 
 type RefreshTokenInput struct {
@@ -77,6 +112,7 @@ type AuthService struct {
 	setupTokenRepository SetupTokenRepository
 	jwtManager           *crypto.JWTManager
 	permProvider         UserPermissionProvider
+	tenantProfile        TenantProfileProvider
 	roleSeeder           RoleSeeder
 }
 
@@ -86,6 +122,7 @@ func NewAuthService(
 	setupTokenRepository SetupTokenRepository,
 	jwtManager *crypto.JWTManager,
 	permProvider UserPermissionProvider,
+	tenantProfile TenantProfileProvider,
 	roleSeeder ...RoleSeeder,
 ) *AuthService {
 	var seeder RoleSeeder
@@ -98,11 +135,12 @@ func NewAuthService(
 		setupTokenRepository: setupTokenRepository,
 		jwtManager:           jwtManager,
 		permProvider:         permProvider,
+		tenantProfile:        tenantProfile,
 		roleSeeder:           seeder,
 	}
 }
 
-func (s *AuthService) Login(ctx context.Context, input LoginInput) (*TokenPair, error) {
+func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginOutput, error) {
 	if input.Email == "" {
 		return nil, domain.ErrEmailRequired
 	}
@@ -122,7 +160,104 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*TokenPair, 
 		return nil, domain.ErrInvalidCredentials
 	}
 
-	return s.issuePair(ctx, cred)
+	memberships, err := s.credentialRepository.GetUserMemberships(ctx, cred.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("auth service: failed to fetch user memberships: %w", err)
+	}
+
+	if len(memberships) == 0 {
+		return nil, domain.ErrNoTenantMembership
+	}
+
+	rawExchangeToken, tokenHash, err := crypto.GenerateRefreshToken()
+	if err != nil {
+		return nil, fmt.Errorf("auth service: failed to generate exchange token: %w", err)
+	}
+
+	expiresAt := time.Now().UTC().Add(10 * time.Minute)
+	if err := s.setupTokenRepository.CreateSetupToken(ctx, repository.CreateSetupTokenInput{
+		UserID:    cred.UserID,
+		TenantID:  "",
+		Email:     cred.Email,
+		TokenHash: tokenHash,
+		ExpiresAt: expiresAt,
+	}); err != nil {
+		return nil, fmt.Errorf("auth service: failed to persist exchange token: %w", err)
+	}
+
+	workspaces := make([]WorkspaceInfo, 0, len(memberships))
+	for _, m := range memberships {
+		workspaces = append(workspaces, s.enrichWorkspace(ctx, m))
+	}
+
+	return &LoginOutput{
+		Status:        domain.LoginStatusSelectWorkspace,
+		ExchangeToken: rawExchangeToken,
+		Workspaces:    workspaces,
+	}, nil
+}
+
+func (s *AuthService) enrichWorkspace(ctx context.Context, tenantID string) WorkspaceInfo {
+	wi := WorkspaceInfo{TenantID: tenantID}
+	if s.tenantProfile == nil {
+		return wi
+	}
+
+	profile, err := s.tenantProfile.GetTenantProfile(ctx, tenantID)
+	if err != nil {
+		log.Printf("AuthService: Warning — failed to enrich workspace '%s': %v", tenantID, err)
+		return wi
+	}
+	if profile != nil {
+		wi.TenantName = profile.Name
+		wi.TenantSlug = profile.Slug
+		wi.TenantPlan = profile.Plan
+	}
+	return wi
+}
+
+func (s *AuthService) SelectWorkspace(ctx context.Context, input SelectWorkspaceInput) (*TokenPair, error) {
+	if input.ExchangeToken == "" {
+		return nil, domain.ErrTokenNotFound
+	}
+	if input.TenantID == "" {
+		return nil, domain.ErrTenantIDRequired
+	}
+
+	tokenHash := crypto.HashRefreshToken(input.ExchangeToken)
+	st, err := s.setupTokenRepository.FindByTokenHash(ctx, tokenHash)
+	if err != nil {
+		return nil, err
+	}
+
+	if st.UsedAt != nil {
+		return nil, domain.ErrTokenAlreadyUsed
+	}
+	if time.Now().UTC().After(st.ExpiresAt) {
+		return nil, domain.ErrTokenExpired
+	}
+
+	memberships, err := s.credentialRepository.GetUserMemberships(ctx, st.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("auth service: failed to fetch user memberships for exchange: %w", err)
+	}
+
+	isMember := false
+	for _, m := range memberships {
+		if m == input.TenantID {
+			isMember = true
+			break
+		}
+	}
+	if !isMember {
+		return nil, domain.ErrTenantMembershipNotFound
+	}
+
+	if err := s.setupTokenRepository.MarkTokenUsed(ctx, tokenHash); err != nil {
+		return nil, fmt.Errorf("auth service: failed to mark exchange token as used: %w", err)
+	}
+
+	return s.issuePair(ctx, st.UserID, input.TenantID, st.Email)
 }
 
 func (s *AuthService) RefreshToken(ctx context.Context, input RefreshTokenInput) (*TokenPair, error) {
@@ -152,7 +287,9 @@ func (s *AuthService) RefreshToken(ctx context.Context, input RefreshTokenInput)
 		return nil, fmt.Errorf("auth service: failed to retrieve credential for user_id='%s': %w", rt.UserID, err)
 	}
 
-	return s.issuePair(ctx, cred)
+	// Preserve the workspace that was active when the refresh token was issued
+	// so rotation does not silently drop the tenant context.
+	return s.issuePair(ctx, rt.UserID, rt.TenantID, cred.Email)
 }
 
 func (s *AuthService) Logout(ctx context.Context, input LogoutInput) error {
@@ -168,8 +305,6 @@ func (s *AuthService) Logout(ctx context.Context, input LogoutInput) error {
 	}
 	return nil
 }
-
-
 
 func (s *AuthService) SetupPassword(ctx context.Context, input SetupPasswordInput) (*TokenPair, error) {
 	if input.Token == "" {
@@ -212,30 +347,25 @@ func (s *AuthService) SetupPassword(ctx context.Context, input SetupPasswordInpu
 
 	log.Printf("AuthService: Successfully set password via setup token for user_id='%s'", st.UserID)
 
-	cred := &domain.Credential{
-		UserID:   st.UserID,
-		TenantID: st.TenantID,
-		Email:    st.Email,
-	}
-	return s.issuePair(ctx, cred)
+	return s.issuePair(ctx, st.UserID, st.TenantID, st.Email)
 }
 
-func (s *AuthService) issuePair(ctx context.Context, cred *domain.Credential) (*TokenPair, error) {
+func (s *AuthService) issuePair(ctx context.Context, userID, tenantID, email string) (*TokenPair, error) {
 	var permissions []string
 	var permVersion int64 = 1
 
-	if s.permProvider != nil && cred.UserID != "" && cred.TenantID != "" {
-		perms, ver, err := s.permProvider.FindUserPermissions(ctx, cred.UserID, cred.TenantID)
+	if s.permProvider != nil && userID != "" && tenantID != "" {
+		perms, ver, err := s.permProvider.FindUserPermissions(ctx, userID, tenantID)
 		if err == nil {
 			permissions = perms
 			permVersion = ver
 		} else {
-			log.Printf("AuthService: Warning — failed to fetch user permissions for user_id='%s': %v", cred.UserID, err)
+			log.Printf("AuthService: Warning — failed to fetch user permissions for user_id='%s': %v", userID, err)
 		}
 	}
 
 	jti := uuid.New().String()
-	accessToken, err := s.jwtManager.SignAccessToken(cred.UserID, cred.TenantID, cred.Email, jti, permissions, permVersion)
+	accessToken, err := s.jwtManager.SignAccessToken(userID, tenantID, email, jti, permissions, permVersion)
 	if err != nil {
 		return nil, fmt.Errorf("auth service: failed to sign access token: %w", err)
 	}
@@ -247,7 +377,8 @@ func (s *AuthService) issuePair(ctx context.Context, cred *domain.Credential) (*
 
 	expiresAt := time.Now().UTC().Add(crypto.RefreshTokenTTL)
 	if err := s.tokenRepository.CreateRefreshToken(ctx, repository.CreateRefreshTokenInput{
-		UserID:    cred.UserID,
+		UserID:    userID,
+		TenantID:  tenantID,
 		TokenHash: refreshHash,
 		ExpiresAt: expiresAt,
 	}); err != nil {
