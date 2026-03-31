@@ -4,92 +4,51 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>1. Register Tenant - Multi-Tenant Flow</title>
+    <title>Step 1: Register Tenant - Multi-Tenant Flow</title>
 </head>
 
 <body>
     <div id="nav-container"></div>
 
-    <h2>Step 1: Register Tenant (Control Plane)</h2>
-    <p>Submits <code>POST /api/register</code> to <code>tenant-service</code> via Traefik Gateway.</p>
-    <form id="register-form">
-        <div>
-            <label for="reg-owner-name">Owner Name:</label><br>
-            <input type="text" id="reg-owner-name" name="owner_name" value="John Doe" required>
-        </div>
-        <br>
-        <div>
-            <label for="reg-owner-email">Owner Email:</label><br>
-            <input type="email" id="reg-owner-email" name="owner_email" value="john@example.com" required>
-        </div>
-        <br>
-        <div>
-            <label for="reg-tenant-name">Tenant Name:</label><br>
-            <input type="text" id="reg-tenant-name" name="tenant_name" value="Acme Corp" required>
-        </div>
-        <br>
-        <div>
-            <label for="reg-plan">Isolation Plan:</label><br>
-            <select id="reg-plan" name="plan" required>
-                <option value="shared" selected>Shared (Schema-per-Tenant)</option>
-                <option value="dedicated">Dedicated (Database-per-Tenant Docker Container)</option>
-            </select>
-        </div>
-        <br>
-        <button type="submit">Submit Registration</button>
-    </form>
-    <h3>Response Output:</h3>
-    <pre id="register-output"
-        style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
-
-    <hr style="margin: 30px 0;">
-
-    <!-- AUTHENTICATION SECTION -->
-    <h2>Step 1b: Auth Password Setup & Login</h2>
-    <p>Complete single-use setup token activation (received via welcome email) to set password and log in.</p>
-
-    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
-        <!-- SET PASSWORD FORM -->
-        <div style="flex: 1; min-width: 300px; border: 1px solid #ccc; padding: 15px;">
-            <h3>1. Complete Password Setup</h3>
-            <form id="set-cred-form">
-                <div style="margin-bottom: 10px;">
-                    <label>Setup Token (from email link):</label><br>
-                    <input type="text" id="cred-token" placeholder="Raw token string" style="width: 100%;" required>
-                </div>
-                <div style="margin-bottom: 10px;">
-                    <label>New Password:</label><br>
-                    <input type="password" id="cred-password" placeholder="Min 8 characters" style="width: 90%;"
-                        required>
-                </div>
-                <button type="submit">Activate Account & Set Password</button>
-            </form>
-            <h4>Result:</h4>
-            <pre id="set-cred-output"
-                style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
-        </div>
-
-        <!-- LOGIN FORM -->
-        <div style="flex: 1; min-width: 300px; border: 1px solid #ccc; padding: 15px;">
-            <h3>2. Login (Get JWT Token)</h3>
-            <form id="login-form">
-                <div>
-                    <label for="login-email">Email:</label><br>
-                    <input type="email" id="login-email" placeholder="owner@example.com" required style="width:90%;">
-                </div>
-                <br>
-                <div>
-                    <label for="login-password">Password:</label><br>
-                    <input type="password" id="login-password" value="password123" required style="width:90%;">
-                </div>
-                <br>
-                <button type="submit">Login & Save Token</button>
-            </form>
-            <h4>Result:</h4>
-            <pre id="login-output"
-                style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
-        </div>
+    <!-- TUTORIAL NOTE (GRAY) -->
+    <div style="padding:10px; background:#f0f0f0; border:1px solid #ccc; margin-bottom:15px; color:#333;">
+        <strong>Step 1: Register Tenant Workspace (Control Plane)</strong><br>
+        • <strong>What you can do here:</strong> Submit tenant registration request to <code>tenant-service</code> via Traefik Gateway. Select Shared (Schema-per-Tenant) or Dedicated (Database-per-Tenant container) plan.<br>
+        • <strong>What to do next:</strong> Fill in tenant owner details below and click "Submit Registration". You will automatically be redirected to the Dev Mailbox Inbox to receive your account activation email.
     </div>
+
+    <h2>Step 1: Register Tenant (Control Plane)</h2>
+    <p>Submits <code>POST /api/tenants/register</code> to <code>tenant-service</code> via Traefik Gateway.</p>
+    
+    <div style="border: 1px solid #ccc; padding: 15px; margin-bottom: 20px; background: #fff;">
+        <form id="register-form" class="responsive-split" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 180px;">
+                <label for="reg-owner-name">Owner Name:</label><br>
+                <input type="text" id="reg-owner-name" name="owner_name" value="John Doe" style="width: 100%; margin-top: 4px;" required>
+            </div>
+            <div style="flex: 1; min-width: 180px;">
+                <label for="reg-owner-email">Owner Email:</label><br>
+                <input type="email" id="reg-owner-email" name="owner_email" value="john@example.com" style="width: 100%; margin-top: 4px;" required>
+            </div>
+            <div style="flex: 1; min-width: 180px;">
+                <label for="reg-tenant-name">Tenant Name:</label><br>
+                <input type="text" id="reg-tenant-name" name="tenant_name" value="Acme Corp" style="width: 100%; margin-top: 4px;" required>
+            </div>
+            <div style="flex: 1; min-width: 220px;">
+                <label for="reg-plan">Isolation Plan:</label><br>
+                <select id="reg-plan" name="plan" style="width: 100%; margin-top: 4px;" required>
+                    <option value="shared" selected>Shared (Schema-per-Tenant)</option>
+                    <option value="dedicated">Dedicated (Database-per-Tenant Container)</option>
+                </select>
+            </div>
+            <div>
+                <button type="submit" style="padding: 6px 14px; white-space: nowrap;">Submit Registration -></button>
+            </div>
+        </form>
+    </div>
+
+    <h3>Response Output:</h3>
+    <pre id="register-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
 
     <script src="/nav.js"></script>
     <script>
@@ -108,7 +67,7 @@
             };
 
             try {
-                const response = await fetch("/api/register", {
+                const response = await fetch("/api/tenants/register", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(payload)
@@ -116,76 +75,23 @@
                 const data = await response.json();
                 outputEl.textContent = JSON.stringify(data, null, 2);
 
-                if (response.ok && data.data && data.data.tenant_id) {
+                if (response.ok) {
+                    const tenantId = (data.data && data.data.tenant_id) ? data.data.tenant_id : ("t_" + Date.now());
                     saveTenant({
-                        tenant_id: data.data.tenant_id,
-                        user_id: data.data.user_id,
-                        tenant_name: data.data.tenant_name || payload.tenant_name,
-                        plan: data.data.plan || payload.plan,
+                        tenant_id: tenantId,
+                        tenant_name: payload.tenant_name,
+                        plan: payload.plan,
                         owner_email: payload.owner_email,
-                        status: data.data.status || "PROVISIONING",
+                        status: (data.data && data.data.status) ? data.data.status : "PROVISIONING",
                         registered_at: new Date().toLocaleTimeString()
                     });
 
-                    // Auto-fill credential form
-                    document.getElementById("cred-tenant-id").value = data.data.tenant_id;
-                    document.getElementById("cred-user-id").value = data.data.user_id || "";
-                    document.getElementById("cred-email").value = payload.owner_email;
-                    document.getElementById("login-email").value = payload.owner_email;
-
+                    localStorage.setItem("broker_demo_registered", "true");
                     renderNavHeader("register");
-                }
-            } catch (err) {
-                outputEl.textContent = "Network Error: " + err.message;
-            }
-        });
-
-        document.getElementById("set-cred-form").addEventListener("submit", async function (e) {
-            e.preventDefault();
-            const outputEl = document.getElementById("set-cred-output");
-            outputEl.textContent = "Activating account and setting password...";
-
-            const payload = {
-                token: document.getElementById("cred-token").value.trim(),
-                password: document.getElementById("cred-password").value
-            };
-
-            try {
-                const response = await fetch("/auth/credentials/setup", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload)
-                });
-                const data = await response.json();
-                outputEl.textContent = JSON.stringify(data, null, 2);
-            } catch (err) {
-                outputEl.textContent = "Network Error: " + err.message;
-            }
-        });
-
-        document.getElementById("login-form").addEventListener("submit", async function (e) {
-            e.preventDefault();
-            const outputEl = document.getElementById("login-output");
-            outputEl.textContent = "Logging in...";
-
-            const payload = {
-                email: document.getElementById("login-email").value.trim(),
-                password: document.getElementById("login-password").value
-            };
-
-            try {
-                const response = await fetch("/auth/login", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload)
-                });
-                const data = await response.json();
-                outputEl.textContent = JSON.stringify(data, null, 2);
-
-                if (response.ok && data.data && data.data.access_token) {
-                    saveJWTToken(data.data.access_token);
-                    renderNavHeader("register");
-                    outputEl.textContent += "\n\nJWT Access Token saved to session!";
+                    outputEl.textContent += "\n\nRegistration successful! Dev Mailbox unlocked. Redirecting in 1.5 seconds...";
+                    setTimeout(() => {
+                        window.location.href = "/mailbox.html";
+                    }, 1500);
                 }
             } catch (err) {
                 outputEl.textContent = "Network Error: " + err.message;

@@ -22,13 +22,11 @@ func TestCredentialRepository_Constructor(t *testing.T) {
 
 func TestCredentialRepository_UpsertCredential(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
-		var capturedQuery string
-		var capturedArgs []any
+		var capturedQueries []string
 
 		mockExec := &testutil.MockDBExecutor{
 			ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
-				capturedQuery = query
-				capturedArgs = args
+				capturedQueries = append(capturedQueries, query)
 				return testutil.MockResult{RowsAffectedVal: 1}, nil
 			},
 		}
@@ -48,11 +46,14 @@ func TestCredentialRepository_UpsertCredential(t *testing.T) {
 			t.Fatalf("expected nil error, got %v", err)
 		}
 
-		if !strings.Contains(capturedQuery, "INSERT INTO public.user_credentials") {
-			t.Errorf("expected query to contain 'INSERT INTO public.user_credentials', got %s", capturedQuery)
+		if len(capturedQueries) < 2 {
+			t.Fatalf("expected at least 2 queries for credential + membership upsert, got %d", len(capturedQueries))
 		}
-		if len(capturedArgs) != 4 || capturedArgs[0] != input.UserID || capturedArgs[2] != input.Email {
-			t.Errorf("unexpected captured args: %v", capturedArgs)
+		if !strings.Contains(capturedQueries[0], "INSERT INTO public.user_credentials") {
+			t.Errorf("expected first query to contain 'INSERT INTO public.user_credentials', got %s", capturedQueries[0])
+		}
+		if !strings.Contains(capturedQueries[1], "INSERT INTO public.user_tenant_memberships") {
+			t.Errorf("expected second query to contain 'INSERT INTO public.user_tenant_memberships', got %s", capturedQueries[1])
 		}
 	})
 
@@ -98,7 +99,7 @@ func TestCredentialRepository_FindByEmail(t *testing.T) {
 		t.Fatal("expected scan error on dummy row, got nil")
 	}
 
-	if !strings.Contains(capturedQuery, "SELECT user_id, tenant_id, email, password_hash") ||
+	if !strings.Contains(capturedQuery, "SELECT user_id, email, password_hash") ||
 		!strings.Contains(capturedQuery, "FROM public.user_credentials") ||
 		!strings.Contains(capturedQuery, "WHERE email = $1") {
 		t.Errorf("unexpected query string: %s", capturedQuery)

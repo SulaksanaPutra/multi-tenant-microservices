@@ -42,6 +42,24 @@ func (userRepository *UserRepository) CreateUser(ctx context.Context, input Crea
 	return nil
 }
 
+func (userRepository *UserRepository) GetUserByEmail(ctx context.Context, email string) (*domain.User, error) {
+	exec := txcontext.GetExecutor(ctx, userRepository.dbClient)
+	const query = `
+		SELECT id, email, name
+		FROM public.users
+		WHERE email = $1;
+	`
+	var user domain.User
+	err := exec.QueryRowContext(ctx, query, email).Scan(&user.ID, &user.Email, &user.Name)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("user email '%s': %w", email, domain.ErrNotFound)
+		}
+		return nil, fmt.Errorf("user repository: failed to query user by email: %w", err)
+	}
+	return &user, nil
+}
+
 func (userRepository *UserRepository) UpdateUser(ctx context.Context, input UpdateUserInput) error {
 	exec := txcontext.GetExecutor(ctx, userRepository.dbClient)
 	const query = `

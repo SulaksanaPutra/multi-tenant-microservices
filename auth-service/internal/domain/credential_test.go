@@ -11,14 +11,13 @@ func TestCredentialStruct(t *testing.T) {
 	now := time.Now()
 	cred := domain.Credential{
 		UserID:       "usr_123",
-		TenantID:     "tnt_456",
 		Email:        "user@example.com",
 		PasswordHash: "hashed_pwd",
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
 
-	if cred.UserID != "usr_123" || cred.TenantID != "tnt_456" || cred.Email != "user@example.com" {
+	if cred.UserID != "usr_123" || cred.Email != "user@example.com" {
 		t.Errorf("unexpected Credential values: %+v", cred)
 	}
 }

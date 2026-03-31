@@ -58,6 +58,10 @@ func main() {
 		}
 
 		data, err := fs.ReadFile(publicFS, path)
+		if err != nil && !strings.Contains(path, ".") {
+			path = path + ".html"
+			data, err = fs.ReadFile(publicFS, path)
+		}
 		if err != nil {
 			http.NotFound(w, r)
 			return

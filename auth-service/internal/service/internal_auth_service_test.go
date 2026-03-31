@@ -75,7 +75,7 @@ func (m *mockRoleSeeder) SeedDefaultRolesForTenant(_ context.Context, tenantID s
 func TestInternalAuthService_CreatePasswordSetupToken(t *testing.T) {
 	t.Run("missing user id -> returns ErrUserIDRequired", func(t *testing.T) {
 		repo := newMockSetupTokenRepo()
-		svc := service.NewInternalAuthService(repo)
+		svc := service.NewInternalAuthService(repo, nil)
 
 		_, err := svc.CreatePasswordSetupToken(context.Background(), service.InternalCreateSetupTokenInput{
 			UserID:   "",
@@ -89,7 +89,7 @@ func TestInternalAuthService_CreatePasswordSetupToken(t *testing.T) {
 
 	t.Run("missing email -> returns ErrEmailRequired", func(t *testing.T) {
 		repo := newMockSetupTokenRepo()
-		svc := service.NewInternalAuthService(repo)
+		svc := service.NewInternalAuthService(repo, nil)
 
 		_, err := svc.CreatePasswordSetupToken(context.Background(), service.InternalCreateSetupTokenInput{
 			UserID:   "usr_001",
@@ -104,7 +104,7 @@ func TestInternalAuthService_CreatePasswordSetupToken(t *testing.T) {
 	t.Run("repository error -> returns error", func(t *testing.T) {
 		repo := newMockSetupTokenRepo()
 		repo.err = errors.New("db insert failed")
-		svc := service.NewInternalAuthService(repo)
+		svc := service.NewInternalAuthService(repo, nil)
 
 		_, err := svc.CreatePasswordSetupToken(context.Background(), service.InternalCreateSetupTokenInput{
 			UserID:   "usr_001",
@@ -119,7 +119,7 @@ func TestInternalAuthService_CreatePasswordSetupToken(t *testing.T) {
 	t.Run("success with role seeder -> generates token and seeds roles", func(t *testing.T) {
 		repo := newMockSetupTokenRepo()
 		seeder := newMockRoleSeeder()
-		svc := service.NewInternalAuthService(repo, seeder)
+		svc := service.NewInternalAuthService(repo, nil, seeder)
 
 		token, err := svc.CreatePasswordSetupToken(context.Background(), service.InternalCreateSetupTokenInput{
 			UserID:   "usr_001",
@@ -144,7 +144,7 @@ func TestInternalAuthService_CreatePasswordSetupToken(t *testing.T) {
 	t.Run("success without tenantID -> generates token without calling seeder", func(t *testing.T) {
 		repo := newMockSetupTokenRepo()
 		seeder := newMockRoleSeeder()
-		svc := service.NewInternalAuthService(repo, seeder)
+		svc := service.NewInternalAuthService(repo, nil, seeder)
 
 		token, err := svc.CreatePasswordSetupToken(context.Background(), service.InternalCreateSetupTokenInput{
 			UserID:   "usr_system",

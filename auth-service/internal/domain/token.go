@@ -8,6 +8,7 @@ import "time"
 type RefreshToken struct {
 	ID        string
 	UserID    string
+	TenantID  string
 	TokenHash string    // SHA-256(raw token)
 	ExpiresAt time.Time
 	RevokedAt *time.Time // nil = active

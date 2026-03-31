@@ -22,3 +22,6 @@ repomix-output.txt
 
 # Logs
 *.log
+
+.opencode
+.agents

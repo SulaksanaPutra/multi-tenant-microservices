@@ -17,13 +17,19 @@ type InternalCreateSetupTokenInput struct {
 	Email    string
 }
 
+type MembershipRepository interface {
+	AddMembership(ctx context.Context, userID, tenantID string) error
+}
+
 type InternalAuthService struct {
 	setupTokenRepository SetupTokenRepository
+	membershipRepository MembershipRepository
 	roleSeeder           RoleSeeder
 }
 
 func NewInternalAuthService(
 	setupTokenRepository SetupTokenRepository,
+	membershipRepository MembershipRepository,
 	roleSeeder ...RoleSeeder,
 ) *InternalAuthService {
 	var seeder RoleSeeder
@@ -32,6 +38,7 @@ func NewInternalAuthService(
 	}
 	return &InternalAuthService{
 		setupTokenRepository: setupTokenRepository,
+		membershipRepository: membershipRepository,
 		roleSeeder:           seeder,
 	}
 }
@@ -42,6 +49,10 @@ func (s *InternalAuthService) CreatePasswordSetupToken(ctx context.Context, inpu
 	}
 	if input.Email == "" {
 		return "", domain.ErrEmailRequired
+	}
+
+	if s.membershipRepository != nil && input.TenantID != "" {
+		_ = s.membershipRepository.AddMembership(ctx, input.UserID, input.TenantID)
 	}
 
 	rawToken, tokenHash, err := crypto.GenerateRefreshToken()

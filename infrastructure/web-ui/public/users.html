@@ -3,90 +3,119 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2. Users & Roles Management</title>
+    <title>Step 5: Users & Roles Management</title>
 </head>
 <body>
     <div id="nav-container"></div>
 
-    <h2>User Profile & RBAC Role Management</h2>
-    <p>Protected by <code>RequireJWT</code> token verification and permission checks.</p>
+    <!-- TUTORIAL NOTE (GRAY) -->
+    <div style="padding:10px; background:#f0f0f0; border:1px solid #ccc; margin-bottom:15px; color:#333;">
+        <strong>Step 5: User Profile & RBAC Role Management</strong><br>
+        • <strong>What you can do here:</strong> Manage profile, view tenant users, create custom roles, and assign RBAC roles to users using minimal modal dialogs.<br>
+        • <strong>What to do next:</strong> Test user/role actions, then click the link below to proceed to Orders (Data Plane).
+    </div>
 
-    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
-        <!-- UPDATE MY PROFILE -->
-        <div style="flex: 1; min-width: 300px; border: 1px solid #ccc; padding: 15px;">
-            <h3>Update My Profile (`PUT /api/users/me`)</h3>
-            <form id="update-me-form">
-                <div style="margin-bottom: 10px;">
-                    <label>New Name:</label><br>
-                    <input type="text" id="update-me-name" placeholder="John Updated" style="width: 90%;" required>
+    <!-- ACTION DRIVE TO ORDERS -->
+    <div style="padding:10px; background:#f0f0f0; border:1px solid #ccc; margin-bottom:20px; color:#333;">
+        <strong>Authenticated User Session Active! Continue to Data Plane:</strong><br>
+        Next Step: <a href="/orders.html" style="font-weight:bold;">Proceed to Test Orders API (Data Plane) -></a>
+    </div>
+
+    <!-- SIDE BY SIDE LAYOUT CONTAINER (RESPONSIVE SPLIT) -->
+    <div class="responsive-split" style="display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start;">
+
+        <!-- LEFT SIDE: USERS DIRECTORY -->
+        <div style="flex: 1; min-width: 320px; border: 1px solid #ccc; padding: 15px; background: #fff;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px; border-bottom: 1px solid #eee; padding-bottom: 8px; flex-wrap:wrap; gap:8px;">
+                <h3 style="margin:0;">Tenant Users Directory</h3>
+                <div style="display:flex; gap:6px;">
+                    <button type="button" onclick="openProfileModal()">Edit My Profile</button>
+                    <button type="button" onclick="loadUsers()">Refresh</button>
                 </div>
-                <button type="submit">Update Profile</button>
-            </form>
-            <h4>Output:</h4>
-            <pre id="update-me-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting action...)</pre>
+            </div>
+            <div id="users-table-container" class="table-responsive">Loading users...</div>
         </div>
 
-        <!-- CREATE CUSTOM ROLE -->
-        <div style="flex: 1; min-width: 300px; border: 1px solid #ccc; padding: 15px;">
-            <h3>Create Custom Role (`POST /api/users/roles`)</h3>
-            <form id="create-role-form">
-                <div style="margin-bottom: 10px;">
-                    <label>Role Name:</label><br>
-                    <input type="text" id="role-name" placeholder="editor" style="width: 90%;" required>
+        <!-- RIGHT SIDE: ROLES DIRECTORY -->
+        <div style="flex: 1; min-width: 320px; border: 1px solid #ccc; padding: 15px; background: #fff;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px; border-bottom: 1px solid #eee; padding-bottom: 8px; flex-wrap:wrap; gap:8px;">
+                <h3 style="margin:0;">Tenant Roles & Assignment</h3>
+                <div style="display:flex; gap:6px;">
+                    <button type="button" onclick="openCreateRoleModal()">+ Create Role</button>
+                    <button type="button" onclick="openAssignRoleModal()">Assign Role</button>
+                    <button type="button" onclick="loadRoles()">Refresh</button>
                 </div>
-                <div style="margin-bottom: 10px;">
-                    <label>Description:</label><br>
-                    <input type="text" id="role-desc" placeholder="Editor access" style="width: 90%;">
+            </div>
+            <div id="roles-table-container" class="table-responsive">Loading roles...</div>
+        </div>
+
+    </div>
+
+    <!-- MODAL 1: EDIT PROFILE -->
+    <dialog id="dialog-profile" style="border:1px solid #ccc; padding:20px; width:400px; max-width:90%;">
+        <h3 style="margin-top:0;">Edit My Profile (`PUT /api/users/me`)</h3>
+        <form id="update-me-form">
+            <div style="margin-bottom: 15px;">
+                <label for="update-me-name">Display Name:</label><br>
+                <input type="text" id="update-me-name" style="width: 100%; margin-top:5px;" required>
+            </div>
+            <div style="text-align:right;">
+                <button type="button" onclick="document.getElementById('dialog-profile').close()">Cancel</button>
+                <button type="submit">Save Profile</button>
+            </div>
+        </form>
+        <pre id="update-me-output" style="background:#f4f4f4; padding:8px; border:1px solid #ccc; display:none; margin-top:10px;"></pre>
+    </dialog>
+
+    <!-- MODAL 2: ASSIGN ROLE TO USER -->
+    <dialog id="dialog-assign-role" style="border:1px solid #ccc; padding:20px; width:450px; max-width:90%;">
+        <h3 style="margin-top:0;">Assign Role to User (`PUT /api/users/:user_id/role`)</h3>
+        <form id="assign-role-form">
+            <div style="margin-bottom: 15px;">
+                <label for="assign-user-select">Select User:</label><br>
+                <select id="assign-user-select" style="width: 100%; margin-top:5px;" required>
+                    <option value="">-- Loading users... --</option>
+                </select>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label for="assign-role-select">Select Role to Assign:</label><br>
+                <select id="assign-role-select" style="width: 100%; margin-top:5px;" required>
+                    <option value="">-- Loading roles... --</option>
+                </select>
+            </div>
+            <div style="text-align:right;">
+                <button type="button" onclick="document.getElementById('dialog-assign-role').close()">Cancel</button>
+                <button type="submit">Assign Selected Role</button>
+            </div>
+        </form>
+        <pre id="assign-role-output" style="background:#f4f4f4; padding:8px; border:1px solid #ccc; display:none; margin-top:10px;"></pre>
+    </dialog>
+
+    <!-- MODAL 3: CREATE CUSTOM ROLE -->
+    <dialog id="dialog-create-role" style="border:1px solid #ccc; padding:20px; width:500px; max-width:90%;">
+        <h3 style="margin-top:0;">Create Custom Role (`POST /api/users/roles`)</h3>
+        <form id="create-role-form">
+            <div style="margin-bottom: 12px;">
+                <label for="role-name">Role Name:</label><br>
+                <input type="text" id="role-name" placeholder="e.g. editor" style="width: 100%; margin-top:4px;" required>
+            </div>
+            <div style="margin-bottom: 12px;">
+                <label for="role-desc">Description:</label><br>
+                <input type="text" id="role-desc" placeholder="e.g. Can view and manage orders" style="width: 100%; margin-top:4px;">
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label><strong>Select Permissions:</strong></label><br>
+                <div id="permissions-checkboxes" style="margin-top: 5px; padding: 10px; background: #f9f9f9; border: 1px solid #eee; max-height: 180px; overflow-y: auto;">
+                    Loading permissions catalog...
                 </div>
-                <div style="margin-bottom: 10px;">
-                    <label>Permissions (comma separated):</label><br>
-                    <input type="text" id="role-perms" placeholder="orders:read, users:read" style="width: 90%;">
-                </div>
+            </div>
+            <div style="text-align:right;">
+                <button type="button" onclick="document.getElementById('dialog-create-role').close()">Cancel</button>
                 <button type="submit">Create Role</button>
-            </form>
-            <h4>Output:</h4>
-            <pre id="create-role-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting action...)</pre>
-        </div>
-    </div>
-
-    <br>
-
-    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
-        <!-- LIST USERS & ASSIGN ROLE -->
-        <div style="flex: 1; min-width: 400px; border: 1px solid #ccc; padding: 15px;">
-            <h3>Users List (`GET /api/users`) & Role Assignment</h3>
-            <button id="btn-fetch-users">Fetch Users List</button>
-            <br><br>
-            <div id="users-table-container"></div>
-            <br>
-            <h4>Assign Role to User (`PUT /api/users/:user_id/role`)</h4>
-            <form id="assign-role-form">
-                <div style="margin-bottom: 10px;">
-                    <label>Target User ID:</label><br>
-                    <input type="text" id="assign-user-id" placeholder="usr_..." style="width: 90%;" required>
-                </div>
-                <div style="margin-bottom: 10px;">
-                    <label>Role ID (UUID):</label><br>
-                    <input type="text" id="assign-role-id" placeholder="Role UUID" style="width: 90%;" required>
-                </div>
-                <button type="submit">Assign Role</button>
-            </form>
-            <h4>Output:</h4>
-            <pre id="assign-role-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting action...)</pre>
-        </div>
-
-        <!-- LIST ROLES & PERMISSIONS CATALOG -->
-        <div style="flex: 1; min-width: 300px; border: 1px solid #ccc; padding: 15px;">
-            <h3>Roles & Permissions Catalog</h3>
-            <button id="btn-fetch-roles">Fetch Tenant Roles</button>
-            <button id="btn-fetch-perms">Fetch Available Permissions (`GET /api/users/permissions`)</button>
-            <br><br>
-            <h4>Roles Output:</h4>
-            <pre id="roles-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc; max-height: 200px; overflow-y: auto;">(Click button to fetch roles)</pre>
-            <h4>Permissions Catalog:</h4>
-            <pre id="perms-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc; max-height: 200px; overflow-y: auto;">(Click button to fetch available permissions)</pre>
-        </div>
-    </div>
+            </div>
+        </form>
+        <pre id="create-role-output" style="background:#f4f4f4; padding:8px; border:1px solid #ccc; display:none; margin-top:10px;"></pre>
+    </dialog>
 
     <script src="/nav.js"></script>
     <script>
@@ -97,9 +126,188 @@
             return token ? { "Authorization": "Bearer " + token } : {};
         }
 
+        let cachedUsers = [];
+        let cachedRoles = [];
+
+        window.addEventListener("DOMContentLoaded", function() {
+            loadUserProfile();
+            loadUsers();
+            loadRoles();
+            loadPermissions();
+        });
+
+        async function loadUserProfile() {
+            try {
+                const res = await fetch("/api/users/me", { headers: getAuthHeader() });
+                const data = await res.json();
+                if (res.ok && data.data && data.data.Name) {
+                    document.getElementById("update-me-name").value = data.data.Name;
+                }
+            } catch (err) {
+                console.error("Failed to load user profile", err);
+            }
+        }
+
+        async function loadUsers() {
+            const container = document.getElementById("users-table-container");
+            const selectEl = document.getElementById("assign-user-select");
+            container.innerHTML = "Fetching users...";
+
+            try {
+                const res = await fetch("/api/users", { headers: getAuthHeader() });
+                const data = await res.json();
+
+                if (res.ok && data.data && Array.isArray(data.data)) {
+                    cachedUsers = data.data;
+
+                    if (cachedUsers.length === 0) {
+                        container.innerHTML = "<p>No users found for this tenant.</p>";
+                        selectEl.innerHTML = '<option value="">-- No users available --</option>';
+                        return;
+                    }
+
+                    let html = "<div class='table-responsive'><table border='1' cellpadding='6' cellspacing='0' style='width:100%; border-collapse:collapse; font-size:0.9em;'>";
+                    html += "<thead><tr><th>User ID</th><th>Email</th><th>Name</th><th>Action</th></tr></thead><tbody>";
+                    let selectOptions = '<option value="">-- Select Target User --</option>';
+
+                    cachedUsers.forEach(u => {
+                        const id = u.ID || u.id || u.user_id;
+                        const email = u.Email || u.email;
+                        const name = u.Name || u.name || "N/A";
+
+                        html += `<tr>
+                            <td><code>${id}</code></td>
+                            <td>${email}</td>
+                            <td><b>${name}</b></td>
+                            <td><button type="button" onclick="openAssignRoleForUser('${id}')">Assign Role</button></td>
+                        </tr>`;
+
+                        selectOptions += `<option value="${id}">${name} (${email})</option>`;
+                    });
+
+                    html += "</tbody></table></div>";
+                    container.innerHTML = html;
+                    selectEl.innerHTML = selectOptions;
+                } else {
+                    container.innerHTML = `<pre style="background:#f4f4f4; padding:8px;">${JSON.stringify(data, null, 2)}</pre>`;
+                }
+            } catch (err) {
+                container.innerHTML = `<p style="color:red;">Error loading users: ${err.message}</p>`;
+            }
+        }
+
+        async function loadRoles() {
+            const container = document.getElementById("roles-table-container");
+            const selectEl = document.getElementById("assign-role-select");
+            container.innerHTML = "Fetching roles...";
+
+            try {
+                const res = await fetch("/api/users/roles", { headers: getAuthHeader() });
+                const data = await res.json();
+
+                if (res.ok && data.data && Array.isArray(data.data)) {
+                    cachedRoles = data.data;
+
+                    if (cachedRoles.length === 0) {
+                        container.innerHTML = "<p>No custom roles created yet.</p>";
+                        selectEl.innerHTML = '<option value="">-- No roles available --</option>';
+                        return;
+                    }
+
+                    let html = "<div class='table-responsive'><table border='1' cellpadding='6' cellspacing='0' style='width:100%; border-collapse:collapse; font-size:0.9em;'>";
+                    html += "<thead><tr><th>Role ID</th><th>Name</th><th>Description</th><th>Permissions</th></tr></thead><tbody>";
+                    let selectOptions = '<option value="">-- Select Role --</option>';
+
+                    cachedRoles.forEach(r => {
+                        const id = r.ID || r.id || r.role_id;
+                        const name = r.Name || r.name;
+                        const desc = r.Description || r.description || "-";
+                        const perms = (r.Permissions || r.permissions || []).join(", ") || "-";
+
+                        html += `<tr>
+                            <td><code>${id}</code></td>
+                            <td><b>${name}</b></td>
+                            <td>${desc}</td>
+                            <td><code>${perms}</code></td>
+                        </tr>`;
+
+                        selectOptions += `<option value="${id}">${name} - ${desc}</option>`;
+                    });
+
+                    html += "</tbody></table></div>";
+                    container.innerHTML = html;
+                    selectEl.innerHTML = selectOptions;
+                } else {
+                    container.innerHTML = `<pre style="background:#f4f4f4; padding:8px;">${JSON.stringify(data, null, 2)}</pre>`;
+                }
+            } catch (err) {
+                container.innerHTML = `<p style="color:red;">Error loading roles: ${err.message}</p>`;
+            }
+        }
+
+        async function loadPermissions() {
+            const container = document.getElementById("permissions-checkboxes");
+            container.innerHTML = "Fetching permissions...";
+
+            try {
+                const res = await fetch("/api/users/permissions", { headers: getAuthHeader() });
+                const data = await res.json();
+
+                if (res.ok && data.data) {
+                    let permsList = data.data;
+                    if (!Array.isArray(permsList)) {
+                        permsList = [];
+                    }
+
+                    if (permsList.length === 0) {
+                        container.innerHTML = "<em>No permissions catalog returned.</em>";
+                        return;
+                    }
+
+                    let html = "<div style='display:flex; flex-direction:column; gap:6px;'>";
+                    permsList.forEach((p) => {
+                        const permName = (typeof p === 'string') ? p : (p.name || p.Name || p.id);
+                        const permDesc = (typeof p === 'object' && p.description) ? ` (${p.description})` : '';
+
+                        html += `<label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                            <input type="checkbox" name="role-perm-checkbox" value="${permName}">
+                            <span><code>${permName}</code>${permDesc}</span>
+                        </label>`;
+                    });
+                    html += "</div>";
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = `<pre style="background:#f4f4f4; padding:8px;">${JSON.stringify(data, null, 2)}</pre>`;
+                }
+            } catch (err) {
+                container.innerHTML = `<p style="color:red;">Error loading permissions: ${err.message}</p>`;
+            }
+        }
+
+        function openProfileModal() {
+            document.getElementById("update-me-output").style.display = "none";
+            document.getElementById("dialog-profile").showModal();
+        }
+
+        function openAssignRoleModal() {
+            document.getElementById("assign-role-output").style.display = "none";
+            document.getElementById("dialog-assign-role").showModal();
+        }
+
+        function openAssignRoleForUser(userId) {
+            document.getElementById("assign-user-select").value = userId;
+            openAssignRoleModal();
+        }
+
+        function openCreateRoleModal() {
+            document.getElementById("create-role-output").style.display = "none";
+            document.getElementById("dialog-create-role").showModal();
+        }
+
         document.getElementById("update-me-form").addEventListener("submit", async function(e) {
             e.preventDefault();
             const out = document.getElementById("update-me-output");
+            out.style.display = "block";
             out.textContent = "Updating user profile...";
             const name = document.getElementById("update-me-name").value.trim();
 
@@ -111,6 +319,10 @@
                 });
                 const data = await res.json();
                 out.textContent = JSON.stringify(data, null, 2);
+                if (res.ok) {
+                    loadUsers();
+                    setTimeout(() => document.getElementById("dialog-profile").close(), 1200);
+                }
             } catch (err) {
                 out.textContent = "Error: " + err.message;
             }
@@ -119,11 +331,13 @@
         document.getElementById("create-role-form").addEventListener("submit", async function(e) {
             e.preventDefault();
             const out = document.getElementById("create-role-output");
+            out.style.display = "block";
             out.textContent = "Creating custom role...";
+
             const name = document.getElementById("role-name").value.trim();
             const description = document.getElementById("role-desc").value.trim();
-            const rawPerms = document.getElementById("role-perms").value.trim();
-            const permissions = rawPerms ? rawPerms.split(",").map(p => p.trim()) : [];
+            const checkedBoxes = document.querySelectorAll('input[name="role-perm-checkbox"]:checked');
+            const permissions = Array.from(checkedBoxes).map(cb => cb.value);
 
             try {
                 const res = await fetch("/api/users/roles", {
@@ -133,54 +347,14 @@
                 });
                 const data = await res.json();
                 out.textContent = JSON.stringify(data, null, 2);
-            } catch (err) {
-                out.textContent = "Error: " + err.message;
-            }
-        });
 
-        document.getElementById("btn-fetch-users").addEventListener("click", async function() {
-            const container = document.getElementById("users-table-container");
-            container.innerHTML = "Fetching users...";
-
-            try {
-                const res = await fetch("/api/users", { headers: getAuthHeader() });
-                const data = await res.json();
-                if (res.ok && data.data) {
-                    let html = "<table border='1' cellpadding='5' style='border-collapse:collapse; width:100%;'><tr><th>ID</th><th>Email</th><th>Name</th></tr>";
-                    data.data.forEach(u => {
-                        html += `<tr><td>${u.ID}</td><td>${u.Email}</td><td>${u.Name}</td></tr>`;
-                    });
-                    html += "</table>";
-                    container.innerHTML = html;
-                } else {
-                    container.textContent = JSON.stringify(data, null, 2);
+                if (res.ok) {
+                    document.getElementById("role-name").value = "";
+                    document.getElementById("role-desc").value = "";
+                    checkedBoxes.forEach(cb => cb.checked = false);
+                    loadRoles();
+                    setTimeout(() => document.getElementById("dialog-create-role").close(), 1200);
                 }
-            } catch (err) {
-                container.textContent = "Error: " + err.message;
-            }
-        });
-
-        document.getElementById("btn-fetch-roles").addEventListener("click", async function() {
-            const out = document.getElementById("roles-output");
-            out.textContent = "Fetching roles...";
-
-            try {
-                const res = await fetch("/api/users/roles", { headers: getAuthHeader() });
-                const data = await res.json();
-                out.textContent = JSON.stringify(data, null, 2);
-            } catch (err) {
-                out.textContent = "Error: " + err.message;
-            }
-        });
-
-        document.getElementById("btn-fetch-perms").addEventListener("click", async function() {
-            const out = document.getElementById("perms-output");
-            out.textContent = "Fetching permissions catalog...";
-
-            try {
-                const res = await fetch("/api/users/permissions", { headers: getAuthHeader() });
-                const data = await res.json();
-                out.textContent = JSON.stringify(data, null, 2);
             } catch (err) {
                 out.textContent = "Error: " + err.message;
             }
@@ -189,9 +363,16 @@
         document.getElementById("assign-role-form").addEventListener("submit", async function(e) {
             e.preventDefault();
             const out = document.getElementById("assign-role-output");
-            out.textContent = "Assigning role...";
-            const userID = document.getElementById("assign-user-id").value.trim();
-            const roleID = document.getElementById("assign-role-id").value.trim();
+            out.style.display = "block";
+            out.textContent = "Assigning role to user...";
+
+            const userID = document.getElementById("assign-user-select").value;
+            const roleID = document.getElementById("assign-role-select").value;
+
+            if (!userID || !roleID) {
+                out.textContent = "Error: Please select both a User and a Role from the dropdowns.";
+                return;
+            }
 
             try {
                 const res = await fetch(`/api/users/${userID}/role`, {
@@ -201,6 +382,10 @@
                 });
                 const data = await res.json();
                 out.textContent = JSON.stringify(data, null, 2);
+
+                if (res.ok) {
+                    setTimeout(() => document.getElementById("dialog-assign-role").close(), 1200);
+                }
             } catch (err) {
                 out.textContent = "Error: " + err.message;
             }

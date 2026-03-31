@@ -33,6 +33,12 @@ func NewUserHandler(userService UserServiceInterface) *UserHandler {
 	}
 }
 
+type ListUsersResponse struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+	Name  string `json:"name"`
+}
+
 type UpdateUserRequest struct {
 	Name string `json:"name" binding:"required"`
 }
@@ -53,7 +59,16 @@ func (userHandler *UserHandler) ListUsers(c *gin.Context) {
 		httputil.WriteError(c, http.StatusInternalServerError, "user handler: failed to list users: "+err.Error())
 		return
 	}
-	httputil.WriteSuccess(c, http.StatusOK, "Users retrieved successfully", users)
+
+	userResponses := make([]ListUsersResponse, 0, len(users))
+	for _, u := range users {
+		userResponses = append(userResponses, ListUsersResponse{
+			ID:    u.ID,
+			Email: u.Email,
+			Name:  u.Name,
+		})
+	}
+	httputil.WriteSuccess(c, http.StatusOK, "Users retrieved successfully", userResponses)
 }
 
 func (userHandler *UserHandler) UpdateMe(c *gin.Context) {
