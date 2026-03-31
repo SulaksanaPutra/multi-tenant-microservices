@@ -37,6 +37,7 @@ type UpdateUserServiceInput struct {
 // UserRepository is the consumer-side interface expected by UserService.
 type UserRepository interface {
 	CreateUser(ctx context.Context, input repository.CreateUserInput) error
+	GetUserByEmail(ctx context.Context, email string) (*domain.User, error)
 	UpdateUser(ctx context.Context, input repository.UpdateUserInput) error
 	GetUserByID(ctx context.Context, userID string) (*domain.User, error)
 	ListUsers(ctx context.Context) ([]domain.User, error)
@@ -82,15 +83,25 @@ func (userService *UserService) CreateUserFromWorkspace(ctx context.Context, inp
 		return ErrEmailRequired
 	}
 
-	userID := domain.GenerateUserID()
-	userInput := repository.CreateUserInput{
-		ID:    userID,
-		Email: input.OwnerEmail,
-		Name:  input.OwnerName,
+	existingUser, err := userService.userRepository.GetUserByEmail(ctx, input.OwnerEmail)
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return fmt.Errorf("user service: failed to check existing user by email: %w", err)
 	}
 
-	if err := userService.userRepository.CreateUser(ctx, userInput); err != nil {
-		return fmt.Errorf("user service: failed to create user: %w", err)
+	var userID string
+	if existingUser != nil {
+		userID = existingUser.ID
+	} else {
+		userID = domain.GenerateUserID()
+		userInput := repository.CreateUserInput{
+			ID:    userID,
+			Email: input.OwnerEmail,
+			Name:  input.OwnerName,
+		}
+
+		if err := userService.userRepository.CreateUser(ctx, userInput); err != nil {
+			return fmt.Errorf("user service: failed to create user: %w", err)
+		}
 	}
 
 	if userService.outboxRepository != nil {

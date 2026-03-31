@@ -3,54 +3,74 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2. Dev Mailpit Inbox - Multi-Tenant Flow</title>
+    <title>Step 2: Dev Mailpit Inbox - Multi-Tenant Flow</title>
 </head>
 <body>
     <div id="nav-container"></div>
 
+    <!-- TUTORIAL NOTE (GRAY) -->
+    <div style="padding:10px; background:#f0f0f0; border:1px solid #ccc; margin-bottom:15px; color:#333;">
+        <strong>Step 2: Dev Mailpit Inbox</strong><br>
+        • <strong>What you can do here:</strong> Monitor Mailpit SMTP inbox via <code>/api/mailpit/messages</code> proxy to view emails sent by <code>notification-service</code>.<br>
+        • <strong>What to do next:</strong> Click "View Email" on the received welcome email, then click the activation link inside the pop-up modal to unlock and navigate to Setup Password.
+    </div>
+
     <h2>Step 2: Dev Mailpit Inbox</h2>
-    <div style="padding:10px; background:#e8f4f8; border:1px solid #b8daff; margin-bottom:15px;">
-        Local Dev Tool: This inbox queries Mailpit SMTP Trapper via <code>/api/mailpit/messages</code> proxy to display outbound emails sent by <code>notification-service</code>. Receiving a Workspace Ready email marks the tenant as READY.
+
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; flex-wrap:wrap; gap:10px;">
+        <div>
+            <button type="button" onclick="fetchMailbox()">Refresh Mailbox</button>
+            <span id="mailbox-status" style="margin-left:10px; font-weight:bold;">Loading inbox...</span>
+        </div>
+        <div id="mailbox-summary" style="color:#555;">(Auto-fetched on load)</div>
     </div>
 
-    <div>
-        <button type="button" onclick="fetchMailbox()">Refresh Mailbox</button>
-        <span id="mailbox-status" style="margin-left:10px; font-weight:bold;"></span>
-    </div>
-    <br>
-
-    <div style="display:flex; gap:20px;">
-        <div style="flex:1;">
-            <h3>Received Emails:</h3>
-            <table border="1" cellpadding="8" cellspacing="0" style="width:100%;">
+    <!-- FULL WIDTH EMAILS TABLE CONTAINER -->
+    <div style="border:1px solid #ccc; padding:15px; background:#fff; margin-bottom:20px;">
+        <h3 style="margin-top:0;">Received Emails Inbox</h3>
+        <div class="table-responsive">
+            <table border="1" cellpadding="8" cellspacing="0" style="width:100%; border-collapse:collapse;">
                 <thead>
                     <tr>
                         <th>From</th>
                         <th>To</th>
                         <th>Subject</th>
-                        <th>Date</th>
+                        <th>Received Date</th>
                         <th>Action</th>
                     </tr>
                 </thead>
                 <tbody id="mailbox-body">
-                    <tr><td colspan="5">(Click Refresh Mailbox to load emails...)</td></tr>
+                    <tr><td colspan="5">Loading emails...</td></tr>
                 </tbody>
             </table>
         </div>
-
-        <div style="flex:1; border:1px solid #ccc; padding:15px; background:#f9f9f9;">
-            <h3>Email Detail Inspector:</h3>
-            <div id="email-detail">(Select an email to view full content)</div>
-        </div>
     </div>
+
+    <!-- MINIMAL EMAIL INSPECTOR DIALOG MODAL -->
+    <dialog id="email-detail-dialog" style="border:1px solid #ccc; padding:20px; width:650px; max-width:92%;">
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eee; padding-bottom:8px; margin-bottom:15px;">
+            <h3 style="margin:0;">Email Content Inspector</h3>
+            <button type="button" onclick="document.getElementById('email-detail-dialog').close()">Close [X]</button>
+        </div>
+        
+        <div id="email-detail-content">Loading email content...</div>
+
+        <div style="text-align:right; margin-top:20px; border-top:1px solid #eee; padding-top:10px;">
+            <button type="button" onclick="document.getElementById('email-detail-dialog').close()">Close</button>
+        </div>
+    </dialog>
 
     <script src="/nav.js"></script>
     <script>
         renderNavHeader("mailbox");
-        fetchMailbox();
+
+        window.addEventListener("DOMContentLoaded", function() {
+            fetchMailbox();
+        });
 
         async function fetchMailbox() {
             const statusEl = document.getElementById("mailbox-status");
+            const summaryEl = document.getElementById("mailbox-summary");
             const bodyEl = document.getElementById("mailbox-body");
             statusEl.textContent = "Fetching from Mailpit proxy...";
 
@@ -60,10 +80,12 @@
                     throw new Error(`HTTP ${response.status}`);
                 }
                 const data = await response.json();
-                statusEl.textContent = `Total emails: ${data.total || 0}`;
+                const total = data.total || (data.messages ? data.messages.length : 0);
+                statusEl.textContent = `Total Emails: ${total}`;
+                summaryEl.textContent = `Last refreshed at ${new Date().toLocaleTimeString()}`;
 
                 if (!data.messages || data.messages.length === 0) {
-                    bodyEl.innerHTML = `<tr><td colspan="5"><em>No emails in Mailpit inbox yet. Register a tenant to trigger emails.</em></td></tr>`;
+                    bodyEl.innerHTML = `<tr><td colspan="5"><em>No emails in Mailpit inbox yet. Register a tenant in Step 1 to trigger emails.</em></td></tr>`;
                     return;
                 }
 
@@ -77,8 +99,7 @@
                     const dateStr = msg.Created ? new Date(msg.Created).toLocaleTimeString() : "N/A";
                     const subject = msg.Subject || "";
 
-                    // Auto-detect readiness and match with registered tenant owner email
-                    const isReadyEmail = subject.includes("Ready") || subject.includes("Workspace");
+                    const isReadyEmail = subject.includes("Ready") || subject.includes("Workspace") || subject.includes("Welcome");
                     if (isReadyEmail && tenants.length > 0) {
                         tenants.forEach(t => {
                             if (t.owner_email && toStr.includes(t.owner_email)) {
@@ -93,7 +114,7 @@
                     html += `<tr>
                         <td>${fromStr}</td>
                         <td><b>${toStr}</b></td>
-                        <td>${subject} ${isReadyEmail ? '<span style="color:green; font-weight:bold;">[READY EMAIL]</span>' : ''}</td>
+                        <td>${subject} ${isReadyEmail ? '<span style="color:green; font-weight:bold;">[ACTIVATION EMAIL]</span>' : ''}</td>
                         <td>${dateStr}</td>
                         <td><button type="button" onclick="viewEmailDetail('${msg.ID}')">View Email</button></td>
                     </tr>`;
@@ -110,24 +131,51 @@
         }
 
         async function viewEmailDetail(msgId) {
-            const detailEl = document.getElementById("email-detail");
-            detailEl.textContent = "Loading email content...";
+            const contentEl = document.getElementById("email-detail-content");
+            const dialog = document.getElementById("email-detail-dialog");
+            contentEl.innerHTML = "Loading email detail...";
+            dialog.showModal();
 
             try {
                 const response = await fetch(`/api/mailpit/message/${msgId}`);
                 const msg = await response.json();
 
-                let content = `<b>ID:</b> ${msg.ID}<br>`;
-                content += `<b>From:</b> ${msg.From ? msg.From.Address : 'N/A'}<br>`;
-                content += `<b>To:</b> ${msg.To ? msg.To.map(t => t.Address).join(', ') : 'N/A'}<br>`;
-                content += `<b>Subject:</b> ${msg.Subject}<br>`;
-                content += `<b>Date:</b> ${msg.Date}<br><hr>`;
-                content += `<h4>Text Body:</h4><pre style="background:#fff; padding:10px; border:1px solid #eee;">${msg.Text || '(No text content)'}</pre>`;
+                const textBody = msg.Text || "";
+                let tokenMatch = textBody.match(/token=([a-zA-Z0-9_\-=]+)/);
+                let setupUrl = "";
+                if (tokenMatch && tokenMatch[1]) {
+                    setupUrl = `/setup-password.html?token=${encodeURIComponent(tokenMatch[1])}`;
+                }
 
-                detailEl.innerHTML = content;
+                let content = `<div>
+                    <b>Message ID:</b> <code>${msg.ID}</code><br>
+                    <b>From:</b> ${msg.From ? msg.From.Address : 'N/A'}<br>
+                    <b>To:</b> ${msg.To ? msg.To.map(t => t.Address).join(', ') : 'N/A'}<br>
+                    <b>Subject:</b> <strong>${msg.Subject}</strong><br>
+                    <b>Date:</b> ${msg.Date}
+                </div><hr>`;
+
+                content += `<h4>Email Text Body:</h4><pre style="background:#f4f4f4; padding:10px; border:1px solid #ccc; max-height:180px; overflow:auto;">${textBody || '(No text content)'}</pre>`;
+
+                if (setupUrl) {
+                    content += `
+                        <div style="padding:15px; background:#f0f0f0; border:1px solid #ccc; margin-top:15px; text-align:center;">
+                            <strong>Account Activation Link Detected:</strong><br><br>
+                            <a href="${setupUrl}" onclick="onMailLinkClicked('${setupUrl}'); return false;" style="font-weight:bold; font-size:1.15em; color:#0056b3; background:#e0e0e0; padding:8px 16px; border:1px solid #aaa; display:inline-block; text-decoration:none;">Click Here to Setup Password -></a>
+                        </div>
+                    `;
+                }
+
+                contentEl.innerHTML = content;
             } catch (err) {
-                detailEl.textContent = "Error fetching email detail: " + err.message;
+                contentEl.innerHTML = `<p style="color:red;">Error fetching email detail: ${err.message}</p>`;
             }
+        }
+
+        function onMailLinkClicked(url) {
+            localStorage.setItem("broker_demo_mail_clicked", "true");
+            document.getElementById("email-detail-dialog").close();
+            window.location.href = url;
         }
     </script>
 </body>

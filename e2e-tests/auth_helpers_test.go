@@ -161,11 +161,13 @@ func loginAndGetToken(t *testing.T, email, password string) string {
 	return accessToken
 }
 
-// loginAndGetTokenPair calls POST /api/auth/login and returns both the access token and refresh token.
-// Instruction:
-//   1. Submits POST /api/auth/login request with user email and password.
-//   2. Decodes JSON token envelope and verifies presence of access_token and refresh_token.
 func loginAndGetTokenPair(t *testing.T, email, password string) (accessToken, refreshToken string) {
+	return loginAndGetTokenWithTenant(t, "", email, password)
+}
+
+// loginAndGetTokenWithTenant authenticates via POST /api/auth/login and resolves the
+// workspace selection flow when the account belongs to multiple tenants.
+func loginAndGetTokenWithTenant(t *testing.T, tenantID, email, password string) (accessToken, refreshToken string) {
 	t.Helper()
 
 	body, _ := json.Marshal(map[string]string{
@@ -183,20 +185,52 @@ func loginAndGetTokenPair(t *testing.T, email, password string) (accessToken, re
 		t.Fatalf("[Auth] POST /api/auth/login returned status %d", resp.StatusCode)
 	}
 
-	var tokenResp authTokenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+	var raw map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		t.Fatalf("[Auth] failed to decode login response: %v", err)
 	}
 
-	if tokenResp.Data.AccessToken == "" {
-		t.Fatalf("[Auth] login response missing access_token")
-	}
-	if tokenResp.Data.RefreshToken == "" {
-		t.Fatalf("[Auth] login response missing refresh_token")
+	dataMap, _ := raw["data"].(map[string]any)
+	if dataMap == nil {
+		t.Fatalf("[Auth] login response missing data object: %v", raw)
 	}
 
-	t.Logf("[Auth] Login successful for email='%s'", email)
-	return tokenResp.Data.AccessToken, tokenResp.Data.RefreshToken
+	if status, ok := dataMap["status"].(string); ok && status == "SELECT_WORKSPACE" {
+		exchangeToken, _ := dataMap["exchange_token"].(string)
+		workspaces, _ := dataMap["workspaces"].([]any)
+
+		targetTenantID := tenantID
+		if targetTenantID == "" && len(workspaces) > 0 {
+			if ws, ok := workspaces[0].(map[string]any); ok {
+				targetTenantID, _ = ws["tenant_id"].(string)
+			}
+		}
+
+		selectBody, _ := json.Marshal(map[string]string{
+			"exchange_token": exchangeToken,
+			"tenant_id":      targetTenantID,
+		})
+
+		selectResp, err := defaultHTTPClient.Post(authServiceURL+"/api/auth/select-tenant", "application/json", bytes.NewBuffer(selectBody))
+		if err != nil {
+			t.Fatalf("[Auth] POST /api/auth/select-tenant failed: %v", err)
+		}
+		defer selectResp.Body.Close()
+
+		if selectResp.StatusCode != http.StatusOK {
+			t.Fatalf("[Auth] POST /api/auth/select-tenant returned status %d", selectResp.StatusCode)
+		}
+
+		var selectTokenResp authTokenResponse
+		if err := json.NewDecoder(selectResp.Body).Decode(&selectTokenResp); err != nil {
+			t.Fatalf("[Auth] failed to decode select-tenant response: %v", err)
+		}
+		return selectTokenResp.Data.AccessToken, selectTokenResp.Data.RefreshToken
+	}
+
+	at, _ := dataMap["access_token"].(string)
+	rt, _ := dataMap["refresh_token"].(string)
+	return at, rt
 }
 
 // bearerHeader formats a standard HTTP Authorization bearer header string.

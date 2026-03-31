@@ -40,6 +40,7 @@ func TestTokenRepository_CreateRefreshToken(t *testing.T) {
 
 		input := CreateRefreshTokenInput{
 			UserID:    "usr_123",
+			TenantID:  "tnt_456",
 			TokenHash: "refresh_hash_abc",
 			ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
 		}
@@ -52,7 +53,7 @@ func TestTokenRepository_CreateRefreshToken(t *testing.T) {
 		if !strings.Contains(capturedQuery, "INSERT INTO public.refresh_tokens") {
 			t.Errorf("expected query to contain 'INSERT INTO public.refresh_tokens', got %s", capturedQuery)
 		}
-		if len(capturedArgs) != 3 || capturedArgs[0] != input.UserID || capturedArgs[1] != input.TokenHash {
+		if len(capturedArgs) != 4 || capturedArgs[0] != input.UserID || capturedArgs[1] != input.TenantID || capturedArgs[2] != input.TokenHash {
 			t.Errorf("unexpected query arguments: %v", capturedArgs)
 		}
 	})

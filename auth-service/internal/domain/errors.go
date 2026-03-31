@@ -20,4 +20,8 @@ var (
 	ErrRoleIDRequired      = errors.New("auth service: role_id is required")
 	ErrTenantIDRequired    = errors.New("auth service: tenant_id is required")
 	ErrRoleNameRequired    = errors.New("auth service: role name is required")
+
+	ErrNoTenantMembership = errors.New("auth service: user has no tenant membership")
+
+	ErrTenantMembershipNotFound = errors.New("auth service: user has no membership in the requested tenant")
 )

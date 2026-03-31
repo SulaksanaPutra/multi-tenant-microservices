@@ -14,6 +14,7 @@ import (
 
 type CreateRefreshTokenInput struct {
 	UserID    string
+	TenantID  string
 	TokenHash string
 	ExpiresAt time.Time
 }
@@ -37,10 +38,10 @@ func NewTokenRepository(dbClient *postgres.Client) *TokenRepository {
 func (r *TokenRepository) CreateRefreshToken(ctx context.Context, input CreateRefreshTokenInput) error {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	query := `
-		INSERT INTO public.refresh_tokens (user_id, token_hash, expires_at)
-		VALUES ($1, $2, $3);
+		INSERT INTO public.refresh_tokens (user_id, tenant_id, token_hash, expires_at)
+		VALUES ($1, $2, $3, $4);
 	`
-	if _, err := exec.ExecContext(ctx, query, input.UserID, input.TokenHash, input.ExpiresAt); err != nil {
+	if _, err := exec.ExecContext(ctx, query, input.UserID, input.TenantID, input.TokenHash, input.ExpiresAt); err != nil {
 		return fmt.Errorf("token repository: failed to insert refresh token for user_id='%s': %w", input.UserID, err)
 	}
 	return nil
@@ -49,7 +50,7 @@ func (r *TokenRepository) CreateRefreshToken(ctx context.Context, input CreateRe
 func (r *TokenRepository) FindByTokenHash(ctx context.Context, tokenHash string) (*domain.RefreshToken, error) {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	query := `
-		SELECT id, user_id, token_hash, expires_at, revoked_at, created_at
+		SELECT id, user_id, tenant_id, token_hash, expires_at, revoked_at, created_at
 		FROM public.refresh_tokens
 		WHERE token_hash = $1;
 	`
@@ -57,7 +58,7 @@ func (r *TokenRepository) FindByTokenHash(ctx context.Context, tokenHash string)
 
 	var rt domain.RefreshToken
 	var revokedAt sql.NullTime
-	if err := row.Scan(&rt.ID, &rt.UserID, &rt.TokenHash, &rt.ExpiresAt, &revokedAt, &rt.CreatedAt); err != nil {
+	if err := row.Scan(&rt.ID, &rt.UserID, &rt.TenantID, &rt.TokenHash, &rt.ExpiresAt, &revokedAt, &rt.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, domain.ErrTokenNotFound
 		}

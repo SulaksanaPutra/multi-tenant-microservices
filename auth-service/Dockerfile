@@ -16,6 +16,7 @@ RUN apk --no-cache add ca-certificates curl
 
 WORKDIR /root/
 COPY --from=builder /app/auth-service .
+COPY --from=builder /app/migrations ./migrations
 
 EXPOSE 8085
 

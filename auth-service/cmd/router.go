@@ -38,6 +38,7 @@ func newRouter(
 	{
 		auth.POST("/credentials/setup", authHandler.SetupPassword)
 		auth.POST("/login", authHandler.Login)
+		auth.POST("/select-tenant", authHandler.SelectTenant)
 		auth.POST("/refresh", authHandler.Refresh)
 
 		// Logout requires a valid JWT (to prevent anonymous token revocation abuse)

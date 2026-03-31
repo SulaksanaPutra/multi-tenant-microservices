@@ -21,10 +21,11 @@ import (
 )
 
 type mockAuthService struct {
-	SetupPasswordFn func(ctx context.Context, input service.SetupPasswordInput) (*service.TokenPair, error)
-	LoginFn         func(ctx context.Context, input service.LoginInput) (*service.TokenPair, error)
-	RefreshTokenFn  func(ctx context.Context, input service.RefreshTokenInput) (*service.TokenPair, error)
-	LogoutFn        func(ctx context.Context, input service.LogoutInput) error
+	SetupPasswordFn   func(ctx context.Context, input service.SetupPasswordInput) (*service.TokenPair, error)
+	LoginFn           func(ctx context.Context, input service.LoginInput) (*service.LoginOutput, error)
+	SelectWorkspaceFn func(ctx context.Context, input service.SelectWorkspaceInput) (*service.TokenPair, error)
+	RefreshTokenFn    func(ctx context.Context, input service.RefreshTokenInput) (*service.TokenPair, error)
+	LogoutFn          func(ctx context.Context, input service.LogoutInput) error
 }
 
 func (m *mockAuthService) SetupPassword(ctx context.Context, input service.SetupPasswordInput) (*service.TokenPair, error) {
@@ -34,9 +35,16 @@ func (m *mockAuthService) SetupPassword(ctx context.Context, input service.Setup
 	return nil, nil
 }
 
-func (m *mockAuthService) Login(ctx context.Context, input service.LoginInput) (*service.TokenPair, error) {
+func (m *mockAuthService) Login(ctx context.Context, input service.LoginInput) (*service.LoginOutput, error) {
 	if m.LoginFn != nil {
 		return m.LoginFn(ctx, input)
+	}
+	return nil, nil
+}
+
+func (m *mockAuthService) SelectWorkspace(ctx context.Context, input service.SelectWorkspaceInput) (*service.TokenPair, error) {
+	if m.SelectWorkspaceFn != nil {
+		return m.SelectWorkspaceFn(ctx, input)
 	}
 	return nil, nil
 }
@@ -154,7 +162,7 @@ func TestAuthHandler_Login(t *testing.T) {
 		_, r := gin.CreateTestContext(w)
 
 		mockSvc := &mockAuthService{
-			LoginFn: func(ctx context.Context, input service.LoginInput) (*service.TokenPair, error) {
+			LoginFn: func(ctx context.Context, input service.LoginInput) (*service.LoginOutput, error) {
 				return nil, domain.ErrInvalidCredentials
 			},
 		}
@@ -178,11 +186,14 @@ func TestAuthHandler_Login(t *testing.T) {
 		_, r := gin.CreateTestContext(w)
 
 		mockSvc := &mockAuthService{
-			LoginFn: func(ctx context.Context, input service.LoginInput) (*service.TokenPair, error) {
-				return &service.TokenPair{
-					AccessToken:  "access_ok",
-					RefreshToken: "refresh_ok",
-					ExpiresIn:    900,
+			LoginFn: func(ctx context.Context, input service.LoginInput) (*service.LoginOutput, error) {
+				return &service.LoginOutput{
+					Status: domain.LoginStatusSuccess,
+					TokenPair: &service.TokenPair{
+						AccessToken:  "access_ok",
+						RefreshToken: "refresh_ok",
+						ExpiresIn:    900,
+					},
 				}, nil
 			},
 		}

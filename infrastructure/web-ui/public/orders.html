@@ -3,156 +3,146 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3. Orders (Data Plane) - Multi-Tenant Flow</title>
+    <title>Step 6: Orders (Data Plane) - Multi-Tenant Flow</title>
 </head>
 <body>
     <div id="nav-container"></div>
 
-    <h2>Step 3: Orders (Data Plane)</h2>
-    <p>Submits requests with header <code>X-Tenant-ID</code> to <code>order-service</code> via Traefik Gateway.</p>
-
-    <!-- CREATE ORDER SECTION -->
-    <div style="border:1px solid #ccc; padding:15px; margin-bottom:20px;">
-        <h3>Create Order (POST /api/orders)</h3>
-        <form id="create-order-form">
-            <div>
-                <label for="order-tenant-select">Select Tenant ID:</label><br>
-                <select id="order-tenant-select" style="min-width:350px;" required>
-                    <!-- Dynamically populated -->
-                </select>
-            </div>
-            <br>
-            <div>
-                <label for="order-customer-id">Customer ID:</label><br>
-                <input type="text" id="order-customer-id" name="customer_id" value="cust_101" required>
-            </div>
-            <br>
-            <div>
-                <label for="order-amount">Amount ($):</label><br>
-                <input type="number" step="0.01" id="order-amount" name="amount" value="150.75" required>
-            </div>
-            <br>
-            <div>
-                <label for="order-status">Order Status:</label><br>
-                <input type="text" id="order-status" name="status" value="pending" required>
-            </div>
-            <br>
-            <button type="submit" id="btn-submit-order">Create Order</button>
-        </form>
-        <h4>Create Response:</h4>
-        <pre id="create-order-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
+    <!-- TUTORIAL NOTE (GRAY) -->
+    <div style="padding:10px; background:#f0f0f0; border:1px solid #ccc; margin-bottom:15px; color:#333;">
+        <strong>Step 6: Orders API (Data Plane Execution)</strong><br>
+        • <strong>What you can do here:</strong> Submit order creation requests to <code>order-service</code> via Traefik Gateway (`POST /api/orders`) authenticated solely via your RS256 JWT Bearer token.<br>
+        • <strong>What to do next:</strong> Create an order below and verify it appears in your tenant orders list.
     </div>
 
-    <!-- GET ORDERS SECTION -->
-    <div style="border:1px solid #ccc; padding:15px;">
-        <h3>Fetch Tenant Orders (GET /api/orders)</h3>
-        <form id="get-orders-form">
-            <div>
-                <label for="get-tenant-select">Select Tenant ID:</label><br>
-                <select id="get-tenant-select" style="min-width:350px;" required>
-                    <!-- Dynamically populated -->
-                </select>
+    <h2>Step 6: Orders API (Data Plane)</h2>
+    <p>Executes multi-tenant database queries. Authenticated via <code>Authorization: Bearer &lt;JWT&gt;</code>.</p>
+
+    <!-- SIDE BY SIDE / RESPONSIVE SPLIT -->
+    <div class="responsive-split" style="display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start;">
+
+        <!-- LEFT SIDE: CREATE ORDER FORM -->
+        <div style="flex: 1; min-width: 320px; border: 1px solid #ccc; padding: 15px; background: #fff;">
+            <h3 style="margin-top:0;">Create New Order (`POST /api/orders`)</h3>
+            <form id="create-order-form">
+                <div style="margin-bottom: 12px;">
+                    <label for="order-customer">Customer Email:</label><br>
+                    <input type="email" id="order-customer" value="customer@example.com" style="width: 100%; margin-top:4px;" required>
+                </div>
+                <div style="margin-bottom: 12px;">
+                    <label for="order-items">Order Items (JSON array or description):</label><br>
+                    <input type="text" id="order-items" value='[{"item_id":"item_99","quantity":2,"unit_price":49.99}]' style="width: 100%; margin-top:4px;" required>
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label for="order-total">Total Amount ($):</label><br>
+                    <input type="number" step="0.01" id="order-total" value="99.98" style="width: 100%; margin-top:4px;" required>
+                </div>
+                <button type="submit" style="padding:8px 16px; font-weight:bold;">Create Order -></button>
+            </form>
+
+            <h4 style="margin-top:20px;">Creation Result:</h4>
+            <pre id="order-create-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting order submission...)</pre>
+        </div>
+
+        <!-- RIGHT SIDE: ORDERS LIST (AUTO FETCHED) -->
+        <div style="flex: 1.2; min-width: 340px; border: 1px solid #ccc; padding: 15px; background: #fff;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px; border-bottom: 1px solid #eee; padding-bottom: 8px; flex-wrap:wrap; gap:8px;">
+                <h3 style="margin:0;">Tenant Orders Directory</h3>
+                <button type="button" onclick="loadOrders()">Refresh Orders List</button>
             </div>
-            <br>
-            <button type="submit" id="btn-submit-get-orders">Fetch Orders</button>
-        </form>
-        <h4>Orders Output:</h4>
-        <pre id="get-orders-output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc;">(Awaiting submission...)</pre>
+            <div id="orders-list-container" class="table-responsive">Loading tenant orders...</div>
+        </div>
+
     </div>
 
     <script src="/nav.js"></script>
     <script>
         renderNavHeader("orders");
-        populateDropdowns();
 
-        function populateDropdowns() {
-            const tenants = getSavedTenants();
-            const createSelect = document.getElementById("order-tenant-select");
-            const getSelect = document.getElementById("get-tenant-select");
+        function getAuthHeader() {
+            const token = getJWTToken();
+            return token ? { "Authorization": "Bearer " + token } : {};
+        }
 
-            let html = '<option value="">-- Select Registered Tenant --</option>';
-            tenants.forEach(t => {
-                html += `<option value="${t.tenant_id}">${t.tenant_name} (${t.tenant_id.substring(0,8)}...) - [${t.status || 'PROVISIONING'}]</option>`;
-            });
+        window.addEventListener("DOMContentLoaded", function() {
+            loadOrders();
+        });
 
-            createSelect.innerHTML = html;
-            getSelect.innerHTML = html;
+        async function loadOrders() {
+            const container = document.getElementById("orders-list-container");
+            container.innerHTML = "Fetching tenant orders...";
 
-            if (tenants.length > 0) {
-                createSelect.value = tenants[0].tenant_id;
-                getSelect.value = tenants[0].tenant_id;
+            try {
+                const res = await fetch("/api/orders", { headers: getAuthHeader() });
+                const data = await res.json();
+
+                if (res.ok && data.data && Array.isArray(data.data)) {
+                    if (data.data.length === 0) {
+                        container.innerHTML = "<p>No orders found for this tenant yet. Use the form on the left to create one.</p>";
+                        return;
+                    }
+
+                    let html = "<div class='table-responsive'><table border='1' cellpadding='6' cellspacing='0' style='width:100%; border-collapse:collapse; font-size:0.9em;'>";
+                    html += "<thead><tr><th>Order ID</th><th>Customer</th><th>Total Amount</th><th>Status</th><th>Created At</th></tr></thead><tbody>";
+
+                    data.data.forEach(o => {
+                        const id = o.ID || o.id || o.order_id;
+                        const customer = o.CustomerEmail || o.customer_email || "N/A";
+                        const total = o.TotalAmount || o.total_amount || 0;
+                        const status = o.Status || o.status || "PENDING";
+                        const created = o.CreatedAt || o.created_at || "N/A";
+
+                        html += `<tr>
+                            <td><code>${id}</code></td>
+                            <td>${customer}</td>
+                            <td><b>$${Number(total).toFixed(2)}</b></td>
+                            <td><span style="font-weight:bold; color:green;">${status}</span></td>
+                            <td>${created}</td>
+                        </tr>`;
+                    });
+
+                    html += "</tbody></table></div>";
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = `<pre style="background:#f4f4f4; padding:8px;">${JSON.stringify(data, null, 2)}</pre>`;
+                }
+            } catch (err) {
+                container.innerHTML = `<p style="color:red;">Error loading orders: ${err.message}</p>`;
             }
         }
 
         document.getElementById("create-order-form").addEventListener("submit", async function(e) {
             e.preventDefault();
-            const tenantId = document.getElementById("order-tenant-select").value;
-            const outputEl = document.getElementById("create-order-output");
+            const out = document.getElementById("order-create-output");
+            out.textContent = "Submitting order creation request...";
 
-            if (!tenantId) {
-                outputEl.textContent = "Error: Please select a tenant ID.";
-                return;
+            let itemsPayload = [];
+            try {
+                itemsPayload = JSON.parse(document.getElementById("order-items").value);
+            } catch (err) {
+                itemsPayload = [{ description: document.getElementById("order-items").value }];
             }
-
-            outputEl.textContent = "Submitting create order request...";
 
             const payload = {
-                customer_id: document.getElementById("order-customer-id").value.trim(),
-                amount: parseFloat(document.getElementById("order-amount").value),
-                status: document.getElementById("order-status").value.trim()
+                customer_email: document.getElementById("order-customer").value.trim(),
+                items: itemsPayload,
+                total_amount: parseFloat(document.getElementById("order-total").value)
             };
 
-            const token = getJWTToken();
-            if (!token) {
-                outputEl.textContent = "Error: No JWT Access Token found in session. Please log in on Step 1 first.";
-                return;
-            }
-
             try {
-                const response = await fetch("/api/orders", {
+                const res = await fetch("/api/orders", {
                     method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": "Bearer " + token
-                    },
+                    headers: { "Content-Type": "application/json", ...getAuthHeader() },
                     body: JSON.stringify(payload)
                 });
-                const data = await response.json();
-                outputEl.textContent = JSON.stringify(data, null, 2);
+                const data = await res.json();
+                out.textContent = JSON.stringify(data, null, 2);
+
+                if (res.ok) {
+                    loadOrders();
+                }
             } catch (err) {
-                outputEl.textContent = "Network Error: " + err.message;
-            }
-        });
-
-        document.getElementById("get-orders-form").addEventListener("submit", async function(e) {
-            e.preventDefault();
-            const tenantId = document.getElementById("get-tenant-select").value;
-            const outputEl = document.getElementById("get-orders-output");
-
-            if (!tenantId) {
-                outputEl.textContent = "Error: Please select a tenant ID.";
-                return;
-            }
-
-            outputEl.textContent = "Fetching tenant orders...";
-
-            const token = getJWTToken();
-            if (!token) {
-                outputEl.textContent = "Error: No JWT Access Token found in session. Please log in on Step 1 first.";
-                return;
-            }
-
-            try {
-                const response = await fetch("/api/orders", {
-                    method: "GET",
-                    headers: {
-                        "Authorization": "Bearer " + token
-                    }
-                });
-                const data = await response.json();
-                outputEl.textContent = JSON.stringify(data, null, 2);
-            } catch (err) {
-                outputEl.textContent = "Network Error: " + err.message;
+                out.textContent = "Error: " + err.message;
             }
         });
     </script>

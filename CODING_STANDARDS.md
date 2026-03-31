@@ -283,4 +283,38 @@ To eliminate cognitive confusion between public user-facing operations and inter
 * **Persistence Layer (`internal/repository`)**:
   - Repositories persist domain entities into PostgreSQL. Database storage mechanisms do NOT have transport scope concepts; repositories MUST maintain standard entity names (`RoleRepository`, `PermissionRepository`) without the `Internal` prefix.
 
+---
+
+## 7. Database Migration Standards
+
+All microservice schemas MUST be managed as **versioned SQL files**. Raw DDL MUST NOT be embedded as inline strings in Go source files.
+
+### Rule 7.1: Versioned SQL Migration Files
+
+* Every microservice owns its schema under `<service_name>/migrations/` as ordered SQL files: `NNN_<description>.sql`.
+  - `auth-service/migrations/001_init_auth_schema.sql`
+  - `order-service/migrations/001_create_orders.sql`
+  - `tenant-service/migrations/001_init_tenant_manager_schema.sql`
+* Migrations MUST be **idempotent** (`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`) so they can be safely re-applied on every startup against an already-provisioned database.
+* **PROHIBITED:** Inline DDL string literals in Go files (e.g. `cmd/migration.go`), ad-hoc `CREATE TABLE` in handler/service code, or schema defined anywhere outside `migrations/`.
+
+### Rule 7.2: Migration Loading via `internal/service.MigrationService`
+
+* Each service MUST load and apply its migration file through a lightweight `MigrationService` in `internal/service` exposing:
+  * `NewMigrationService(migrationFilePath string) (*MigrationService, error)` — reads the `.sql` file.
+  * `NewMigrationServiceFromSQL(migrationSQL string) *MigrationService` — intended for tests.
+  * `Migrate(ctx context.Context, database *sql.DB) error` — executes the migration SQL.
+* The composition root (`cmd/main.go`) MUST construct the `MigrationService` and invoke `Migrate` at startup **before** repositories are instantiated.
+* The `MigrationService` is the single sanctioned exception to **Rule 4.4** (services MUST NOT import `database/sql`): executing raw schema DDL is its only responsibility.
+
+### Rule 7.3: Relationship with `infrastructure/init.sql`
+
+* `infrastructure/init.sql` remains the one-shot container bootstrap that creates databases and base tables on a fresh PostgreSQL volume (`/docker-entrypoint-initdb.d`).
+* Per-service `migrations/*.sql` are the **idempotent startup safety net** that guarantee the schema exists even when `init.sql` is skipped (existing volumes, local runs).
+* Per-service migrations MUST stay in sync with `infrastructure/init.sql`; the migration file is the per-service source of truth.
+
+### Rule 7.4: Per-Tenant Schema Provisioning (Data Plane)
+
+* Schemas provisioned per-tenant (e.g. `order-service` shared plan) MUST use `{{SCHEMA_NAME}}` placeholders in the migration file and be executed through the tenant-provisioning path (consumer/service via `MigrateTenantDB`), NOT at service startup.
+
 

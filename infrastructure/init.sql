@@ -14,26 +14,34 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 CREATE TABLE IF NOT EXISTS public.user_credentials (
     user_id       VARCHAR(255) PRIMARY KEY,
-    tenant_id     VARCHAR(255) NOT NULL DEFAULT '',
     email         VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS public.user_tenant_memberships (
+    user_id     VARCHAR(255) NOT NULL,
+    tenant_id   VARCHAR(255) NOT NULL,
+    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, tenant_id)
+);
+
 CREATE TABLE IF NOT EXISTS public.refresh_tokens (
     id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id    VARCHAR(255) NOT NULL,
+    tenant_id  VARCHAR(255) NOT NULL DEFAULT '',
     token_hash VARCHAR(255) UNIQUE NOT NULL,
     expires_at TIMESTAMPTZ  NOT NULL,
     revoked_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id    ON public.refresh_tokens(user_id);
-CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token_hash ON public.refresh_tokens(token_hash);
-CREATE INDEX IF NOT EXISTS idx_user_credentials_email    ON public.user_credentials(email);
-CREATE INDEX IF NOT EXISTS idx_user_credentials_user_id  ON public.user_credentials(user_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id          ON public.refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token_hash       ON public.refresh_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_user_credentials_email          ON public.user_credentials(email);
+CREATE INDEX IF NOT EXISTS idx_user_credentials_user_id        ON public.user_credentials(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_tenant_memberships_user    ON public.user_tenant_memberships(user_id);
 
 CREATE TABLE IF NOT EXISTS public.password_setup_tokens (
     id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
