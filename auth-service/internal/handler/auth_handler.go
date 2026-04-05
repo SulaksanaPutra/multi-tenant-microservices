@@ -37,10 +37,7 @@ type SelectTenantRequest struct {
 }
 
 type WorkspaceInfo struct {
-	TenantID   string `json:"tenant_id"`
-	TenantName string `json:"tenant_name,omitempty"`
-	TenantSlug string `json:"tenant_slug,omitempty"`
-	TenantPlan string `json:"tenant_plan,omitempty"`
+	TenantID string `json:"tenant_id"`
 }
 
 type LoginResponse struct {
@@ -130,12 +127,9 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	if res.Status == domain.LoginStatusSelectWorkspace {
 		workspaceResponses := make([]WorkspaceInfo, 0, len(res.Workspaces))
 		for _, ws := range res.Workspaces {
-			workspaceResponses = append(workspaceResponses, WorkspaceInfo{
-				TenantID:   ws.TenantID,
-				TenantName: ws.TenantName,
-				TenantSlug: ws.TenantSlug,
-				TenantPlan: ws.TenantPlan,
-			})
+workspaceResponses = append(workspaceResponses, WorkspaceInfo{
+			TenantID: ws.TenantID,
+		})
 		}
 		httputil.WriteSuccess(c, http.StatusOK, "Multiple workspace accounts found. Please select a workspace.", LoginResponse{
 			Status:        res.Status,

@@ -23,7 +23,7 @@ For system-wide architectural rules, layer boundaries, and unit-of-work patterns
 
 ### 2. Unified Identity & Workspace Selection
 - **Global Identity per Email:** `user_credentials` holds exactly **one row per email** (the `tenant_id` column was intentionally removed). A user's tenant memberships live in `user_tenant_memberships (user_id, tenant_id)`, so a single identity can belong to many workspaces.
-- **Login Branching:** `POST /api/auth/login` resolves memberships via `GetUserMemberships`. Every successful login (one *or* more memberships) returns `status: "SELECT_WORKSPACE"`, a single-use exchange token (10-min TTL), and the workspace list. The list is **enriched best-effort** with `tenant_name`, `tenant_slug`, and `tenant_plan` fetched (zero-trust) from `GET /internal/tenants/:id/profile` on tenant-service; a lookup failure falls back to `tenant_id`-only so login never depends on it. The client (web UI) auto-exchanges the token silently for a single workspace, or shows a workspace-selection modal for multiple.
+- **Login Branching:** `POST /api/auth/login` resolves memberships via `GetUserMemberships`. Every successful login (one *or* more memberships) returns `status: "SELECT_WORKSPACE"`, a single-use exchange token (10-min TTL), and the workspace list (`tenant_id` per workspace). The client (web UI) auto-exchanges the token silently for a single workspace, or shows a workspace-selection modal for multiple.
 - **Explicit Workspace Selection:** The client completes login by calling `POST /api/auth/select-tenant` with the exchange token + chosen `tenant_id`; auth-service verifies the requested tenant is one of the user's memberships, validates/marks the token used, and mints a JWT strictly scoped to that tenant.
 - **Tenant-Bound Refresh Tokens:** `refresh_tokens` stores the `tenant_id` active at issuance, so `POST /api/auth/refresh` preserves the workspace context instead of minting a tenant-less token.
 
@@ -40,7 +40,7 @@ For system-wide architectural rules, layer boundaries, and unit-of-work patterns
 | Method | Endpoint | Auth | Description |
 | :--- | :--- | :--- | :--- |
 | `POST` | `/api/auth/credentials/setup` | None | Consume single-use setup token & set user password → return JWT pair |
-| `POST` | `/api/auth/login` | None | Authenticate email/password → always returns `SELECT_WORKSPACE` with a single-use exchange token + workspace list (enriched with `tenant_name`/`tenant_slug`/`tenant_plan`); client exchanges it for the JWT pair |
+| `POST` | `/api/auth/login` | None | Authenticate email/password → always returns `SELECT_WORKSPACE` with a single-use exchange token + workspace list (`tenant_id` per workspace); client exchanges it for the JWT pair |
 | `POST` | `/api/auth/select-tenant` | None | Exchange a login exchange token for a JWT pair bound to a selected member workspace |
 | `POST` | `/api/auth/refresh` | None | Rotate refresh token → issue new RS256 JWT (preserves tenant context) |
 | `POST` | `/api/auth/logout` | JWT Bearer | Revoke refresh token |

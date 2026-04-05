@@ -48,21 +48,6 @@ type RoleSeeder interface {
 	SeedDefaultRolesForTenant(ctx context.Context, tenantID string, adminUserID string) error
 }
 
-// TenantProfileProvider is the consumer-side interface for enriching workspace
-// listings with tenant metadata (name/slug/plan) at login time. Implementations
-// must be best-effort: failures are tolerated so login never depends on it.
-type TenantProfileProvider interface {
-	GetTenantProfile(ctx context.Context, tenantID string) (*TenantProfile, error)
-}
-
-// TenantProfile carries control-plane metadata for a single workspace.
-type TenantProfile struct {
-	TenantID string
-	Name     string
-	Slug     string
-	Plan     string
-}
-
 type SetupPasswordInput struct {
 	Token    string
 	Password string
@@ -74,10 +59,7 @@ type LoginInput struct {
 }
 
 type WorkspaceInfo struct {
-	TenantID   string
-	TenantName string
-	TenantSlug string
-	TenantPlan string
+	TenantID string
 }
 
 type LoginOutput struct {
@@ -112,7 +94,6 @@ type AuthService struct {
 	setupTokenRepository SetupTokenRepository
 	jwtManager           *crypto.JWTManager
 	permProvider         UserPermissionProvider
-	tenantProfile        TenantProfileProvider
 	roleSeeder           RoleSeeder
 }
 
@@ -122,7 +103,6 @@ func NewAuthService(
 	setupTokenRepository SetupTokenRepository,
 	jwtManager *crypto.JWTManager,
 	permProvider UserPermissionProvider,
-	tenantProfile TenantProfileProvider,
 	roleSeeder ...RoleSeeder,
 ) *AuthService {
 	var seeder RoleSeeder
@@ -135,7 +115,6 @@ func NewAuthService(
 		setupTokenRepository: setupTokenRepository,
 		jwtManager:           jwtManager,
 		permProvider:         permProvider,
-		tenantProfile:        tenantProfile,
 		roleSeeder:           seeder,
 	}
 }
@@ -187,7 +166,7 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginOutput
 
 	workspaces := make([]WorkspaceInfo, 0, len(memberships))
 	for _, m := range memberships {
-		workspaces = append(workspaces, s.enrichWorkspace(ctx, m))
+		workspaces = append(workspaces, WorkspaceInfo{TenantID: m})
 	}
 
 	return &LoginOutput{
@@ -195,25 +174,6 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginOutput
 		ExchangeToken: rawExchangeToken,
 		Workspaces:    workspaces,
 	}, nil
-}
-
-func (s *AuthService) enrichWorkspace(ctx context.Context, tenantID string) WorkspaceInfo {
-	wi := WorkspaceInfo{TenantID: tenantID}
-	if s.tenantProfile == nil {
-		return wi
-	}
-
-	profile, err := s.tenantProfile.GetTenantProfile(ctx, tenantID)
-	if err != nil {
-		log.Printf("AuthService: Warning — failed to enrich workspace '%s': %v", tenantID, err)
-		return wi
-	}
-	if profile != nil {
-		wi.TenantName = profile.Name
-		wi.TenantSlug = profile.Slug
-		wi.TenantPlan = profile.Plan
-	}
-	return wi
 }
 
 func (s *AuthService) SelectWorkspace(ctx context.Context, input SelectWorkspaceInput) (*TokenPair, error) {

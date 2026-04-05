@@ -338,7 +338,7 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
                                          ▼
 return { status: "SELECT_WORKSPACE",
                                    exchange_token,
-                                   workspaces: [ {tenant_id, tenant_name, tenant_slug, tenant_plan}, ... ] }
+                                   workspaces: [ {tenant_id}, ... ] }
                                          │
                                          ▼
                              [ Client ] ──► POST /api/auth/select-tenant
@@ -356,7 +356,7 @@ return { status: "SELECT_WORKSPACE",
                                   refresh_token (bound to tenant) }
 ```
 
-The client completes the flow: with **one** workspace it exchanges the token silently; with **multiple** it presents a workspace-selection modal. The workspace list is enriched server-side by `auth-service` (best-effort, zero-trust `GET /internal/tenants/:id/profile` on tenant-service) with `tenant_name`/`tenant_slug`/`tenant_plan`, with a fallback to raw `tenant_id` if the lookup fails.
+The client completes the flow: with **one** workspace it exchanges the token silently; with **multiple** it presents a workspace-selection modal. Each workspace is identified by its `tenant_id`; the UI resolves a human-readable label from the browser's locally-saved tenant registry when available.
 
 **Why `user_credentials` has no `tenant_id` (intentional, not a bug):**
 
@@ -545,7 +545,6 @@ microservice-api/
 | **auth-service** | `POST /internal/auth/permissions/register` | `X-Internal-Service-Token` | Bootstrapping endpoint for domain permission registration |
 | **auth-service** | `GET /internal/auth/users/:userID/perm-version` | `X-Internal-Service-Token` | Fetch user permission version for cache invalidation |
 | **tenant-service** | `GET /internal/tenants/:id/infrastructure/:service` | `X-Internal-Service-Token` | Query tenant database infrastructure & routing metadata |
-| **tenant-service** | `GET /internal/tenants/:id/profile` | `X-Internal-Service-Token` | Query tenant control-plane metadata (name/slug/plan) for auth-service workspace enrichment |
 
 ---
 
