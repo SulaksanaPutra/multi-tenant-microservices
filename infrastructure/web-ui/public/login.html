@@ -77,13 +77,6 @@
         }
 
         function workspaceDisplayName(ws) {
-            // Prefer API-provided enrichment (tenant_name / tenant_slug / tenant_plan).
-            if (ws.tenant_name) {
-                let label = ws.tenant_name;
-                if (ws.tenant_slug) label += ` (${ws.tenant_slug})`;
-                if (ws.tenant_plan) label += ` — [${ws.tenant_plan}]`;
-                return `${label} · ${ws.tenant_id}`;
-            }
             const label = getTenantLabel(ws.tenant_id);
             return (label === ws.tenant_id) ? ws.tenant_id : `${label} (${ws.tenant_id})`;
         }
