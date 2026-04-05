@@ -18,7 +18,7 @@ func newRouter(txManager *txcontext.SQLTxManager, workspaceService *service.Work
 	r.Use(gin.Recovery(), gin.Logger())
 
 	workspaceHandler := handler.NewWorkspaceHandler(txManager, workspaceService)
-	internalTenantHandler := handler.NewInternalTenantHandler(tenantInfrastructureService, workspaceService)
+	internalTenantHandler := handler.NewInternalTenantHandler(tenantInfrastructureService)
 	tenantHandler := handler.NewTenantHandler(workspaceService)
 
 	// Public registration endpoint
@@ -43,7 +43,6 @@ func newRouter(txManager *txcontext.SQLTxManager, workspaceService *service.Work
 	internal.Use(middleware.InternalAuthMiddleware(internalToken))
 	{
 		internal.GET("/:tenant_id/infrastructure/:service_name", internalTenantHandler.GetServiceInfrastructure)
-		internal.GET("/:tenant_id/profile", internalTenantHandler.GetTenantProfile)
 	}
 
 	// Health check

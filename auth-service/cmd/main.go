@@ -14,7 +14,6 @@ import (
 	"auth-service/internal/crypto"
 	"auth-service/internal/handler"
 	"auth-service/internal/infrastructure/postgres"
-	"auth-service/internal/infrastructure/tenantclient"
 	"auth-service/internal/repository"
 	"auth-service/internal/service"
 	"auth-service/internal/txcontext"
@@ -33,7 +32,6 @@ func main() {
 	httpPort := getEnv("PORT", "8085")
 	privateKeyPEM := getEnv("AUTH_JWT_PRIVATE_KEY_PEM", "")
 	internalServiceToken := getEnv("INTERNAL_SERVICE_TOKEN", "default_internal_service_token")
-	tenantServiceURL := getEnv("TENANT_SERVICE_URL", "http://tenant-service:8082")
 
 	if privateKeyPEM == "" {
 		log.Fatal("AUTH_JWT_PRIVATE_KEY_PEM environment variable is required")
@@ -73,11 +71,7 @@ func main() {
 	internalPermissionService := service.NewInternalPermissionService(permissionRepository, roleRepository)
 	roleService := service.NewRoleService(roleRepository)
 	internalAuthService := service.NewInternalAuthService(setupTokenRepository, credentialRepository, internalPermissionService)
-	tenantProfileClient := tenantclient.NewTenantProfileClient(tenantclient.Params{
-		TenantServiceURL:     tenantServiceURL,
-		InternalServiceToken: internalServiceToken,
-	})
-	authService := service.NewAuthService(credentialRepository, tokenRepository, setupTokenRepository, jwtManager, roleRepository, tenantProfileClient, internalPermissionService)
+	authService := service.NewAuthService(credentialRepository, tokenRepository, setupTokenRepository, jwtManager, roleRepository, internalPermissionService)
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authService, jwtManager)

@@ -14,7 +14,6 @@ services:
       PORT: 8085
       AUTH_JWT_PRIVATE_KEY_PEM: ${AUTH_JWT_PRIVATE_KEY_PEM}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-default_internal_service_token}
-      TENANT_SERVICE_URL: ${TENANT_SERVICE_URL:-http://tenant-service:8082}
     ports:
       - "${PORT:-8085}:${PORT:-8085}"
     labels:

@@ -24,7 +24,6 @@ Client requests do not pass `tenant_id` query parameters. Instead, `tenant-servi
 
 ### 3. Infrastructure Routing Metadata & Broadcast Invalidation
 - **Internal Infrastructure Endpoint:** Exposes `GET /internal/tenants/:id/infrastructure/:serviceName` (protected by `X-Internal-Service-Token`) so domain services like `order-service` can lazily fetch database connection coordinates (`host`, `port`, `db_name`).
-- **Internal Tenant Profile Endpoint:** Exposes `GET /internal/tenants/:id/profile` (protected by `X-Internal-Service-Token`) returning non-sensitive control-plane metadata (`tenant_id`, `name`, `slug`, `plan`, `status`). Consumed by `auth-service` to enrich the login workspace list (`tenant_name`/`tenant_slug`/`tenant_plan`) on a best-effort basis.
 - **Broadcast Cache Invalidation:** When a tenant's database infrastructure changes (e.g. failover, IP/port rebind, plan upgrade/downgrade), `tenant-service` emits `tenant.infrastructure_changed` over a RabbitMQ topic exchange to force downstream replicas to instantly purge local connection pool caches.
 
 ---
@@ -39,7 +38,6 @@ Client requests do not pass `tenant_id` query parameters. Instead, `tenant-servi
 | `PUT` | `/api/tenants/me` | Bearer `<JWT>` | `tenants:write` | Update tenant metadata (name, slug, owner info) |
 | `PUT` | `/api/tenants/me/plan` | Bearer `<JWT>` | `tenants:write` | Upgrade/downgrade tenant isolation plan (`shared` / `dedicated`) |
 | `GET` | `/internal/tenants/:id/infrastructure/:serviceName` | `X-Internal-Service-Token` | Internal | Internal endpoint for domain service DSN resolution |
-| `GET` | `/internal/tenants/:id/profile` | `X-Internal-Service-Token` | Internal | Internal endpoint for tenant control-plane metadata (used by auth-service workspace enrichment) |
 | `GET` | `/health` | None | None | Health check endpoint |
 
 ### AMQP Published Events & Subscriptions
