@@ -191,34 +191,31 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
 
 ---
 
-### 2.5 Domain Service Role & Permission Management (`/api/users/roles` & `/api/users/:user_id/role`)
+### 2.5 RBAC Role & Permission Management — Direct to auth-service (`/api/auth/roles` & `/api/auth/users/:userID/role`)
 
 ```text
 +-----------------------------------------------------------------------------------+
-|      Clean Architecture Domain Service Role & Permission Management Flow          |
+|        Access-Plane Authentication Gatekeeping Role & Permission Flow             |
 +-----------------------------------------------------------------------------------+
 
 [ Client / Tenant Admin ]
-          │  POST /api/users/roles or PUT /api/users/:user_id/role (Bearer <JWT>)
+          │  POST /api/auth/roles or PUT /api/auth/users/:userID/role (Bearer <JWT>)
           ▼
-  [ user-service :8081 ]
-          │  1. UserHandler (Layer 1 Entry Point): Parses request & Bearer token
-          │  2. Calls Layer 2: userService.AssignUserRole(ctx, authToken, userID, roleID)
-          │  3. UserService (Layer 2 Core): Validates domain invariants & calls RoleClient
-          │  4. AuthClient (Layer 3 Outbound Adapter): Issues HTTP request to auth-service:8085
-          ▼
-  [ auth-service :8085 ]
-          │  1. RequirePermission("users:roles:manage") middleware check
-          │  2. Enforces tenant-scoped role uniqueness: UNIQUE (tenant_id, name)
-          │  3. Protects system roles (is_system = true) from mutation
-          │  4. Atomically batch-increments user_permission_versions.version for assigned users
+  [ Traefik Gateway :8000 ] ──► [ auth-service :8085 ]
+          │  1. RequireJWT middleware verifies the RS256 Bearer token
+          │  2. RequirePermission("auth:roles:manage" | "auth:roles:read") claim check
+          │  3. Enforces tenant-scoped role uniqueness: UNIQUE (tenant_id, name)
+          │  4. Protects system roles (is_system = true) from mutation
+          │  5. Atomically batch-increments user_permission_versions.version for assigned users
           ▼
   [ auth_db.roles / role_permissions / user_roles / user_permission_versions ]
 ```
 
-* **Strict Clean Architecture Layering:** `UserHandler` (Layer 1) maintains a single dependency on `UserService` (Layer 2). `UserService` consumes the `RoleClient` outbound port interface, implemented by `authclient.AuthClient` (Layer 3 Driven Adapter).
-* **Tenant-Scoped Custom Roles:** Tenant admins compose custom roles using domain-registered permissions. System default roles (`admin`, `viewer`) are seeded automatically and protected from mutation (`is_system = true`).
-* **Near-Instant Permission Revocation:** Updating role permissions increments `user_permission_versions.version` in a single batch, invalidating cached JWT permissions across downstream microservices.
+* **Direct Routing:** The frontend sends role-management requests straight to the Traefik Gateway, routed to `auth-service`. `user-service` no longer acts as a middleman proxy and contains no role/permission handlers.
+* **Clear Domain Boundary — Identity vs Access:** `user-service` (Identity) owns profile data only; `auth-service` (Access) owns credentials, token issuance, `user_tenant_memberships`, custom roles and permissions. Auth-service self-registers its own `auth:roles:manage` / `auth:roles:read` capabilities at boot.
+* **Client-Side Composition for the Users Table:** For a workspace "users + roles" table, the frontend fetches `GET /api/users` (user-service) and `GET /api/auth/users/roles?user_ids=...` (auth-service bulk assignment lookup) in parallel and merges them — keeping the backends fully isolated without an N+1 fan-out.
+* **Authorization Gating on Auth:** Every RBAC endpoint requires `auth:roles:manage` (write) or `auth:roles:read` (read) in the JWT claims, closing the gap where a merely-valid JWT previously granted full role management.
+* **Near-Instant Permission Revocation:** Updating role permissions increments `user_permission_versions.version` in a single batch, invalidating cached JWT across downstream microservices.
 
 ---
 
@@ -449,8 +446,8 @@ microservice-api/
 ├── user-service/                 # User Identity Service
 │   ├── cmd/main.go               # Port 8081 - User Profile & Event Consumer
 │   ├── internal/
-│   │   ├── service/              # Layer 2 Core (UserService & RoleClient port interface)
-│   │   ├── infrastructure/       # Layer 3 AuthClient Driven Adapter & PermissionRegistrar
+│   │   ├── service/              # Layer 2 Core (UserService)
+│   │   ├── infrastructure/       # postgres, rabbitmq persistence adapters
 │   │   └── middleware/           # RequireJWT & RequirePermission RBAC
 │   └── Dockerfile
 │
@@ -516,21 +513,18 @@ microservice-api/
 | **auth-service** | `POST /api/auth/login` | None | Public | User authentication & RS256 JWT access token issuance |
 | **auth-service** | `POST /api/auth/refresh` | None | Public | Refresh expired access tokens |
 | **auth-service** | `POST /api/auth/logout` | Bearer JWT | Authenticated | Revoke refresh token |
-| **auth-service** | `GET /api/auth/permissions` | Bearer JWT | Tenant Admin | List catalog of registered system permissions |
-| **auth-service** | `POST /api/auth/roles` | Bearer JWT | Tenant Admin | Create tenant-scoped custom role |
-| **auth-service** | `GET /api/auth/roles` | Bearer JWT | Tenant Admin | List available roles for tenant |
-| **auth-service** | `GET /api/auth/roles/:id` | Bearer JWT | Tenant Admin | Retrieve specific role details |
-| **auth-service** | `PUT /api/auth/roles/:id/permissions` | Bearer JWT | Tenant Admin | Update permissions linked to role |
-| **auth-service** | `DELETE /api/auth/roles/:id` | Bearer JWT | Tenant Admin | Delete custom role |
-| **auth-service** | `PUT /api/auth/users/:userID/role` | Bearer JWT | Tenant Admin | Assign role to tenant user |
-| **auth-service** | `GET /api/auth/users/:userID/role` | Bearer JWT | Tenant Admin | Retrieve user role assignment |
+| **auth-service** | `GET /api/auth/permissions` | Bearer JWT | `auth:roles:read` | List catalog of registered system permissions |
+| **auth-service** | `POST /api/auth/roles` | Bearer JWT | `auth:roles:manage` | Create tenant-scoped custom role |
+| **auth-service** | `GET /api/auth/roles` | Bearer JWT | `auth:roles:read` | List available roles for tenant |
+| **auth-service** | `GET /api/auth/roles/:id` | Bearer JWT | `auth:roles:read` | Retrieve specific role details |
+| **auth-service** | `PUT /api/auth/roles/:id/permissions` | Bearer JWT | `auth:roles:manage` | Update permissions linked to role |
+| **auth-service** | `DELETE /api/auth/roles/:id` | Bearer JWT | `auth:roles:manage` | Delete custom role |
+| **auth-service** | `PUT /api/auth/users/:userID/role` | Bearer JWT | `auth:roles:manage` | Assign role to tenant user |
+| **auth-service** | `GET /api/auth/users/:userID/role` | Bearer JWT | `auth:roles:read` | Retrieve user role assignment |
+| **auth-service** | `GET /api/auth/users/roles?user_ids=...` | Bearer JWT | `auth:roles:read` | Bulk role assignments for many user IDs (table composition) |
 | **user-service** | `GET /api/users` | Bearer JWT | `users:read` | List users belonging to caller's tenant |
 | **user-service** | `GET /api/users/me` | Bearer JWT | `users:read` | Retrieve current user profile |
 | **user-service** | `PUT /api/users/me` | Bearer JWT | `users:write` | Update current user profile details |
-| **user-service** | `GET /api/users/:user_id/role` | Bearer JWT | `users:read` | Retrieve user role assignment |
-| **user-service** | `PUT /api/users/:user_id/role` | Bearer JWT | `users:roles:manage` | Assign role to user |
-| **user-service** | `POST /api/users/roles` | Bearer JWT | `users:roles:manage` | Create tenant-scoped custom role using system permissions |
-| **user-service** | `GET /api/users/roles` | Bearer JWT | `users:roles:manage` | List available roles for tenant |
 | **order-service** | `GET /api/orders` | Bearer JWT | `orders:read` | List orders for isolated tenant DB |
 | **order-service** | `POST /api/orders` | Bearer JWT | `orders:create` | Create order entry in isolated tenant DB |
 | **notification-service** | `GET /api/notifications` | Bearer JWT | `notifications:read` | List user notifications |

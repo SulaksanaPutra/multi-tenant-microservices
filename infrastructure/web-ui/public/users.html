@@ -69,7 +69,7 @@
 
     <!-- MODAL 2: ASSIGN ROLE TO USER -->
     <dialog id="dialog-assign-role" style="border:1px solid #ccc; padding:20px; width:450px; max-width:90%;">
-        <h3 style="margin-top:0;">Assign Role to User (`PUT /api/users/:user_id/role`)</h3>
+        <h3 style="margin-top:0;">Assign Role to User (`PUT /api/auth/users/:userID/role`)</h3>
         <form id="assign-role-form">
             <div style="margin-bottom: 15px;">
                 <label for="assign-user-select">Select User:</label><br>
@@ -93,7 +93,7 @@
 
     <!-- MODAL 3: CREATE CUSTOM ROLE -->
     <dialog id="dialog-create-role" style="border:1px solid #ccc; padding:20px; width:500px; max-width:90%;">
-        <h3 style="margin-top:0;">Create Custom Role (`POST /api/users/roles`)</h3>
+        <h3 style="margin-top:0;">Create Custom Role (`POST /api/auth/roles`)</h3>
         <form id="create-role-form">
             <div style="margin-bottom: 12px;">
                 <label for="role-name">Role Name:</label><br>
@@ -202,7 +202,7 @@
             container.innerHTML = "Fetching roles...";
 
             try {
-                const res = await fetch("/api/users/roles", { headers: getAuthHeader() });
+                const res = await fetch("/api/auth/roles", { headers: getAuthHeader() });
                 const data = await res.json();
 
                 if (res.ok && data.data && Array.isArray(data.data)) {
@@ -250,7 +250,7 @@
             container.innerHTML = "Fetching permissions...";
 
             try {
-                const res = await fetch("/api/users/permissions", { headers: getAuthHeader() });
+                const res = await fetch("/api/auth/permissions", { headers: getAuthHeader() });
                 const data = await res.json();
 
                 if (res.ok && data.data) {
@@ -340,7 +340,7 @@
             const permissions = Array.from(checkedBoxes).map(cb => cb.value);
 
             try {
-                const res = await fetch("/api/users/roles", {
+                const res = await fetch("/api/auth/roles", {
                     method: "POST",
                     headers: { "Content-Type": "application/json", ...getAuthHeader() },
                     body: JSON.stringify({ name, description, permissions })
@@ -375,7 +375,7 @@
             }
 
             try {
-                const res = await fetch(`/api/users/${userID}/role`, {
+                const res = await fetch(`/api/auth/users/${userID}/role`, {
                     method: "PUT",
                     headers: { "Content-Type": "application/json", ...getAuthHeader() },
                     body: JSON.stringify({ role_id: roleID })

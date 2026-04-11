@@ -36,13 +36,13 @@ func main() {
 	internalToken := getEnv("INTERNAL_SERVICE_TOKEN", "default_internal_service_token")
 	authServiceURL := getEnv("AUTH_SERVICE_URL", "http://auth-service:8085")
 
-	// Register domain permissions with auth-service (non-blocking)
+	// Register user-service's own atomic capabilities with auth-service (non-blocking).
+	// This is startup-only permission ownership declaration, NOT a runtime role proxy.
 	permRegistrar := authclient.NewPermissionRegistrar(authServiceURL, internalToken)
 	go func() {
 		if err := permRegistrar.Register(context.Background(), "user-service", []authclient.PermissionItem{
 			{Name: "users:read", Description: "Read user profiles"},
 			{Name: "users:write", Description: "Update user profiles"},
-			{Name: "users:roles:manage", Description: "Manage tenant user roles and role definitions"},
 		}); err != nil {
 			log.Printf("User Service: Warning — startup permission registration deferred: %v", err)
 		}
@@ -79,9 +79,8 @@ func main() {
 	wRunner.start(workerCtx)
 
 	// Initialize Domain Services & Clients
-	authClient := authclient.NewAuthClient(authServiceURL)
 	inboxService := service.NewInboxService(inboxRepository)
-	userService := service.NewUserService(userRepository, outboxRepository, authClient)
+	userService := service.NewUserService(userRepository, outboxRepository)
 	userHandler := handler.NewUserHandler(userService)
 
 	// Register & Start Inbound Queue Consumers Collection

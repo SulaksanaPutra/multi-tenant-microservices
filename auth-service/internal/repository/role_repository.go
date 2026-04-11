@@ -361,6 +361,45 @@ func (r *RoleRepository) FindUserPermissions(ctx context.Context, userID, tenant
 	return permissions, version, nil
 }
 
+// UserRoleBrief is the lightweight role-assignment projection returned by the
+// bulk lookup used to compose tenant "users + roles" tables without N+1 calls.
+type UserRoleBrief struct {
+	UserID   string `json:"user_id"`
+	RoleID   string `json:"role_id"`
+	RoleName string `json:"role_name"`
+}
+
+func (r *RoleRepository) ListUserRolesByTenant(ctx context.Context, tenantID string, userIDs []string) ([]UserRoleBrief, error) {
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
+	query := `
+		SELECT ur.user_id, r.id, r.name
+		FROM public.user_roles ur
+		JOIN public.roles r ON r.id = ur.role_id
+		WHERE ur.tenant_id = $1
+		  AND ur.user_id = ANY($2)
+		ORDER BY ur.user_id;
+	`
+
+	rows, err := exec.QueryContext(ctx, query, tenantID, pq.Array(userIDs))
+	if err != nil {
+		return nil, fmt.Errorf("role repository: failed to list user roles for tenant '%s': %w", tenantID, err)
+	}
+	defer rows.Close()
+
+	var assignments []UserRoleBrief
+	for rows.Next() {
+		var brief UserRoleBrief
+		if err := rows.Scan(&brief.UserID, &brief.RoleID, &brief.RoleName); err != nil {
+			return nil, fmt.Errorf("role repository: failed to scan user role brief: %w", err)
+		}
+		assignments = append(assignments, brief)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("role repository: rows error: %w", err)
+	}
+	return assignments, nil
+}
+
 func (r *RoleRepository) GetUserPermissionVersion(ctx context.Context, userID, tenantID string) (int64, error) {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	var version int64 = 1

@@ -308,8 +308,8 @@ This document serves as the authoritative technical test specification and archi
 
 ### 3.21 Test Case TC-E2E-022: User Role Assignment & System Permissions Catalog
 * **Test File**: [`./tc_e2e_022_user_role_assignment_and_permissions_e2e_test.go`](./tc_e2e_022_user_role_assignment_and_permissions_e2e_test.go)
-* **Objective**: Validate fetching system permissions catalog (`GET /api/users/permissions`), creating custom tenant roles (`POST /api/users/roles`), listing roles (`GET /api/users/roles`), and assigning roles to users (`PUT /api/users/:user_id/role`).
-* **Architectural Scope**: `user-service`, `auth-service`.
+* **Objective**: Validate fetching system permissions catalog (`GET /api/auth/permissions`), creating custom tenant roles (`POST /api/auth/roles`), listing roles (`GET /api/auth/roles`), and assigning roles to users (`PUT /api/auth/users/:userID/role`).
+* **Architectural Scope**: `auth-service` (Access plane).
 * **Expected Guarantee**: System permissions catalog is inspectable and can be composed into custom tenant roles and assigned to users.
 
 ---

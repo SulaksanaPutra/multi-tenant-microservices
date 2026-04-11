@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"auth-service/internal/domain"
 	"auth-service/internal/httputil"
 	"auth-service/internal/middleware"
+	"auth-service/internal/repository"
 	"auth-service/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -21,6 +23,7 @@ type RoleAppService interface {
 	DeleteRole(ctx context.Context, roleID string) error
 	AssignUserRole(ctx context.Context, input service.AssignUserRoleInput) error
 	GetUserRole(ctx context.Context, userID, tenantID string) (*domain.UserRole, error)
+	ListUserRolesForTenant(ctx context.Context, tenantID string, userIDs []string) ([]repository.UserRoleBrief, error)
 }
 
 type CreateRoleRequest struct {
@@ -255,4 +258,39 @@ func (h *RoleHandler) GetUserRole(c *gin.Context) {
 	}
 
 	httputil.WriteSuccess(c, http.StatusOK, "User role retrieved successfully", ur)
+}
+
+// ListUserRoles returns role assignments for a set of user IDs within the
+// caller's tenant. Supports a comma-separated (?user_ids=a,b,c) or repeated
+// (?user_ids=a&user_ids=b) query parameter so the frontend can compose a
+// "users + roles" table in a single round-trip.
+func (h *RoleHandler) ListUserRoles(c *gin.Context) {
+	tenantID := c.GetString(middleware.ContextKeyTenantID)
+	if tenantID == "" {
+		httputil.WriteError(c, http.StatusBadRequest, "tenant_id JWT token claim is required")
+		return
+	}
+
+	raws := c.QueryArray("user_ids")
+	var userIDs []string
+	for _, raw := range raws {
+		for _, part := range strings.Split(raw, ",") {
+			part = strings.TrimSpace(part)
+			if part != "" {
+				userIDs = append(userIDs, part)
+			}
+		}
+	}
+	if len(userIDs) == 0 {
+		httputil.WriteError(c, http.StatusBadRequest, "at least one user_ids query parameter is required")
+		return
+	}
+
+	assignments, err := h.roleService.ListUserRolesForTenant(c.Request.Context(), tenantID, userIDs)
+	if err != nil {
+		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	httputil.WriteSuccess(c, http.StatusOK, "User roles retrieved successfully", assignments)
 }
