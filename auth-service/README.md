@@ -28,7 +28,7 @@ For system-wide architectural rules, layer boundaries, and unit-of-work patterns
 - **Tenant-Bound Refresh Tokens:** `refresh_tokens` stores the `tenant_id` active at issuance, so `POST /api/auth/refresh` preserves the workspace context instead of minting a tenant-less token.
 
 ### 2. Multi-Tenant RBAC & Instant Revocation
-- **Domain Permission Registration:** Domain services register their required permissions (e.g. `orders:create`, `orders:read`, `users:roles:manage`) with `auth-service` upon startup via `POST /internal/permissions/register`. `auth-service` acts as an opaque central policy registry.
+- **Domain Permission Registration:** Domain services register their own atomic permissions (e.g. `orders:create`, `orders:read`, `users:read`, `users:write`) with `auth-service` upon startup via `POST /internal/permissions/register`. `auth-service` acts as the opaque central policy registry, and self-registers its own access-plane permissions (`auth:roles:manage`, `auth:roles:read`) at boot. RBAC endpoints are gated by these `auth:*` claims.
 - **Tenant-Scoped Custom Roles:** Enforces `UNIQUE (tenant_id, name)` and protects system default roles (`admin`, `viewer`).
 - **Instant Revocation via Permission Version Bumping:** Updating role permissions or assigning roles to users batch-increments `user_permission_versions.version` in `auth_db`, instantly invalidating cached JWT permissions across microservices.
 
@@ -44,14 +44,15 @@ For system-wide architectural rules, layer boundaries, and unit-of-work patterns
 | `POST` | `/api/auth/select-tenant` | None | Exchange a login exchange token for a JWT pair bound to a selected member workspace |
 | `POST` | `/api/auth/refresh` | None | Rotate refresh token → issue new RS256 JWT (preserves tenant context) |
 | `POST` | `/api/auth/logout` | JWT Bearer | Revoke refresh token |
-| `GET` | `/api/auth/permissions` | JWT Bearer | List catalog of registered system permissions |
-| `POST` | `/api/auth/roles` | JWT Bearer | Create tenant-scoped custom role |
-| `GET` | `/api/auth/roles` | JWT Bearer | List available roles for tenant |
-| `GET` | `/api/auth/roles/:id` | JWT Bearer | Retrieve specific role details |
-| `PUT` | `/api/auth/roles/:id/permissions` | JWT Bearer | Update permissions linked to role |
-| `DELETE` | `/api/auth/roles/:id` | JWT Bearer | Delete custom role |
-| `PUT` | `/api/auth/users/:userID/role` | JWT Bearer | Assign role to tenant user |
-| `GET` | `/api/auth/users/:userID/role` | JWT Bearer | Retrieve user role assignment |
+| `GET` | `/api/auth/permissions` | `auth:roles:read` | List catalog of registered system permissions |
+| `POST` | `/api/auth/roles` | `auth:roles:manage` | Create tenant-scoped custom role |
+| `GET` | `/api/auth/roles` | `auth:roles:read` | List available roles for tenant |
+| `GET` | `/api/auth/roles/:id` | `auth:roles:read` | Retrieve specific role details |
+| `PUT` | `/api/auth/roles/:id/permissions` | `auth:roles:manage` | Update permissions linked to role |
+| `DELETE` | `/api/auth/roles/:id` | `auth:roles:manage` | Delete custom role |
+| `PUT` | `/api/auth/users/:userID/role` | `auth:roles:manage` | Assign role to tenant user |
+| `GET` | `/api/auth/users/:userID/role` | `auth:roles:read` | Retrieve user role assignment |
+| `GET` | `/api/auth/users/roles?user_ids=...` | `auth:roles:read` | Bulk role assignments for many user IDs (users-table composition) |
 | `POST` | `/internal/auth/setup-token` | `X-Internal-Service-Token` | Internal endpoint for setup token generation |
 | `POST` | `/internal/auth/permissions/register` | `X-Internal-Service-Token` | Internal domain permission startup registration |
 | `GET` | `/internal/auth/users/:userID/perm-version` | `X-Internal-Service-Token` | Internal query for user permission version |

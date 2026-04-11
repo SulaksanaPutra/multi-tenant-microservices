@@ -70,6 +70,19 @@ func main() {
 	// Initialize services
 	internalPermissionService := service.NewInternalPermissionService(permissionRepository, roleRepository)
 	roleService := service.NewRoleService(roleRepository)
+
+	// Self-register the auth-owned RBAC permissions. As the Access control plane,
+	// auth-service owns this namespace. Registered at boot so newly-seeded tenant
+	// admin roles automatically inherit these capabilities.
+	if err := internalPermissionService.RegisterPermissions(context.Background(), service.InternalRegisterPermissionsInput{
+		Service: "auth-service",
+		Permissions: []repository.RegisterPermissionItem{
+			{Name: "auth:roles:manage", Description: "Create, update, delete and assign tenant roles"},
+			{Name: "auth:roles:read", Description: "List roles, list permissions and read role assignments"},
+		},
+	}); err != nil {
+		log.Printf("Auth Service: Warning — failed to self-register RBAC permissions: %v", err)
+	}
 	internalAuthService := service.NewInternalAuthService(setupTokenRepository, credentialRepository, internalPermissionService)
 	authService := service.NewAuthService(credentialRepository, tokenRepository, setupTokenRepository, jwtManager, roleRepository, internalPermissionService)
 

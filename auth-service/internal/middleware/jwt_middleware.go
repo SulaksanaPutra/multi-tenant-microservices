@@ -19,6 +19,10 @@ const (
 	ContextKeyEmail = "email"
 	// ContextKeyJTI is the gin.Context key for the JWT's unique token ID.
 	ContextKeyJTI = "jti"
+	// ContextKeyPermissions is the gin.Context key for the JWT's bundled permission list.
+	ContextKeyPermissions = "permissions"
+	// ContextKeyPermVersion is the gin.Context key for the JWT's permission version.
+	ContextKeyPermVersion = "permVersion"
 )
 
 // RequireJWT validates the RS256 Bearer token on incoming requests and injects
@@ -54,6 +58,8 @@ func RequireJWT(jwtManager *crypto.JWTManager) gin.HandlerFunc {
 		c.Set(ContextKeyTenantID, claims.TenantID)
 		c.Set(ContextKeyEmail, claims.Email)
 		c.Set(ContextKeyJTI, claims.JTI)
+		c.Set(ContextKeyPermissions, claims.Permissions)
+		c.Set(ContextKeyPermVersion, claims.PermVersion)
 
 		c.Next()
 	}

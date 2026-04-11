@@ -45,23 +45,25 @@ func newRouter(
 		auth.POST("/logout", middleware.RequireJWT(jwtManager), authHandler.Logout)
 	}
 
-	// Tenant Admin API endpoints (JWT authenticated)
+	// Tenant Admin API endpoints (JWT authenticated + RBAC permission gated)
 	api := r.Group("/api/auth")
 	api.Use(middleware.RequireJWT(jwtManager))
 	{
-		// Permission catalog listing endpoint
-		api.GET("/permissions", permissionHandler.ListPermissions)
+		// Read-only RBAC endpoints (auth:roles:read)
+		api.GET("/permissions", middleware.RequirePermission("auth:roles:read"), permissionHandler.ListPermissions)
+		api.GET("/roles", middleware.RequirePermission("auth:roles:read"), roleHandler.ListRoles)
+		api.GET("/roles/:id", middleware.RequirePermission("auth:roles:read"), roleHandler.GetRole)
 
-		// Role management endpoints
-		api.POST("/roles", roleHandler.CreateRole)
-		api.GET("/roles", roleHandler.ListRoles)
-		api.GET("/roles/:id", roleHandler.GetRole)
-		api.PUT("/roles/:id/permissions", roleHandler.UpdateRolePermissions)
-		api.DELETE("/roles/:id", roleHandler.DeleteRole)
+		// Static bulk assignment lookup — registered before the parameterized
+		// :userID route; Gin radix tree gives static segments precedence.
+		api.GET("/users/roles", middleware.RequirePermission("auth:roles:read"), roleHandler.ListUserRoles)
+		api.GET("/users/:userID/role", middleware.RequirePermission("auth:roles:read"), roleHandler.GetUserRole)
 
-		// User role assignment
-		api.PUT("/users/:userID/role", roleHandler.AssignUserRole)
-		api.GET("/users/:userID/role", roleHandler.GetUserRole)
+		// Write endpoints (auth:roles:manage)
+		api.POST("/roles", middleware.RequirePermission("auth:roles:manage"), roleHandler.CreateRole)
+		api.PUT("/roles/:id/permissions", middleware.RequirePermission("auth:roles:manage"), roleHandler.UpdateRolePermissions)
+		api.DELETE("/roles/:id", middleware.RequirePermission("auth:roles:manage"), roleHandler.DeleteRole)
+		api.PUT("/users/:userID/role", middleware.RequirePermission("auth:roles:manage"), roleHandler.AssignUserRole)
 	}
 
 	// Internal endpoints (authenticated via X-Internal-Service-Token)

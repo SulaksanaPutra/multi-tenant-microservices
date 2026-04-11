@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"auth-service/internal/domain"
+	"auth-service/internal/repository"
 	"auth-service/internal/service"
 )
 
@@ -148,6 +149,27 @@ func (m *mockRoleRepo) BumpUserPermissionVersionsForRole(_ context.Context, role
 		}
 	}
 	return nil
+}
+
+func (m *mockRoleRepo) ListUserRolesByTenant(_ context.Context, tenantID string, userIDs []string) ([]repository.UserRoleBrief, error) {
+	var briefs []repository.UserRoleBrief
+	for _, uid := range userIDs {
+		ur := m.userRoles[uid+"_"+tenantID]
+		if ur == nil {
+			continue
+		}
+		role := m.roles[ur.RoleID]
+		var name string
+		if role != nil {
+			name = role.Name
+		}
+		briefs = append(briefs, repository.UserRoleBrief{
+			UserID:   ur.UserID,
+			RoleID:   ur.RoleID,
+			RoleName: name,
+		})
+	}
+	return briefs, nil
 }
 
 func TestRoleService_AssignUserRole_RejectsNonMember(t *testing.T) {

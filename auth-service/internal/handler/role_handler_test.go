@@ -11,19 +11,21 @@ import (
 	"auth-service/internal/domain"
 	"auth-service/internal/httputil"
 	"auth-service/internal/middleware"
+	"auth-service/internal/repository"
 	"auth-service/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
 type mockRoleAppService struct {
-	CreateRoleFn            func(ctx context.Context, input service.CreateRoleInput) (*domain.Role, error)
-	GetRoleFn               func(ctx context.Context, roleID string) (*domain.Role, error)
-	ListRolesForTenantFn    func(ctx context.Context, tenantID string) ([]domain.Role, error)
-	UpdateRolePermissionsFn func(ctx context.Context, input service.UpdateRolePermissionsInput) error
-	DeleteRoleFn            func(ctx context.Context, roleID string) error
-	AssignUserRoleFn        func(ctx context.Context, input service.AssignUserRoleInput) error
-	GetUserRoleFn           func(ctx context.Context, userID, tenantID string) (*domain.UserRole, error)
+	CreateRoleFn             func(ctx context.Context, input service.CreateRoleInput) (*domain.Role, error)
+	GetRoleFn                func(ctx context.Context, roleID string) (*domain.Role, error)
+	ListRolesForTenantFn     func(ctx context.Context, tenantID string) ([]domain.Role, error)
+	UpdateRolePermissionsFn  func(ctx context.Context, input service.UpdateRolePermissionsInput) error
+	DeleteRoleFn             func(ctx context.Context, roleID string) error
+	AssignUserRoleFn         func(ctx context.Context, input service.AssignUserRoleInput) error
+	GetUserRoleFn            func(ctx context.Context, userID, tenantID string) (*domain.UserRole, error)
+	ListUserRolesForTenantFn func(ctx context.Context, tenantID string, userIDs []string) ([]repository.UserRoleBrief, error)
 }
 
 func (m *mockRoleAppService) CreateRole(ctx context.Context, input service.CreateRoleInput) (*domain.Role, error) {
@@ -73,6 +75,13 @@ func (m *mockRoleAppService) GetUserRole(ctx context.Context, userID, tenantID s
 		return m.GetUserRoleFn(ctx, userID, tenantID)
 	}
 	return &domain.UserRole{UserID: userID, TenantID: tenantID, RoleID: "role_1"}, nil
+}
+
+func (m *mockRoleAppService) ListUserRolesForTenant(ctx context.Context, tenantID string, userIDs []string) ([]repository.UserRoleBrief, error) {
+	if m.ListUserRolesForTenantFn != nil {
+		return m.ListUserRolesForTenantFn(ctx, tenantID, userIDs)
+	}
+	return nil, nil
 }
 
 func TestRoleHandler_CreateRole(t *testing.T) {

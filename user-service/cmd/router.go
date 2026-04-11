@@ -30,12 +30,7 @@ func newRouter(userHandler *handler.UserHandler) http.Handler {
 		api := r.Group("/api")
 		api.Use(middleware.RequireJWT(publicKeyPEM, versionCache))
 
-		// Static user & role management endpoints (must be registered before wildcard routes)
 		api.GET("/users", middleware.RequirePermission("users:read"), userHandler.ListUsers)
-		api.GET("/users/permissions", middleware.RequirePermission("users:read"), userHandler.ListPermissions)
-		api.GET("/users/roles", middleware.RequirePermission("users:roles:manage"), userHandler.ListRoles)
-		api.POST("/users/roles", middleware.RequirePermission("users:roles:manage"), userHandler.CreateRole)
-
 		api.GET("/users/me", middleware.RequirePermission("users:read"), func(c *gin.Context) {
 			userID := c.GetString(middleware.ContextKeyUserID)
 			tenantID := c.GetString(middleware.ContextKeyTenantID)
@@ -47,12 +42,6 @@ func newRouter(userHandler *handler.UserHandler) http.Handler {
 			})
 		})
 		api.PUT("/users/me", middleware.RequirePermission("users:write"), userHandler.UpdateMe)
-
-		// Parameterized user role management endpoints (registered last)
-		if userHandler != nil {
-			api.GET("/users/:user_id/role", middleware.RequirePermission("users:read"), userHandler.GetUserRole)
-			api.PUT("/users/:user_id/role", middleware.RequirePermission("users:roles:manage"), userHandler.AssignUserRole)
-		}
 	}
 
 	return r

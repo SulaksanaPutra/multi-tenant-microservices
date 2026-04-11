@@ -9,21 +9,15 @@ import (
 	"testing"
 
 	"user-service/internal/domain"
-	"user-service/internal/infrastructure/authclient"
 	"user-service/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
 type mockUserService struct {
-	listUsersFn       func(ctx context.Context, tenantID string) ([]domain.User, error)
-	updateUserFn      func(ctx context.Context, input service.UpdateUserServiceInput) error
-	getUserByIDFn     func(ctx context.Context, userID string) (*domain.User, error)
-	assignUserRoleFn  func(ctx context.Context, authToken, userID, roleID, tenantID string) (*authclient.UserRoleResponse, error)
-	getUserRoleFn     func(ctx context.Context, authToken, userID, tenantID string) (*authclient.UserRoleResponse, error)
-	createRoleFn      func(ctx context.Context, authToken string, input authclient.CreateRoleInput) (*authclient.Role, error)
-	listRolesFn       func(ctx context.Context, authToken string) ([]authclient.Role, error)
-	listPermissionsFn func(ctx context.Context, authToken string) ([]authclient.PermissionCatalogItem, error)
+	listUsersFn   func(ctx context.Context, tenantID string) ([]domain.User, error)
+	updateUserFn  func(ctx context.Context, input service.UpdateUserServiceInput) error
+	getUserByIDFn func(ctx context.Context, userID string) (*domain.User, error)
 }
 
 func (m *mockUserService) ListUsers(ctx context.Context, tenantID string) ([]domain.User, error) {
@@ -47,41 +41,6 @@ func (m *mockUserService) GetUserByID(ctx context.Context, userID string) (*doma
 	return nil, nil
 }
 
-func (m *mockUserService) AssignUserRole(ctx context.Context, authToken, userID, roleID, tenantID string) (*authclient.UserRoleResponse, error) {
-	if m.assignUserRoleFn != nil {
-		return m.assignUserRoleFn(ctx, authToken, userID, roleID, tenantID)
-	}
-	return nil, nil
-}
-
-func (m *mockUserService) GetUserRole(ctx context.Context, authToken, userID, tenantID string) (*authclient.UserRoleResponse, error) {
-	if m.getUserRoleFn != nil {
-		return m.getUserRoleFn(ctx, authToken, userID, tenantID)
-	}
-	return nil, nil
-}
-
-func (m *mockUserService) CreateRole(ctx context.Context, authToken string, input authclient.CreateRoleInput) (*authclient.Role, error) {
-	if m.createRoleFn != nil {
-		return m.createRoleFn(ctx, authToken, input)
-	}
-	return nil, nil
-}
-
-func (m *mockUserService) ListRoles(ctx context.Context, authToken string) ([]authclient.Role, error) {
-	if m.listRolesFn != nil {
-		return m.listRolesFn(ctx, authToken)
-	}
-	return nil, nil
-}
-
-func (m *mockUserService) ListPermissions(ctx context.Context, authToken string) ([]authclient.PermissionCatalogItem, error) {
-	if m.listPermissionsFn != nil {
-		return m.listPermissionsFn(ctx, authToken)
-	}
-	return nil, nil
-}
-
 func setupTestRouter(userHandler *UserHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -92,11 +51,6 @@ func setupTestRouter(userHandler *UserHandler) *gin.Engine {
 	})
 	r.GET("/api/users", userHandler.ListUsers)
 	r.PUT("/api/users/me", userHandler.UpdateMe)
-	r.GET("/api/users/:user_id/role", userHandler.GetUserRole)
-	r.PUT("/api/users/:user_id/role", userHandler.AssignUserRole)
-	r.POST("/api/users/roles", userHandler.CreateRole)
-	r.GET("/api/users/roles", userHandler.ListRoles)
-	r.GET("/api/users/permissions", userHandler.ListPermissions)
 	return r
 }
 
@@ -149,113 +103,5 @@ func TestUserHandler_UpdateMe(t *testing.T) {
 	}
 	if !updated {
 		t.Fatalf("expected UpdateUser to be called")
-	}
-}
-
-func TestUserHandler_AssignUserRole(t *testing.T) {
-	assigned := false
-	mockSvc := &mockUserService{
-		assignUserRoleFn: func(ctx context.Context, authToken, userID, roleID, tenantID string) (*authclient.UserRoleResponse, error) {
-			if userID == "usr_456" && roleID == "role_admin" && tenantID == "ten_test123" {
-				assigned = true
-			}
-			return &authclient.UserRoleResponse{UserID: userID, RoleID: roleID}, nil
-		},
-	}
-	userHandler := NewUserHandler(mockSvc)
-	r := setupTestRouter(userHandler)
-
-	body, _ := json.Marshal(AssignRoleRequest{RoleID: "role_admin"})
-	req := httptest.NewRequest(http.MethodPut, "/api/users/usr_456/role", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", w.Code)
-	}
-	if !assigned {
-		t.Fatalf("expected AssignUserRole to be called with correct arguments")
-	}
-}
-
-func TestUserHandler_GetUserRole(t *testing.T) {
-	mockSvc := &mockUserService{
-		getUserRoleFn: func(ctx context.Context, authToken, userID, tenantID string) (*authclient.UserRoleResponse, error) {
-			return &authclient.UserRoleResponse{UserID: userID, RoleName: "admin"}, nil
-		},
-	}
-	userHandler := NewUserHandler(mockSvc)
-	r := setupTestRouter(userHandler)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/users/usr_789/role", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", w.Code)
-	}
-}
-
-func TestUserHandler_CreateRole(t *testing.T) {
-	created := false
-	mockSvc := &mockUserService{
-		createRoleFn: func(ctx context.Context, authToken string, input authclient.CreateRoleInput) (*authclient.Role, error) {
-			if input.Name == "editor" {
-				created = true
-			}
-			return &authclient.Role{ID: "role_999", Name: "editor"}, nil
-		},
-	}
-	userHandler := NewUserHandler(mockSvc)
-	r := setupTestRouter(userHandler)
-
-	body, _ := json.Marshal(CreateRoleRequest{Name: "editor", Description: "Editor role", Permissions: []string{"users:read"}})
-	req := httptest.NewRequest(http.MethodPost, "/api/users/roles", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected status 201, got %d", w.Code)
-	}
-	if !created {
-		t.Error("expected CreateRole to be called")
-	}
-}
-
-func TestUserHandler_ListRoles(t *testing.T) {
-	mockSvc := &mockUserService{
-		listRolesFn: func(ctx context.Context, authToken string) ([]authclient.Role, error) {
-			return []authclient.Role{{ID: "r1", Name: "admin"}}, nil
-		},
-	}
-	userHandler := NewUserHandler(mockSvc)
-	r := setupTestRouter(userHandler)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/users/roles", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", w.Code)
-	}
-}
-
-func TestUserHandler_ListPermissions(t *testing.T) {
-	mockSvc := &mockUserService{
-		listPermissionsFn: func(ctx context.Context, authToken string) ([]authclient.PermissionCatalogItem, error) {
-			return []authclient.PermissionCatalogItem{{ID: "p1", Name: "users:read"}}, nil
-		},
-	}
-	userHandler := NewUserHandler(mockSvc)
-	r := setupTestRouter(userHandler)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/users/permissions", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", w.Code)
 	}
 }

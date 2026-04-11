@@ -7,6 +7,7 @@ import (
 	"log"
 
 	"auth-service/internal/domain"
+	"auth-service/internal/repository"
 )
 
 type RoleRepository interface {
@@ -22,6 +23,7 @@ type RoleRepository interface {
 	FindUserPermissions(ctx context.Context, userID, tenantID string) ([]string, int64, error)
 	GetUserPermissionVersion(ctx context.Context, userID, tenantID string) (int64, error)
 	BumpUserPermissionVersionsForRole(ctx context.Context, roleID string) error
+	ListUserRolesByTenant(ctx context.Context, tenantID string, userIDs []string) ([]repository.UserRoleBrief, error)
 }
 
 type CreateRoleInput struct {
@@ -177,4 +179,17 @@ func (s *RoleService) GetUserRole(ctx context.Context, userID, tenantID string) 
 	}
 
 	return s.roleRepo.FindUserRole(ctx, userID, tenantID)
+}
+
+// ListUserRolesForTenant returns role assignments for the given user IDs within
+// a single tenant. Scope is enforced by the underlying query (tenant_id match),
+// so callers can only receive assignments belonging to the supplied tenant.
+func (s *RoleService) ListUserRolesForTenant(ctx context.Context, tenantID string, userIDs []string) ([]repository.UserRoleBrief, error) {
+	if tenantID == "" {
+		return nil, domain.ErrTenantIDRequired
+	}
+	if len(userIDs) == 0 {
+		return []repository.UserRoleBrief{}, nil
+	}
+	return s.roleRepo.ListUserRolesByTenant(ctx, tenantID, userIDs)
 }
