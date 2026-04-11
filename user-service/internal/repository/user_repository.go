@@ -42,6 +42,35 @@ func (userRepository *UserRepository) CreateUser(ctx context.Context, input Crea
 	return nil
 }
 
+func (userRepository *UserRepository) AddUserTenantMembership(ctx context.Context, userID, tenantID string) error {
+	exec := txcontext.GetExecutor(ctx, userRepository.dbClient)
+	const query = `
+		INSERT INTO public.user_tenant_memberships (user_id, tenant_id)
+		VALUES ($1, $2)
+		ON CONFLICT (user_id, tenant_id) DO NOTHING;
+	`
+	if _, err := exec.ExecContext(ctx, query, userID, tenantID); err != nil {
+		return fmt.Errorf("user repository: failed to add tenant membership user_id='%s' tenant_id='%s': %w", userID, tenantID, err)
+	}
+	return nil
+}
+
+func (userRepository *UserRepository) UserBelongsToTenant(ctx context.Context, userID, tenantID string) (bool, error) {
+	exec := txcontext.GetExecutor(ctx, userRepository.dbClient)
+	const query = `
+		SELECT EXISTS(
+			SELECT 1
+			FROM public.user_tenant_memberships
+			WHERE user_id = $1 AND tenant_id = $2
+		);
+	`
+	var exists bool
+	if err := exec.QueryRowContext(ctx, query, userID, tenantID).Scan(&exists); err != nil {
+		return false, fmt.Errorf("user repository: failed to check tenant membership user_id='%s' tenant_id='%s': %w", userID, tenantID, err)
+	}
+	return exists, nil
+}
+
 func (userRepository *UserRepository) GetUserByEmail(ctx context.Context, email string) (*domain.User, error) {
 	exec := txcontext.GetExecutor(ctx, userRepository.dbClient)
 	const query = `
@@ -99,14 +128,19 @@ func (userRepository *UserRepository) GetUserByID(ctx context.Context, userID st
 	return &user, nil
 }
 
-func (userRepository *UserRepository) ListUsers(ctx context.Context) ([]domain.User, error) {
+func (userRepository *UserRepository) ListUsers(ctx context.Context, tenantID string) ([]domain.User, error) {
+	if tenantID == "" {
+		return nil, fmt.Errorf("user repository: tenant_id is required to list users")
+	}
 	exec := txcontext.GetExecutor(ctx, userRepository.dbClient)
 	const query = `
-		SELECT id, email, name
-		FROM public.users
-		ORDER BY created_at ASC;
+		SELECT u.id, u.email, u.name
+		FROM public.users u
+		JOIN public.user_tenant_memberships m ON m.user_id = u.id
+		WHERE m.tenant_id = $1
+		ORDER BY u.created_at ASC;
 	`
-	rows, err := exec.QueryContext(ctx, query)
+	rows, err := exec.QueryContext(ctx, query, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("user repository: failed to query users: %w", err)
 	}

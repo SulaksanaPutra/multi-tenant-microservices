@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"auth-service/internal/domain"
@@ -9,17 +10,26 @@ import (
 )
 
 type mockRoleRepo struct {
-	roles     map[string]*domain.Role
-	userRoles map[string]*domain.UserRole
-	versions  map[string]int64
+	roles       map[string]*domain.Role
+	userRoles   map[string]*domain.UserRole
+	versions    map[string]int64
+	memberships map[string]bool
 }
 
 func newMockRoleRepo() *mockRoleRepo {
 	return &mockRoleRepo{
-		roles:     make(map[string]*domain.Role),
-		userRoles: make(map[string]*domain.UserRole),
-		versions:  make(map[string]int64),
+		roles:       make(map[string]*domain.Role),
+		userRoles:   make(map[string]*domain.UserRole),
+		versions:    make(map[string]int64),
+		memberships: make(map[string]bool),
 	}
+}
+
+func (m *mockRoleRepo) UserHasMembership(_ context.Context, userID, tenantID string) (bool, error) {
+	if v, ok := m.memberships[userID+"_"+tenantID]; ok {
+		return v, nil
+	}
+	return true, nil
 }
 
 func (m *mockRoleRepo) CreateRole(_ context.Context, role domain.Role) (*domain.Role, error) {
@@ -138,6 +148,37 @@ func (m *mockRoleRepo) BumpUserPermissionVersionsForRole(_ context.Context, role
 		}
 	}
 	return nil
+}
+
+func TestRoleService_AssignUserRole_RejectsNonMember(t *testing.T) {
+	rRepo := newMockRoleRepo()
+	svc := service.NewRoleService(rRepo)
+	ctx := context.Background()
+
+	tenantID := "tnt_001"
+	role, err := svc.CreateRole(ctx, service.CreateRoleInput{
+		TenantID:    tenantID,
+		Name:        "custom_manager",
+		Description: "Custom Manager Role",
+	})
+	if err != nil {
+		t.Fatalf("CreateRole failed: %v", err)
+	}
+
+	rRepo.memberships["usr_999"+"_"+tenantID] = false
+
+	err = svc.AssignUserRole(ctx, service.AssignUserRoleInput{
+		UserID:   "usr_999",
+		TenantID: tenantID,
+		RoleID:   role.ID,
+	})
+	if !errors.Is(err, domain.ErrTenantMembershipNotFound) {
+		t.Fatalf("expected ErrTenantMembershipNotFound, got %v", err)
+	}
+
+	if _, err := svc.GetUserRole(ctx, "usr_999", tenantID); !errors.Is(err, domain.ErrTenantMembershipNotFound) {
+		t.Fatalf("expected GetUserRole to reject non-member, got %v", err)
+	}
 }
 
 func TestRoleService_CreateAndManageRole(t *testing.T) {

@@ -18,6 +18,7 @@ type RoleRepository interface {
 	DeleteRole(ctx context.Context, id string) error
 	AssignUserRole(ctx context.Context, userID, tenantID, roleID string, assignedBy *string) error
 	FindUserRole(ctx context.Context, userID, tenantID string) (*domain.UserRole, error)
+	UserHasMembership(ctx context.Context, userID, tenantID string) (bool, error)
 	FindUserPermissions(ctx context.Context, userID, tenantID string) ([]string, int64, error)
 	GetUserPermissionVersion(ctx context.Context, userID, tenantID string) (int64, error)
 	BumpUserPermissionVersionsForRole(ctx context.Context, roleID string) error
@@ -142,6 +143,15 @@ func (s *RoleService) AssignUserRole(ctx context.Context, input AssignUserRoleIn
 		return err
 	}
 
+	// Verify the target user is an actual member of the tenant to prevent cross-tenant role assignment
+	isMember, err := s.roleRepo.UserHasMembership(ctx, input.UserID, input.TenantID)
+	if err != nil {
+		return fmt.Errorf("role service: failed to verify tenant membership: %w", err)
+	}
+	if !isMember {
+		return domain.ErrTenantMembershipNotFound
+	}
+
 	if err := s.roleRepo.AssignUserRole(ctx, input.UserID, input.TenantID, input.RoleID, input.AssignedBy); err != nil {
 		return fmt.Errorf("role service: failed to assign user role: %w", err)
 	}
@@ -157,5 +167,14 @@ func (s *RoleService) GetUserRole(ctx context.Context, userID, tenantID string) 
 	if tenantID == "" {
 		return nil, domain.ErrTenantIDRequired
 	}
+
+	isMember, err := s.roleRepo.UserHasMembership(ctx, userID, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("role service: failed to verify tenant membership: %w", err)
+	}
+	if !isMember {
+		return nil, domain.ErrTenantMembershipNotFound
+	}
+
 	return s.roleRepo.FindUserRole(ctx, userID, tenantID)
 }

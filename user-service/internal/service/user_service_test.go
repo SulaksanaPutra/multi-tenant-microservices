@@ -15,11 +15,13 @@ import (
 )
 
 type mockUserRepository struct {
-	createUserFunc     func(ctx context.Context, input repository.CreateUserInput) error
-	getUserByEmailFunc func(ctx context.Context, email string) (*domain.User, error)
-	updateUserFunc     func(ctx context.Context, input repository.UpdateUserInput) error
-	getUserByIDFunc    func(ctx context.Context, userID string) (*domain.User, error)
-	listUsersFunc      func(ctx context.Context) ([]domain.User, error)
+	createUserFunc        func(ctx context.Context, input repository.CreateUserInput) error
+	getUserByEmailFunc    func(ctx context.Context, email string) (*domain.User, error)
+	updateUserFunc        func(ctx context.Context, input repository.UpdateUserInput) error
+	getUserByIDFunc       func(ctx context.Context, userID string) (*domain.User, error)
+	listUsersFunc         func(ctx context.Context, tenantID string) ([]domain.User, error)
+	addMembershipFunc     func(ctx context.Context, userID, tenantID string) error
+	userBelongsToTenantFn func(ctx context.Context, userID, tenantID string) (bool, error)
 }
 
 func (m *mockUserRepository) CreateUser(ctx context.Context, input repository.CreateUserInput) error {
@@ -50,11 +52,25 @@ func (m *mockUserRepository) GetUserByID(ctx context.Context, userID string) (*d
 	return nil, nil
 }
 
-func (m *mockUserRepository) ListUsers(ctx context.Context) ([]domain.User, error) {
+func (m *mockUserRepository) ListUsers(ctx context.Context, tenantID string) ([]domain.User, error) {
 	if m.listUsersFunc != nil {
-		return m.listUsersFunc(ctx)
+		return m.listUsersFunc(ctx, tenantID)
 	}
 	return nil, nil
+}
+
+func (m *mockUserRepository) AddUserTenantMembership(ctx context.Context, userID, tenantID string) error {
+	if m.addMembershipFunc != nil {
+		return m.addMembershipFunc(ctx, userID, tenantID)
+	}
+	return nil
+}
+
+func (m *mockUserRepository) UserBelongsToTenant(ctx context.Context, userID, tenantID string) (bool, error) {
+	if m.userBelongsToTenantFn != nil {
+		return m.userBelongsToTenantFn(ctx, userID, tenantID)
+	}
+	return true, nil
 }
 
 type mockOutboxRepository struct {
@@ -152,10 +168,15 @@ func TestUserService_CreateUserFromWorkspace_Validation(t *testing.T) {
 func TestUserService_CreateUserFromWorkspace_Success(t *testing.T) {
 	var createdUser repository.CreateUserInput
 	var createdOutbox repository.CreateOutboxMessageInput
+	var membershipAdded string
 
 	userRepo := &mockUserRepository{
 		createUserFunc: func(ctx context.Context, input repository.CreateUserInput) error {
 			createdUser = input
+			return nil
+		},
+		addMembershipFunc: func(ctx context.Context, userID, tenantID string) error {
+			membershipAdded = tenantID
 			return nil
 		},
 	}
@@ -187,6 +208,10 @@ func TestUserService_CreateUserFromWorkspace_Success(t *testing.T) {
 
 	if createdOutbox.AggregateID != createdUser.ID || createdOutbox.EventType != domain.RoutingKeyUserCreated {
 		t.Errorf("unexpected outbox message created: %+v", createdOutbox)
+	}
+
+	if membershipAdded != "tenant-456" {
+		t.Errorf("expected tenant membership to be added for tenant-456, got %q", membershipAdded)
 	}
 }
 
@@ -326,27 +351,57 @@ func TestUserService_GetUserByID(t *testing.T) {
 }
 
 func TestUserService_ListUsers(t *testing.T) {
+	var gotTenantID string
 	mockRepo := &mockUserRepository{
-		listUsersFunc: func(ctx context.Context) ([]domain.User, error) {
-			return []domain.User{{ID: "usr_1"}, {ID: "usr_2"}}, nil
+		listUsersFunc: func(ctx context.Context, tenantID string) ([]domain.User, error) {
+			gotTenantID = tenantID
+			return []domain.User{{ID: "usr_1"}}, nil
 		},
 	}
 	userService := NewUserService(mockRepo, nil, nil)
-	users, err := userService.ListUsers(context.Background())
+	users, err := userService.ListUsers(context.Background(), "tenant-abc")
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if len(users) != 2 {
-		t.Fatalf("expected 2 users, got %d", len(users))
+	if len(users) != 1 {
+		t.Fatalf("expected 1 user, got %d", len(users))
+	}
+	if gotTenantID != "tenant-abc" {
+		t.Fatalf("expected ListUsers to be scoped to tenant-abc, got %q", gotTenantID)
+	}
+}
+
+func TestUserService_ListUsers_RequiresTenant(t *testing.T) {
+	userService := NewUserService(&mockUserRepository{}, nil, nil)
+	_, err := userService.ListUsers(context.Background(), "")
+	if !errors.Is(err, ErrTenantIDRequired) {
+		t.Errorf("expected ErrTenantIDRequired, got %v", err)
 	}
 }
 
 func TestUserService_RoleDelegation(t *testing.T) {
 	t.Run("nil role client returns error", func(t *testing.T) {
 		userService := NewUserService(&mockUserRepository{}, nil, nil)
-		_, err := userService.AssignUserRole(context.Background(), "token", "u1", "r1")
+		_, err := userService.AssignUserRole(context.Background(), "token", "u1", "r1", "t1")
 		if err == nil {
 			t.Error("expected error when roleClient is nil")
+		}
+	})
+
+	t.Run("rejects cross-tenant target user", func(t *testing.T) {
+		mockRole := &mockRoleClient{
+			assignUserRoleFn: func(ctx context.Context, authToken, userID, roleID string) (*authclient.UserRoleResponse, error) {
+				return &authclient.UserRoleResponse{UserID: userID, RoleID: roleID}, nil
+			},
+		}
+		userRepo := &mockUserRepository{
+			userBelongsToTenantFn: func(ctx context.Context, userID, tenantID string) (bool, error) {
+				return false, nil
+			},
+		}
+		userService := NewUserService(userRepo, nil, mockRole)
+		if _, err := userService.AssignUserRole(context.Background(), "t", "u1", "r1", "tenant-a"); err == nil {
+			t.Error("expected error when target user is not a member of the tenant")
 		}
 	})
 
@@ -372,10 +427,10 @@ func TestUserService_RoleDelegation(t *testing.T) {
 		userService := NewUserService(&mockUserRepository{}, nil, mockRole)
 		ctx := context.Background()
 
-		if _, err := userService.AssignUserRole(ctx, "t", "u1", "r1"); err != nil {
+		if _, err := userService.AssignUserRole(ctx, "t", "u1", "r1", "tenant-a"); err != nil {
 			t.Errorf("AssignUserRole failed: %v", err)
 		}
-		if _, err := userService.GetUserRole(ctx, "t", "u1"); err != nil {
+		if _, err := userService.GetUserRole(ctx, "t", "u1", "tenant-a"); err != nil {
 			t.Errorf("GetUserRole failed: %v", err)
 		}
 		if _, err := userService.CreateRole(ctx, "t", authclient.CreateRoleInput{Name: "role"}); err != nil {

@@ -161,8 +161,84 @@ func TestUserRepository_ListUsers_Error(t *testing.T) {
 	userRepository := NewUserRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	_, err := userRepository.ListUsers(ctx)
+	_, err := userRepository.ListUsers(ctx, "tenant-1")
 	if err == nil || !errors.Is(err, dbErr) {
 		t.Fatalf("expected error wrapping dbErr, got %v", err)
+	}
+}
+
+func TestUserRepository_ListUsers_SuccessScopedToTenant(t *testing.T) {
+	var capturedQuery string
+	var capturedArgs []any
+
+	mockExec := &testutil.MockDBExecutor{
+		QueryContextFn: func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+			capturedQuery = query
+			capturedArgs = args
+			return nil, errors.New("stop after query capture")
+		},
+	}
+
+	userRepository := NewUserRepository(&postgres.Client{})
+	ctx := txcontext.WithExecutor(context.Background(), mockExec)
+
+	_, err := userRepository.ListUsers(ctx, "tenant-9")
+	if err == nil {
+		t.Fatal("expected error to short-circuit after query capture")
+	}
+
+	if !strings.Contains(capturedQuery, "user_tenant_memberships") {
+		t.Errorf("expected query to join user_tenant_memberships, got: %s", capturedQuery)
+	}
+	if len(capturedArgs) != 1 || capturedArgs[0] != "tenant-9" {
+		t.Errorf("expected query scoped to tenant-9, got args %v", capturedArgs)
+	}
+}
+
+func TestUserRepository_ListUsers_RequiresTenant(t *testing.T) {
+	userRepository := NewUserRepository(&postgres.Client{})
+	_, err := userRepository.ListUsers(context.Background(), "")
+	if err == nil {
+		t.Fatal("expected error when tenant_id is empty")
+	}
+}
+
+func TestUserRepository_AddUserTenantMembership_Success(t *testing.T) {
+	var capturedQuery string
+	var capturedArgs []any
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+			capturedQuery = query
+			capturedArgs = args
+			return nil, nil
+		},
+	}
+
+	userRepository := NewUserRepository(&postgres.Client{})
+	ctx := txcontext.WithExecutor(context.Background(), mockExec)
+
+	if err := userRepository.AddUserTenantMembership(ctx, "usr_1", "tenant-1"); err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !strings.Contains(capturedQuery, "user_tenant_memberships") {
+		t.Errorf("expected query to insert user_tenant_memberships, got: %s", capturedQuery)
+	}
+	if len(capturedArgs) != 2 || capturedArgs[0] != "usr_1" || capturedArgs[1] != "tenant-1" {
+		t.Errorf("unexpected membership args: %v", capturedArgs)
+	}
+}
+
+func TestUserRepository_UserBelongsToTenant(t *testing.T) {
+	mockExec := &testutil.MockDBExecutor{
+		QueryRowContextFn: func(ctx context.Context, query string, args ...any) *sql.Row {
+			return testutil.GetDummyRow(ctx)
+		},
+	}
+	userRepository := NewUserRepository(&postgres.Client{})
+	ctx := txcontext.WithExecutor(context.Background(), mockExec)
+
+	_, err := userRepository.UserBelongsToTenant(ctx, "usr_1", "tenant-1")
+	if err == nil {
+		t.Fatal("expected scan error from dummy row, got nil")
 	}
 }
