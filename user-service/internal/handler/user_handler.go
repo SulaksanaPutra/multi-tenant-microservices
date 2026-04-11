@@ -7,17 +7,18 @@ import (
 	"user-service/internal/domain"
 	"user-service/internal/httputil"
 	"user-service/internal/infrastructure/authclient"
+	"user-service/internal/middleware"
 	"user-service/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
 type UserServiceInterface interface {
-	ListUsers(ctx context.Context) ([]domain.User, error)
+	ListUsers(ctx context.Context, tenantID string) ([]domain.User, error)
 	UpdateUser(ctx context.Context, input service.UpdateUserServiceInput) error
 	GetUserByID(ctx context.Context, userID string) (*domain.User, error)
-	AssignUserRole(ctx context.Context, authToken, userID, roleID string) (*authclient.UserRoleResponse, error)
-	GetUserRole(ctx context.Context, authToken, userID string) (*authclient.UserRoleResponse, error)
+	AssignUserRole(ctx context.Context, authToken, userID, roleID, tenantID string) (*authclient.UserRoleResponse, error)
+	GetUserRole(ctx context.Context, authToken, userID, tenantID string) (*authclient.UserRoleResponse, error)
 	CreateRole(ctx context.Context, authToken string, input authclient.CreateRoleInput) (*authclient.Role, error)
 	ListRoles(ctx context.Context, authToken string) ([]authclient.Role, error)
 	ListPermissions(ctx context.Context, authToken string) ([]authclient.PermissionCatalogItem, error)
@@ -54,7 +55,13 @@ type CreateRoleRequest struct {
 }
 
 func (userHandler *UserHandler) ListUsers(c *gin.Context) {
-	users, err := userHandler.userService.ListUsers(c.Request.Context())
+	tenantID := c.GetString(middleware.ContextKeyTenantID)
+	if tenantID == "" {
+		httputil.WriteError(c, http.StatusUnauthorized, "user handler: missing tenant_id in token claims")
+		return
+	}
+
+	users, err := userHandler.userService.ListUsers(c.Request.Context(), tenantID)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, "user handler: failed to list users: "+err.Error())
 		return
@@ -108,7 +115,8 @@ func (userHandler *UserHandler) GetUserRole(c *gin.Context) {
 	}
 
 	authToken := c.GetHeader("Authorization")
-	res, err := userHandler.userService.GetUserRole(c.Request.Context(), authToken, targetUserID)
+	tenantID := c.GetString(middleware.ContextKeyTenantID)
+	res, err := userHandler.userService.GetUserRole(c.Request.Context(), authToken, targetUserID, tenantID)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, "user handler: failed to get user role: "+err.Error())
 		return
@@ -131,7 +139,8 @@ func (userHandler *UserHandler) AssignUserRole(c *gin.Context) {
 	}
 
 	authToken := c.GetHeader("Authorization")
-	res, err := userHandler.userService.AssignUserRole(c.Request.Context(), authToken, targetUserID, req.RoleID)
+	tenantID := c.GetString(middleware.ContextKeyTenantID)
+	res, err := userHandler.userService.AssignUserRole(c.Request.Context(), authToken, targetUserID, req.RoleID, tenantID)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, "user handler: failed to assign user role: "+err.Error())
 		return

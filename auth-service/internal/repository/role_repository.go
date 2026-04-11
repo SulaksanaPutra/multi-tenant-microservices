@@ -264,6 +264,22 @@ func (r *RoleRepository) AssignUserRole(ctx context.Context, userID, tenantID, r
 	return nil
 }
 
+func (r *RoleRepository) UserHasMembership(ctx context.Context, userID, tenantID string) (bool, error) {
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
+	query := `
+		SELECT EXISTS(
+			SELECT 1
+			FROM public.user_tenant_memberships
+			WHERE user_id = $1 AND tenant_id = $2
+		);
+	`
+	var exists bool
+	if err := exec.QueryRowContext(ctx, query, userID, tenantID).Scan(&exists); err != nil {
+		return false, fmt.Errorf("role repository: failed to check tenant membership user_id='%s' tenant_id='%s': %w", userID, tenantID, err)
+	}
+	return exists, nil
+}
+
 func (r *RoleRepository) FindUserRole(ctx context.Context, userID, tenantID string) (*domain.UserRole, error) {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	query := `

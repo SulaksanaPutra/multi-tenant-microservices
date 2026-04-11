@@ -16,19 +16,19 @@ import (
 )
 
 type mockUserService struct {
-	listUsersFn       func(ctx context.Context) ([]domain.User, error)
+	listUsersFn       func(ctx context.Context, tenantID string) ([]domain.User, error)
 	updateUserFn      func(ctx context.Context, input service.UpdateUserServiceInput) error
 	getUserByIDFn     func(ctx context.Context, userID string) (*domain.User, error)
-	assignUserRoleFn  func(ctx context.Context, authToken, userID, roleID string) (*authclient.UserRoleResponse, error)
-	getUserRoleFn     func(ctx context.Context, authToken, userID string) (*authclient.UserRoleResponse, error)
+	assignUserRoleFn  func(ctx context.Context, authToken, userID, roleID, tenantID string) (*authclient.UserRoleResponse, error)
+	getUserRoleFn     func(ctx context.Context, authToken, userID, tenantID string) (*authclient.UserRoleResponse, error)
 	createRoleFn      func(ctx context.Context, authToken string, input authclient.CreateRoleInput) (*authclient.Role, error)
 	listRolesFn       func(ctx context.Context, authToken string) ([]authclient.Role, error)
 	listPermissionsFn func(ctx context.Context, authToken string) ([]authclient.PermissionCatalogItem, error)
 }
 
-func (m *mockUserService) ListUsers(ctx context.Context) ([]domain.User, error) {
+func (m *mockUserService) ListUsers(ctx context.Context, tenantID string) ([]domain.User, error) {
 	if m.listUsersFn != nil {
-		return m.listUsersFn(ctx)
+		return m.listUsersFn(ctx, tenantID)
 	}
 	return nil, nil
 }
@@ -47,16 +47,16 @@ func (m *mockUserService) GetUserByID(ctx context.Context, userID string) (*doma
 	return nil, nil
 }
 
-func (m *mockUserService) AssignUserRole(ctx context.Context, authToken, userID, roleID string) (*authclient.UserRoleResponse, error) {
+func (m *mockUserService) AssignUserRole(ctx context.Context, authToken, userID, roleID, tenantID string) (*authclient.UserRoleResponse, error) {
 	if m.assignUserRoleFn != nil {
-		return m.assignUserRoleFn(ctx, authToken, userID, roleID)
+		return m.assignUserRoleFn(ctx, authToken, userID, roleID, tenantID)
 	}
 	return nil, nil
 }
 
-func (m *mockUserService) GetUserRole(ctx context.Context, authToken, userID string) (*authclient.UserRoleResponse, error) {
+func (m *mockUserService) GetUserRole(ctx context.Context, authToken, userID, tenantID string) (*authclient.UserRoleResponse, error) {
 	if m.getUserRoleFn != nil {
-		return m.getUserRoleFn(ctx, authToken, userID)
+		return m.getUserRoleFn(ctx, authToken, userID, tenantID)
 	}
 	return nil, nil
 }
@@ -101,8 +101,10 @@ func setupTestRouter(userHandler *UserHandler) *gin.Engine {
 }
 
 func TestUserHandler_ListUsers(t *testing.T) {
+	var gotTenantID string
 	mockSvc := &mockUserService{
-		listUsersFn: func(ctx context.Context) ([]domain.User, error) {
+		listUsersFn: func(ctx context.Context, tenantID string) ([]domain.User, error) {
+			gotTenantID = tenantID
 			return []domain.User{
 				{ID: "usr_1", Email: "test1@example.com", Name: "Test One"},
 			}, nil
@@ -117,6 +119,9 @@ func TestUserHandler_ListUsers(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+	if gotTenantID != "ten_test123" {
+		t.Fatalf("expected ListUsers to be scoped to ten_test123, got %q", gotTenantID)
 	}
 }
 
@@ -150,8 +155,8 @@ func TestUserHandler_UpdateMe(t *testing.T) {
 func TestUserHandler_AssignUserRole(t *testing.T) {
 	assigned := false
 	mockSvc := &mockUserService{
-		assignUserRoleFn: func(ctx context.Context, authToken, userID, roleID string) (*authclient.UserRoleResponse, error) {
-			if userID == "usr_456" && roleID == "role_admin" {
+		assignUserRoleFn: func(ctx context.Context, authToken, userID, roleID, tenantID string) (*authclient.UserRoleResponse, error) {
+			if userID == "usr_456" && roleID == "role_admin" && tenantID == "ten_test123" {
 				assigned = true
 			}
 			return &authclient.UserRoleResponse{UserID: userID, RoleID: roleID}, nil
@@ -176,7 +181,7 @@ func TestUserHandler_AssignUserRole(t *testing.T) {
 
 func TestUserHandler_GetUserRole(t *testing.T) {
 	mockSvc := &mockUserService{
-		getUserRoleFn: func(ctx context.Context, authToken, userID string) (*authclient.UserRoleResponse, error) {
+		getUserRoleFn: func(ctx context.Context, authToken, userID, tenantID string) (*authclient.UserRoleResponse, error) {
 			return &authclient.UserRoleResponse{UserID: userID, RoleName: "admin"}, nil
 		},
 	}

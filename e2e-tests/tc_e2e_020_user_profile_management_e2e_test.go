@@ -62,6 +62,13 @@ func TestUserProfileManagementE2E(t *testing.T) {
 	if len(listUsersResp.Data) == 0 {
 		t.Error("expected non-empty users list")
 	}
+	// Assert tenant isolation: the directory must be scoped to the caller's tenant only.
+	if len(listUsersResp.Data) != 1 {
+		t.Errorf("expected exactly 1 user (the tenant owner) in the tenant-scoped listing, got %d", len(listUsersResp.Data))
+	}
+	if listUsersResp.Data[0].Email != ownerEmail {
+		t.Errorf("expected the listed user to be the owner '%s', got '%s'", ownerEmail, listUsersResp.Data[0].Email)
+	}
 
 	// 4. PUT /api/users/me (Update User Profile Name)
 	t.Log("[TC-E2E-020] Testing PUT /api/users/me...")

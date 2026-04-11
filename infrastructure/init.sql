@@ -116,6 +116,14 @@ CREATE TABLE IF NOT EXISTS public.users (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Which tenants a user profile belongs to. Scopes user directory + role ops per tenant.
+CREATE TABLE IF NOT EXISTS public.user_tenant_memberships (
+    user_id     VARCHAR(255) NOT NULL,
+    tenant_id   VARCHAR(255) NOT NULL,
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (user_id, tenant_id)
+);
+
 CREATE TABLE IF NOT EXISTS public.inbox (
     event_id     VARCHAR(255) PRIMARY KEY,
     tenant_id    VARCHAR(255),
@@ -141,6 +149,7 @@ CREATE TABLE IF NOT EXISTS public.outbox (
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_email ON public.users(email);
+CREATE INDEX IF NOT EXISTS idx_user_tenant_memberships_tenant ON public.user_tenant_memberships(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_inbox_tenant_event ON public.inbox(tenant_id, event_type);
 CREATE INDEX IF NOT EXISTS idx_outbox_pending ON public.outbox(event_type, next_retry_at, created_at) WHERE status IN ('PENDING', 'PROCESSING');
 
