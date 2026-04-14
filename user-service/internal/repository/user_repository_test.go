@@ -134,22 +134,6 @@ func TestUserRepository_UpdateUser_NotFound(t *testing.T) {
 	}
 }
 
-func TestUserRepository_GetUserByID_Error(t *testing.T) {
-	mockExec := &testutil.MockDBExecutor{
-		QueryRowContextFn: func(ctx context.Context, query string, args ...any) *sql.Row {
-			return testutil.GetDummyRow(ctx)
-		},
-	}
-
-	userRepository := NewUserRepository(&postgres.Client{})
-	ctx := txcontext.WithExecutor(context.Background(), mockExec)
-
-	_, err := userRepository.GetUserByID(ctx, "usr_123")
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-}
-
 func TestUserRepository_ListUsers_Error(t *testing.T) {
 	dbErr := errors.New("db error")
 	mockExec := &testutil.MockDBExecutor{
@@ -225,20 +209,5 @@ func TestUserRepository_AddUserTenantMembership_Success(t *testing.T) {
 	}
 	if len(capturedArgs) != 2 || capturedArgs[0] != "usr_1" || capturedArgs[1] != "tenant-1" {
 		t.Errorf("unexpected membership args: %v", capturedArgs)
-	}
-}
-
-func TestUserRepository_UserBelongsToTenant(t *testing.T) {
-	mockExec := &testutil.MockDBExecutor{
-		QueryRowContextFn: func(ctx context.Context, query string, args ...any) *sql.Row {
-			return testutil.GetDummyRow(ctx)
-		},
-	}
-	userRepository := NewUserRepository(&postgres.Client{})
-	ctx := txcontext.WithExecutor(context.Background(), mockExec)
-
-	_, err := userRepository.UserBelongsToTenant(ctx, "usr_1", "tenant-1")
-	if err == nil {
-		t.Fatal("expected scan error from dummy row, got nil")
 	}
 }

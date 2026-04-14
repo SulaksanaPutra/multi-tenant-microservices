@@ -14,13 +14,11 @@ import (
 )
 
 type mockUserRepository struct {
-	createUserFunc        func(ctx context.Context, input repository.CreateUserInput) error
-	getUserByEmailFunc    func(ctx context.Context, email string) (*domain.User, error)
-	updateUserFunc        func(ctx context.Context, input repository.UpdateUserInput) error
-	getUserByIDFunc       func(ctx context.Context, userID string) (*domain.User, error)
-	listUsersFunc         func(ctx context.Context, tenantID string) ([]domain.User, error)
-	addMembershipFunc     func(ctx context.Context, userID, tenantID string) error
-	userBelongsToTenantFn func(ctx context.Context, userID, tenantID string) (bool, error)
+	createUserFunc     func(ctx context.Context, input repository.CreateUserInput) error
+	getUserByEmailFunc func(ctx context.Context, email string) (*domain.User, error)
+	updateUserFunc     func(ctx context.Context, input repository.UpdateUserInput) error
+	listUsersFunc      func(ctx context.Context, tenantID string) ([]domain.User, error)
+	addMembershipFunc  func(ctx context.Context, userID, tenantID string) error
 }
 
 func (m *mockUserRepository) CreateUser(ctx context.Context, input repository.CreateUserInput) error {
@@ -44,13 +42,6 @@ func (m *mockUserRepository) UpdateUser(ctx context.Context, input repository.Up
 	return nil
 }
 
-func (m *mockUserRepository) GetUserByID(ctx context.Context, userID string) (*domain.User, error) {
-	if m.getUserByIDFunc != nil {
-		return m.getUserByIDFunc(ctx, userID)
-	}
-	return nil, nil
-}
-
 func (m *mockUserRepository) ListUsers(ctx context.Context, tenantID string) ([]domain.User, error) {
 	if m.listUsersFunc != nil {
 		return m.listUsersFunc(ctx, tenantID)
@@ -63,13 +54,6 @@ func (m *mockUserRepository) AddUserTenantMembership(ctx context.Context, userID
 		return m.addMembershipFunc(ctx, userID, tenantID)
 	}
 	return nil
-}
-
-func (m *mockUserRepository) UserBelongsToTenant(ctx context.Context, userID, tenantID string) (bool, error) {
-	if m.userBelongsToTenantFn != nil {
-		return m.userBelongsToTenantFn(ctx, userID, tenantID)
-	}
-	return true, nil
 }
 
 type mockOutboxRepository struct {
@@ -276,32 +260,6 @@ func TestUserService_UpdateUser(t *testing.T) {
 		}
 		if !updated {
 			t.Error("expected UpdateUser to be called")
-		}
-	})
-}
-
-func TestUserService_GetUserByID(t *testing.T) {
-	t.Run("missing user_id", func(t *testing.T) {
-		userService := NewUserService(&mockUserRepository{}, nil)
-		_, err := userService.GetUserByID(context.Background(), "")
-		if !errors.Is(err, ErrUserIDRequired) {
-			t.Errorf("expected ErrUserIDRequired, got %v", err)
-		}
-	})
-
-	t.Run("success", func(t *testing.T) {
-		mockRepo := &mockUserRepository{
-			getUserByIDFunc: func(ctx context.Context, userID string) (*domain.User, error) {
-				return &domain.User{ID: userID, Name: "Bob"}, nil
-			},
-		}
-		userService := NewUserService(mockRepo, nil)
-		u, err := userService.GetUserByID(context.Background(), "usr_2")
-		if err != nil {
-			t.Fatalf("expected nil error, got %v", err)
-		}
-		if u.ID != "usr_2" || u.Name != "Bob" {
-			t.Errorf("unexpected user returned: %+v", u)
 		}
 	})
 }
