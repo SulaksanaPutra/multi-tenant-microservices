@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"order-service/internal/domain"
 	"order-service/internal/infrastructure/authclient"
 	"order-service/internal/infrastructure/rabbitmq"
 	"order-service/internal/infrastructure/tenantdb"
@@ -32,11 +33,12 @@ func main() {
 
 	// Register domain permissions with auth-service (non-blocking)
 	permRegistrar := authclient.NewPermissionRegistrar(authServiceURL, internalToken)
+	permissions := make([]authclient.PermissionItem, len(domain.OrderServicePermissions))
+	for i, p := range domain.OrderServicePermissions {
+		permissions[i] = authclient.PermissionItem{Name: p.Name, Description: p.Description}
+	}
 	go func() {
-		if err := permRegistrar.Register(context.Background(), "order-service", []authclient.PermissionItem{
-			{Name: "orders:create", Description: "Create new tenant order"},
-			{Name: "orders:read", Description: "Read tenant orders"},
-		}); err != nil {
+		if err := permRegistrar.Register(context.Background(), "order-service", permissions); err != nil {
 			log.Printf("Order Service: Warning — startup permission registration deferred: %v", err)
 		}
 	}()

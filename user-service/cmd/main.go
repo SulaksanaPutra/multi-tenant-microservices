@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"user-service/internal/domain"
 	"user-service/internal/handler"
 	"user-service/internal/infrastructure/authclient"
 	"user-service/internal/infrastructure/postgres"
@@ -39,11 +40,12 @@ func main() {
 	// Register user-service's own atomic capabilities with auth-service (non-blocking).
 	// This is startup-only permission ownership declaration, NOT a runtime role proxy.
 	permRegistrar := authclient.NewPermissionRegistrar(authServiceURL, internalToken)
+	permissions := make([]authclient.PermissionItem, len(domain.UserServicePermissions))
+	for i, p := range domain.UserServicePermissions {
+		permissions[i] = authclient.PermissionItem{Name: p.Name, Description: p.Description}
+	}
 	go func() {
-		if err := permRegistrar.Register(context.Background(), "user-service", []authclient.PermissionItem{
-			{Name: "users:read", Description: "Read user profiles"},
-			{Name: "users:write", Description: "Update user profiles"},
-		}); err != nil {
+		if err := permRegistrar.Register(context.Background(), "user-service", permissions); err != nil {
 			log.Printf("User Service: Warning — startup permission registration deferred: %v", err)
 		}
 	}()
