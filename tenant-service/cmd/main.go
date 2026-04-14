@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"tenant-service/internal/domain"
 	"tenant-service/internal/infrastructure/authclient"
 	"tenant-service/internal/infrastructure/postgres"
 	"tenant-service/internal/infrastructure/rabbitmq"
@@ -37,11 +38,12 @@ func main() {
 
 	// Register domain permissions with auth-service (non-blocking)
 	permRegistrar := authclient.NewPermissionRegistrar(authServiceURL, internalToken)
+	permissions := make([]authclient.PermissionItem, len(domain.TenantServicePermissions))
+	for i, p := range domain.TenantServicePermissions {
+		permissions[i] = authclient.PermissionItem{Name: p.Name, Description: p.Description}
+	}
 	go func() {
-		if err := permRegistrar.Register(context.Background(), "tenant-service", []authclient.PermissionItem{
-			{Name: "tenants:read", Description: "Read tenant workspace details"},
-			{Name: "tenants:write", Description: "Update tenant workspace details and plan"},
-		}); err != nil {
+		if err := permRegistrar.Register(context.Background(), "tenant-service", permissions); err != nil {
 			log.Printf("Tenant Service: Warning — startup permission registration deferred: %v", err)
 		}
 	}()

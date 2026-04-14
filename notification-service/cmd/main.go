@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"notification-service/internal/domain"
 	"notification-service/internal/handler"
 	"notification-service/internal/infrastructure/authclient"
 	"notification-service/internal/infrastructure/postgres"
@@ -40,10 +41,12 @@ func main() {
 
 	// Register domain permissions with auth-service (non-blocking)
 	permRegistrar := authclient.NewPermissionRegistrar(authServiceURL, internalServiceToken)
+	permissions := make([]authclient.PermissionItem, len(domain.NotificationServicePermissions))
+	for i, p := range domain.NotificationServicePermissions {
+		permissions[i] = authclient.PermissionItem{Name: p.Name, Description: p.Description}
+	}
 	go func() {
-		if err := permRegistrar.Register(context.Background(), "notification-service", []authclient.PermissionItem{
-			{Name: "notifications:read", Description: "Read user notifications"},
-		}); err != nil {
+		if err := permRegistrar.Register(context.Background(), "notification-service", permissions); err != nil {
 			log.Printf("Notification Service: Warning — startup permission registration deferred: %v", err)
 		}
 	}()
