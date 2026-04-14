@@ -15,7 +15,6 @@ import (
 type UserServiceInterface interface {
 	ListUsers(ctx context.Context, tenantID string) ([]domain.User, error)
 	UpdateUser(ctx context.Context, input service.UpdateUserServiceInput) error
-	GetUserByID(ctx context.Context, userID string) (*domain.User, error)
 }
 
 type UserHandler struct {

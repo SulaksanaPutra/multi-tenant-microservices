@@ -55,22 +55,6 @@ func (userRepository *UserRepository) AddUserTenantMembership(ctx context.Contex
 	return nil
 }
 
-func (userRepository *UserRepository) UserBelongsToTenant(ctx context.Context, userID, tenantID string) (bool, error) {
-	exec := txcontext.GetExecutor(ctx, userRepository.dbClient)
-	const query = `
-		SELECT EXISTS(
-			SELECT 1
-			FROM public.user_tenant_memberships
-			WHERE user_id = $1 AND tenant_id = $2
-		);
-	`
-	var exists bool
-	if err := exec.QueryRowContext(ctx, query, userID, tenantID).Scan(&exists); err != nil {
-		return false, fmt.Errorf("user repository: failed to check tenant membership user_id='%s' tenant_id='%s': %w", userID, tenantID, err)
-	}
-	return exists, nil
-}
-
 func (userRepository *UserRepository) GetUserByEmail(ctx context.Context, email string) (*domain.User, error) {
 	exec := txcontext.GetExecutor(ctx, userRepository.dbClient)
 	const query = `
@@ -108,24 +92,6 @@ func (userRepository *UserRepository) UpdateUser(ctx context.Context, input Upda
 		return fmt.Errorf("user '%s': %w", input.ID, domain.ErrNotFound)
 	}
 	return nil
-}
-
-func (userRepository *UserRepository) GetUserByID(ctx context.Context, userID string) (*domain.User, error) {
-	exec := txcontext.GetExecutor(ctx, userRepository.dbClient)
-	const query = `
-		SELECT id, email, name
-		FROM public.users
-		WHERE id = $1;
-	`
-	var user domain.User
-	err := exec.QueryRowContext(ctx, query, userID).Scan(&user.ID, &user.Email, &user.Name)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("user '%s': %w", userID, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("user repository: failed to query user by ID: %w", err)
-	}
-	return &user, nil
 }
 
 func (userRepository *UserRepository) ListUsers(ctx context.Context, tenantID string) ([]domain.User, error) {

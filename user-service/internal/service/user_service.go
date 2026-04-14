@@ -38,10 +38,8 @@ type UserRepository interface {
 	CreateUser(ctx context.Context, input repository.CreateUserInput) error
 	GetUserByEmail(ctx context.Context, email string) (*domain.User, error)
 	UpdateUser(ctx context.Context, input repository.UpdateUserInput) error
-	GetUserByID(ctx context.Context, userID string) (*domain.User, error)
 	ListUsers(ctx context.Context, tenantID string) ([]domain.User, error)
 	AddUserTenantMembership(ctx context.Context, userID, tenantID string) error
-	UserBelongsToTenant(ctx context.Context, userID, tenantID string) (bool, error)
 }
 
 // OutboxRepository is the consumer-side interface expected by UserService.
@@ -144,26 +142,9 @@ func (userService *UserService) UpdateUser(ctx context.Context, input UpdateUser
 	})
 }
 
-func (userService *UserService) GetUserByID(ctx context.Context, userID string) (*domain.User, error) {
-	if userID == "" {
-		return nil, ErrUserIDRequired
-	}
-	return userService.userRepository.GetUserByID(ctx, userID)
-}
-
 func (userService *UserService) ListUsers(ctx context.Context, tenantID string) ([]domain.User, error) {
 	if tenantID == "" {
 		return nil, ErrTenantIDRequired
 	}
 	return userService.userRepository.ListUsers(ctx, tenantID)
-}
-
-func (userService *UserService) UserBelongsToTenant(ctx context.Context, userID, tenantID string) (bool, error) {
-	if userID == "" {
-		return false, ErrUserIDRequired
-	}
-	if tenantID == "" {
-		return false, ErrTenantIDRequired
-	}
-	return userService.userRepository.UserBelongsToTenant(ctx, userID, tenantID)
 }
