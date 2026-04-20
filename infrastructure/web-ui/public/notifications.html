@@ -11,7 +11,7 @@
     <!-- TUTORIAL NOTE (GRAY) -->
     <div style="padding:10px; background:#f0f0f0; border:1px solid #ccc; margin-bottom:15px; color:#333;">
         <strong>Step 7: Notifications Audit Log</strong><br>
-        • <strong>What you can do here:</strong> View system event notification dispatch records (`GET /api/notifications`) sent by <code>notification-service</code>.<br>
+        • <strong>What you can do here:</strong> View system event notification dispatch records sent by <code>notification-service</code>.<br>
         • <strong>What to do next:</strong> Click "Refresh Notifications" to view delivered audit logs.
     </div>
 
@@ -71,14 +71,14 @@
                         const id = n.ID || n.id || n.notification_id;
                         const recipient = n.RecipientEmail || n.recipient_email || n.to || "N/A";
                         const subject = n.Subject || n.subject || "N/A";
-                        const status = n.Status || n.status || "DELIVERED";
+                        const status = n.Status || n.status || "delivered";
                         const created = n.CreatedAt || n.created_at || "N/A";
 
                         html += `<tr>
                             <td><code>${id}</code></td>
-                            <td><b>${recipient}</b></td>
+                            <td>${recipient}</td>
                             <td>${subject}</td>
-                            <td><span style="font-weight:bold; color:green;">${status}</span></td>
+                            <td><span>${status}</span></td>
                             <td>${created}</td>
                         </tr>`;
                     });
