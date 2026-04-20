@@ -238,12 +238,12 @@ function renderNavHeader(activeTabId) {
     if (sessions.length > 0) {
         const options = sessions.map(s => {
             const isActive = s.token === activeToken;
-            return `<option value="${s.token}" ${isActive ? 'selected' : ''}>${isActive ? '✓ [ACTIVE] ' : ''}${s.email} (Tenant: ${s.tenant_id})</option>`;
+            return `<option value="${s.token}" ${isActive ? 'selected' : ''}>${isActive ? '' : ''}${s.email} (Tenant: ${s.tenant_id})</option>`;
         }).join("");
 
         accountSwitcherHtml = `
             <div style="margin-top: 10px; padding: 8px 12px; background: #eef6ff; border: 1px solid #b6d4fe; border-radius: 4px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                <label for="nav-account-switcher" style="font-weight: bold; color: #084298; white-space: nowrap;">Active Session Context:</label>
+                <label for="nav-account-switcher" style="">Active Session Context:</label>
                 <select id="nav-account-switcher" onchange="switchActiveSession(this.value)" style="padding: 4px 8px; flex: 1; min-width: 250px;">
                     ${options}
                 </select>

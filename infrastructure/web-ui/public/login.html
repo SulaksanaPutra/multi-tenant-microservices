@@ -13,7 +13,7 @@
     <!-- TUTORIAL NOTE (GRAY) -->
     <div style="padding:10px; background:#f0f0f0; border:1px solid #ccc; margin-bottom:15px; color:#333;">
         <strong>Step 4: Login (Get RS256 JWT Token)</strong><br>
-        • <strong>What you can do here:</strong> Authenticate with your email and password (`POST /api/auth/login`) to receive an RS256 JWT Access Token.<br>
+        • <strong>What you can do here:</strong> Authenticate with your email and password to receive an RS256 JWT Access Token.<br>
         • <strong>What to do next:</strong> Click "Login & Proceed to User Management". If your account belongs to multiple workspaces, pick one in the selection dialog. The resulting JWT token is saved to your session (silently exchanged for a single workspace), unlocking Users & Roles, Orders, and Notifications.
     </div>
 
@@ -47,8 +47,8 @@
         <p style="margin-bottom:12px; font-size:0.9rem; color:#555;">Your account is associated with multiple workspaces. Choose which workspace to enter:</p>
         <div id="workspace-options" style="display:flex; flex-direction:column; gap:8px; margin-bottom:15px;"></div>
         <div style="text-align:right; display:flex; gap:8px; justify-content:flex-end;">
-            <button type="button" id="workspace-modal-cancel" style="padding:6px 14px;">Cancel</button>
-            <button type="button" id="workspace-select-btn" style="padding:6px 14px; background:#0d6efd; color:white; border:none; border-radius:3px; cursor:pointer;">Enter Workspace -></button>
+            <button type="button" id="workspace-modal-cancel" style="padding:6px 14px;">X Cancel</button>
+            <button type="button" id="workspace-select-btn" style="padding:6px 14px;">Enter Workspace -></button>
         </div>
     </dialog>
 
@@ -129,9 +129,9 @@
         function openWorkspaceModal(loginResponse) {
             const optionsEl = document.getElementById("workspace-options");
             optionsEl.innerHTML = availableWorkspaces.map((ws, idx) => `
-                <label style="display:flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid #ccc; border-radius:4px; cursor:pointer; background:#fff;">
+                <label>
                     <input type="radio" name="workspace-radio" value="${ws.tenant_id}" ${idx === 0 ? 'checked' : ''}>
-                    <span><strong>${workspaceDisplayName(ws)}</strong></span>
+                    <span>${workspaceDisplayName(ws)}</span>
                 </label>
             `).join("");
             document.getElementById("login-output").textContent =

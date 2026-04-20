@@ -17,8 +17,8 @@
 
     <!-- ACTION DRIVE TO ORDERS -->
     <div style="padding:10px; background:#f0f0f0; border:1px solid #ccc; margin-bottom:20px; color:#333;">
-        <strong>Authenticated User Session Active! Continue to Data Plane:</strong><br>
-        Next Step: <a href="/orders.html" style="font-weight:bold;">Proceed to Test Orders API (Data Plane) -></a>
+        <span>Authenticated User Session Active! Continue to Data Plane:</span><br>
+        Next Step: <a href="/orders.html">Proceed to Test Orders API (Data Plane) -></a>
     </div>
 
     <!-- SIDE BY SIDE LAYOUT CONTAINER (RESPONSIVE SPLIT) -->
@@ -53,7 +53,7 @@
 
     <!-- MODAL 1: EDIT PROFILE -->
     <dialog id="dialog-profile" style="border:1px solid #ccc; padding:20px; width:400px; max-width:90%;">
-        <h3 style="margin-top:0;">Edit My Profile (`PUT /api/users/me`)</h3>
+        <h3 style="margin-top:0;">Edit My Profile</h3>
         <form id="update-me-form">
             <div style="margin-bottom: 15px;">
                 <label for="update-me-name">Display Name:</label><br>
@@ -69,7 +69,7 @@
 
     <!-- MODAL 2: ASSIGN ROLE TO USER -->
     <dialog id="dialog-assign-role" style="border:1px solid #ccc; padding:20px; width:450px; max-width:90%;">
-        <h3 style="margin-top:0;">Assign Role to User (`PUT /api/auth/users/:userID/role`)</h3>
+        <h3 style="margin-top:0;">Assign Role to User</h3>
         <form id="assign-role-form">
             <div style="margin-bottom: 15px;">
                 <label for="assign-user-select">Select User:</label><br>
@@ -93,7 +93,7 @@
 
     <!-- MODAL 3: CREATE CUSTOM ROLE -->
     <dialog id="dialog-create-role" style="border:1px solid #ccc; padding:20px; width:500px; max-width:90%;">
-        <h3 style="margin-top:0;">Create Custom Role (`POST /api/auth/roles`)</h3>
+        <h3 style="margin-top:0;">Create Custom Role</h3>
         <form id="create-role-form">
             <div style="margin-bottom: 12px;">
                 <label for="role-name">Role Name:</label><br>

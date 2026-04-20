@@ -114,7 +114,7 @@
                     html += `<tr>
                         <td>${fromStr}</td>
                         <td><b>${toStr}</b></td>
-                        <td>${subject} ${isReadyEmail ? '<span style="color:green; font-weight:bold;">[ACTIVATION EMAIL]</span>' : ''}</td>
+                        <td>${subject}</td>
                         <td>${dateStr}</td>
                         <td><button type="button" onclick="viewEmailDetail('${msg.ID}')">View Email</button></td>
                     </tr>`;
@@ -159,10 +159,8 @@
 
                 if (setupUrl) {
                     content += `
-                        <div style="padding:15px; background:#f0f0f0; border:1px solid #ccc; margin-top:15px; text-align:center;">
-                            <strong>Account Activation Link Detected:</strong><br><br>
-                            <a href="${setupUrl}" onclick="onMailLinkClicked('${setupUrl}'); return false;" style="font-weight:bold; font-size:1.15em; color:#0056b3; background:#e0e0e0; padding:8px 16px; border:1px solid #aaa; display:inline-block; text-decoration:none;">Click Here to Setup Password -></a>
-                        </div>
+                            <a href="${setupUrl}" onclick="onMailLinkClicked('${setupUrl}'); return false;">Click Here to Setup Password -></a>
+
                     `;
                 }
 

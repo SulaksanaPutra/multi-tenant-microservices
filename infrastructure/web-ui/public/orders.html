@@ -11,7 +11,7 @@
     <!-- TUTORIAL NOTE (GRAY) -->
     <div style="padding:10px; background:#f0f0f0; border:1px solid #ccc; margin-bottom:15px; color:#333;">
         <strong>Step 6: Orders API (Data Plane Execution)</strong><br>
-        • <strong>What you can do here:</strong> Submit order creation requests to <code>order-service</code> via Traefik Gateway (`POST /api/orders`) authenticated solely via your RS256 JWT Bearer token.<br>
+        • <strong>What you can do here:</strong> Submit order creation requests to <code>order-service</code> via Traefik Gateway authenticated solely via your RS256 JWT Bearer token.<br>
         • <strong>What to do next:</strong> Create an order below and verify it appears in your tenant orders list.
     </div>
 
@@ -23,19 +23,23 @@
 
         <!-- LEFT SIDE: CREATE ORDER FORM -->
         <div style="flex: 1; min-width: 320px; border: 1px solid #ccc; padding: 15px; background: #fff;">
-            <h3 style="margin-top:0;">Create New Order (`POST /api/orders`)</h3>
+            <h3 style="margin-top:0;">Create New Order</h3>
             <form id="create-order-form">
                 <div style="margin-bottom: 12px;">
-                    <label for="order-customer">Customer Email:</label><br>
-                    <input type="email" id="order-customer" value="customer@example.com" style="width: 100%; margin-top:4px;" required>
+                    <label for="order-customer">Customer ID:</label><br>
+                    <input type="text" id="order-customer" value="customer_001" style="width: 100%; margin-top:4px;" required>
                 </div>
                 <div style="margin-bottom: 12px;">
-                    <label for="order-items">Order Items (JSON array or description):</label><br>
-                    <input type="text" id="order-items" value='[{"item_id":"item_99","quantity":2,"unit_price":49.99}]' style="width: 100%; margin-top:4px;" required>
+                    <label for="order-amount">Amount:</label><br>
+                    <input type="number" step="0.01" id="order-amount" value="99.98" style="width: 100%; margin-top:4px;" required>
                 </div>
                 <div style="margin-bottom: 15px;">
-                    <label for="order-total">Total Amount ($):</label><br>
-                    <input type="number" step="0.01" id="order-total" value="99.98" style="width: 100%; margin-top:4px;" required>
+                    <label for="order-status">Status:</label><br>
+                    <select id="order-status" style="width: 100%; margin-top:4px;">
+                        <option value="PENDING">PENDING</option>
+                        <option value="COMPLETED">COMPLETED</option>
+                        <option value="CANCELLED">CANCELLED</option>
+                    </select>
                 </div>
                 <button type="submit" style="padding:8px 16px; font-weight:bold;">Create Order -></button>
             </form>
@@ -77,31 +81,29 @@
                 const data = await res.json();
 
                 if (res.ok && data.data && Array.isArray(data.data)) {
-                    if (data.data.length === 0) {
-                        container.innerHTML = "<p>No orders found for this tenant yet. Use the form on the left to create one.</p>";
-                        return;
-                    }
-
                     let html = "<div class='table-responsive'><table border='1' cellpadding='6' cellspacing='0' style='width:100%; border-collapse:collapse; font-size:0.9em;'>";
-                    html += "<thead><tr><th>Order ID</th><th>Customer</th><th>Total Amount</th><th>Status</th><th>Created At</th></tr></thead><tbody>";
+                    html += "<thead><tr><th>Order ID</th><th>Customer ID</th><th>Amount</th><th>Status</th></tr></thead><tbody>";
 
                     data.data.forEach(o => {
-                        const id = o.ID || o.id || o.order_id;
-                        const customer = o.CustomerEmail || o.customer_email || "N/A";
-                        const total = o.TotalAmount || o.total_amount || 0;
-                        const status = o.Status || o.status || "PENDING";
-                        const created = o.CreatedAt || o.created_at || "N/A";
+                        const id = o.id || o.ID || o.order_id;
+                        const customer = o.customer_id || o.CustomerID || "N/A";
+                        const amount = o.amount || o.Amount || 0;
+                        const status = o.status || o.Status || "PENDING";
 
                         html += `<tr>
                             <td><code>${id}</code></td>
                             <td>${customer}</td>
-                            <td><b>$${Number(total).toFixed(2)}</b></td>
+                            <td><b>$${Number(amount).toFixed(2)}</b></td>
                             <td><span style="font-weight:bold; color:green;">${status}</span></td>
-                            <td>${created}</td>
                         </tr>`;
                     });
 
                     html += "</tbody></table></div>";
+                    container.innerHTML = html;
+                } else if (!data.data || !Array.isArray(data.data)) {
+                    let html = "<div class='table-responsive'><table border='1' cellpadding='6' cellspacing='0' style='width:100%; border-collapse:collapse; font-size:0.9em;'>";
+                    html += "<thead><tr><th>Order ID</th><th>Customer ID</th><th>Amount</th><th>Status</th></tr></thead><tbody></tbody></table></div>";
+                    html += "<p>No orders found for this tenant yet. Use the form on the left to create one.</p>";
                     container.innerHTML = html;
                 } else {
                     container.innerHTML = `<pre style="background:#f4f4f4; padding:8px;">${JSON.stringify(data, null, 2)}</pre>`;
@@ -116,17 +118,10 @@
             const out = document.getElementById("order-create-output");
             out.textContent = "Submitting order creation request...";
 
-            let itemsPayload = [];
-            try {
-                itemsPayload = JSON.parse(document.getElementById("order-items").value);
-            } catch (err) {
-                itemsPayload = [{ description: document.getElementById("order-items").value }];
-            }
-
             const payload = {
-                customer_email: document.getElementById("order-customer").value.trim(),
-                items: itemsPayload,
-                total_amount: parseFloat(document.getElementById("order-total").value)
+                customer_id: document.getElementById("order-customer").value.trim(),
+                amount: parseFloat(document.getElementById("order-amount").value),
+                status: document.getElementById("order-status").value
             };
 
             try {

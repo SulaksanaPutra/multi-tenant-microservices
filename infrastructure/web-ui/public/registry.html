@@ -70,9 +70,9 @@
                 const activeCount = rows.filter(r => r.active).length;
                 html += `
                     <tr style="background:#f0f0f0;">
-                        <td colspan="5" style="font-weight:bold; font-size:1.02rem;">
-                            &#128100; ${escapeHtml(email)}
-                            <span style="font-weight:normal; color:#555;">
+                        <td colspan="5" style=" font-size:1.02rem;">
+                            ${escapeHtml(email)}
+                            <span>
                                 &mdash; ${rows.length} workspace(s)
                                 ${activeCount ? `, <b>${activeCount} active</b>` : ''}
                             </span>
@@ -80,17 +80,17 @@
                     </tr>`;
                 rows.forEach(r => {
                     const accessedBadge = r.accessed
-                        ? `<span style="font-weight:bold; color:#1a7f37; border:1px solid #1a7f37; border-radius:3px; padding:1px 6px;">Accessed</span>`
-                        : `<span style="color:#999;">Never accessed</span>`;
+                        ? `<span style="">Accessed</span>`
+                        : `<span style="">Never accessed</span>`;
                     const activeBadge = r.active
-                        ? `<span style="font-weight:bold; color:#b00; border:1px solid #b00; border-radius:3px; padding:1px 6px; margin-left:6px;">&#10003; ACTIVE</span>`
+                        ? `<span style=" ">Active</span>`
                         : "";
-                    const statusColor = (r.status === "READY" || r.status === "ACTIVE") ? "green" : "#b58100";
+                    const statusColor = (r.status === "Ready" || r.status === "Active") ? "green" : "#b58100";
                     html += `<tr>
                         <td><b>${escapeHtml(r.tenant_name)}</b>${activeBadge}</td>
                         <td><code>${escapeHtml(r.tenant_id)}</code></td>
                         <td>${escapeHtml(r.plan)}</td>
-                        <td><span style="font-weight:bold; color:${statusColor}">${escapeHtml(r.status || 'PROVISIONING')}</span></td>
+                        <td><span style=" color:${statusColor}">${escapeHtml(r.status || 'Provisioning')}</span></td>
                         <td>${accessedBadge}</td>
                     </tr>`;
                 });
@@ -117,7 +117,7 @@
                     <button style="margin-left:10px;" onclick="revokeToken()">Logout / Purge Token</button>
                     <button style="margin-left:6px;" onclick="clearAllSessions()">Purge All Sessions</button>
                 </div>
-                <div style="margin-top:6px;">User: <code>${escapeHtml(email)}</code> &nbsp;|&nbsp; Workspace: <b>${escapeHtml(name)}</b> &nbsp;|&nbsp; Tenant ID: <code>${escapeHtml(tenantId)}</code></div>
+                <div style="margin-top:6px;">User: <code>${escapeHtml(email)}</code> &nbsp;|&nbsp; Workspace: ${escapeHtml(name)}</div>
             `;
         }
 
