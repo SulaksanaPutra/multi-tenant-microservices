@@ -191,7 +191,7 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
 
 ---
 
-### 2.5 RBAC Role & Permission Management — Direct to auth-service (`/api/auth/roles` & `/api/auth/users/:userID/role`)
+### 2.5 RBAC Role & Permission Management
 
 ```text
 +-----------------------------------------------------------------------------------+
@@ -210,12 +210,6 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
           ▼
   [ auth_db.roles / role_permissions / user_roles / user_permission_versions ]
 ```
-
-* **Direct Routing:** The frontend sends role-management requests straight to the Traefik Gateway, routed to `auth-service`. `user-service` no longer acts as a middleman proxy and contains no role/permission handlers.
-* **Clear Domain Boundary — Identity vs Access:** `user-service` (Identity) owns profile data only; `auth-service` (Access) owns credentials, token issuance, `user_tenant_memberships`, custom roles and permissions. Auth-service self-registers its own `auth:roles:manage` / `auth:roles:read` capabilities at boot.
-* **Client-Side Composition for the Users Table:** For a workspace "users + roles" table, the frontend fetches `GET /api/users` (user-service) and `GET /api/auth/users/roles?user_ids=...` (auth-service bulk assignment lookup) in parallel and merges them — keeping the backends fully isolated without an N+1 fan-out.
-* **Authorization Gating on Auth:** Every RBAC endpoint requires `auth:roles:manage` (write) or `auth:roles:read` (read) in the JWT claims, closing the gap where a merely-valid JWT previously granted full role management.
-* **Near-Instant Permission Revocation:** Updating role permissions increments `user_permission_versions.version` in a single batch, invalidating cached JWT across downstream microservices.
 
 ---
 
