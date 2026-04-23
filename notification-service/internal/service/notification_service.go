@@ -3,18 +3,12 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"strings"
 
 	"notification-service/internal/domain"
 	"notification-service/internal/repository"
-)
-
-var (
-	ErrTenantIDRequired = errors.New("notification service: tenant_id is required")
-	ErrEventIDRequired  = errors.New("notification service: event_id is required")
 )
 
 type ProcessEventInput struct {
@@ -54,7 +48,7 @@ func NewNotificationService(
 
 func (s *NotificationService) ListNotifications(ctx context.Context, tenantID string) ([]domain.NotificationLog, error) {
 	if strings.TrimSpace(tenantID) == "" {
-		return nil, ErrTenantIDRequired
+		return nil, domain.ErrTenantIDRequired
 	}
 	return s.notificationRepository.ListNotifications(ctx, tenantID)
 }
@@ -65,10 +59,10 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(
 	events []domain.InboxMessage,
 ) (*ProcessEventOutput, error) {
 	if strings.TrimSpace(input.EventID) == "" {
-		return nil, ErrEventIDRequired
+		return nil, domain.ErrEventIDRequired
 	}
 	if strings.TrimSpace(input.TenantID) == "" {
-		return nil, ErrTenantIDRequired
+		return nil, domain.ErrTenantIDRequired
 	}
 
 	var hasUserCreated, hasWorkspaceReady bool

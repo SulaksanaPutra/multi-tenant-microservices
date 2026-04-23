@@ -2,18 +2,11 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"order-service/internal/domain"
 	"order-service/internal/infrastructure/tenantdb"
 	"order-service/internal/repository"
-)
-
-var (
-	ErrTenantIDRequired   = errors.New("order service: tenant_id is required")
-	ErrCustomerIDRequired = errors.New("order service: customer_id is required")
-	ErrInvalidAmount       = errors.New("order service: amount must be greater than 0")
 )
 
 type CreateOrderInput struct {
@@ -53,14 +46,14 @@ func (s *OrderService) CreateOrder(ctx context.Context, input CreateOrderInput) 
 		}
 	}
 	if tenantID == "" {
-		return nil, ErrTenantIDRequired
+		return nil, domain.ErrTenantIDRequired
 	}
 
 	if input.CustomerID == "" {
-		return nil, ErrCustomerIDRequired
+		return nil, domain.ErrCustomerIDRequired
 	}
 	if input.Amount <= 0 {
-		return nil, ErrInvalidAmount
+		return nil, domain.ErrInvalidAmount
 	}
 
 	status := input.Status

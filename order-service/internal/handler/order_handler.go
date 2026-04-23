@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"order-service/internal/middleware"
 
 	"order-service/internal/domain"
 	"order-service/internal/httputil"
@@ -109,7 +110,7 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 		return
 	}
 
-	tenantID := c.GetString("tenantID")
+	tenantID := c.GetString(middleware.ContextKeyTenantID)
 
 	input := service.CreateOrderInput{
 		TenantID:   tenantID,
@@ -120,9 +121,9 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 
 	order, err := orderService.CreateOrder(c.Request.Context(), input)
 	if err != nil {
-		if errors.Is(err, service.ErrTenantIDRequired) ||
-			errors.Is(err, service.ErrCustomerIDRequired) ||
-			errors.Is(err, service.ErrInvalidAmount) {
+		if errors.Is(err, domain.ErrTenantIDRequired) ||
+			errors.Is(err, domain.ErrCustomerIDRequired) ||
+			errors.Is(err, domain.ErrInvalidAmount) {
 			httputil.WriteError(c, http.StatusBadRequest, err.Error())
 			return
 		}

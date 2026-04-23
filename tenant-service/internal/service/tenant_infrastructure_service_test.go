@@ -67,7 +67,7 @@ func TestTenantInfrastructureService_HandleUpdate_Validation(t *testing.T) {
 		err := svc.HandleInfrastructureUpdate(context.Background(), InfrastructureUpdateInput{
 			ServiceName: "order-service",
 		})
-		if !errors.Is(err, ErrTenantIDRequired) {
+		if !errors.Is(err, domain.ErrTenantIDRequired) {
 			t.Errorf("expected ErrTenantIDRequired, got %v", err)
 		}
 	})
@@ -76,7 +76,7 @@ func TestTenantInfrastructureService_HandleUpdate_Validation(t *testing.T) {
 		err := svc.HandleInfrastructureUpdate(context.Background(), InfrastructureUpdateInput{
 			TenantID: "tenant-1",
 		})
-		if !errors.Is(err, ErrServiceNameRequired) {
+		if !errors.Is(err, domain.ErrServiceNameRequired) {
 			t.Errorf("expected ErrServiceNameRequired, got %v", err)
 		}
 	})
@@ -170,12 +170,12 @@ func TestTenantInfrastructureService_GetServiceInfrastructure(t *testing.T) {
 
 	t.Run("missing parameters validation", func(t *testing.T) {
 		_, err := svc.GetServiceInfrastructure(context.Background(), "", "order-service")
-		if !errors.Is(err, ErrTenantIDRequired) {
+		if !errors.Is(err, domain.ErrTenantIDRequired) {
 			t.Errorf("expected ErrTenantIDRequired, got %v", err)
 		}
 
 		_, err = svc.GetServiceInfrastructure(context.Background(), "t-1", "")
-		if !errors.Is(err, ErrServiceNameRequired) {
+		if !errors.Is(err, domain.ErrServiceNameRequired) {
 			t.Errorf("expected ErrServiceNameRequired, got %v", err)
 		}
 	})

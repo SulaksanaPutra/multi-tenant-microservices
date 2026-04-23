@@ -14,13 +14,6 @@ import (
 	"user-service/internal/repository"
 )
 
-var (
-	ErrTenantIDRequired = errors.New("user service: tenant_id is required")
-	ErrEmailRequired    = errors.New("user service: owner_email is required")
-	ErrUserIDRequired   = errors.New("user service: user_id is required")
-	ErrUserNameRequired = errors.New("user service: name is required")
-)
-
 type CreateUserFromWorkspaceInput struct {
 	EventID    string
 	TenantID   string
@@ -64,10 +57,10 @@ func NewUserService(
 
 func (userService *UserService) CreateUserFromWorkspace(ctx context.Context, input CreateUserFromWorkspaceInput) error {
 	if input.TenantID == "" {
-		return ErrTenantIDRequired
+		return domain.ErrTenantIDRequired
 	}
 	if input.OwnerEmail == "" {
-		return ErrEmailRequired
+		return domain.ErrEmailRequired
 	}
 
 	existingUser, err := userService.userRepository.GetUserByEmail(ctx, input.OwnerEmail)
@@ -131,10 +124,10 @@ func (userService *UserService) CreateUserFromWorkspace(ctx context.Context, inp
 
 func (userService *UserService) UpdateUser(ctx context.Context, input UpdateUserServiceInput) error {
 	if input.UserID == "" {
-		return ErrUserIDRequired
+		return domain.ErrUserIDRequired
 	}
 	if input.Name == "" {
-		return ErrUserNameRequired
+		return domain.ErrUserNameRequired
 	}
 	return userService.userRepository.UpdateUser(ctx, repository.UpdateUserInput{
 		ID:   input.UserID,
@@ -144,7 +137,7 @@ func (userService *UserService) UpdateUser(ctx context.Context, input UpdateUser
 
 func (userService *UserService) ListUsers(ctx context.Context, tenantID string) ([]domain.User, error) {
 	if tenantID == "" {
-		return nil, ErrTenantIDRequired
+		return nil, domain.ErrTenantIDRequired
 	}
 	return userService.userRepository.ListUsers(ctx, tenantID)
 }
