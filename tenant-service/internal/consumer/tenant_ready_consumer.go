@@ -179,7 +179,7 @@ func (c *TenantOrderDBReadyConsumer) handleDelivery(ctx context.Context, d rabbi
 
 	if err != nil {
 		log.Printf("TenantOrderDBReadyConsumer Error: Failed to handle infra update for tenant='%s': %v", evt.TenantID, err)
-		if errors.Is(err, service.ErrTenantIDRequired) || errors.Is(err, service.ErrServiceNameRequired) {
+		if errors.Is(err, domain.ErrTenantIDRequired) || errors.Is(err, domain.ErrServiceNameRequired) {
 			_ = d.Nack(false, false)
 		} else {
 			_ = d.Nack(false, true)

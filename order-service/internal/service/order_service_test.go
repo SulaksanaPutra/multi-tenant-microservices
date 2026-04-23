@@ -54,7 +54,7 @@ func TestOrderService_CreateOrder_InputValidation(t *testing.T) {
 				CustomerID: "cust-123",
 				Amount:     100.50,
 			},
-			wantErr: ErrTenantIDRequired,
+			wantErr: domain.ErrTenantIDRequired,
 		},
 		{
 			name: "missing customer_id",
@@ -63,7 +63,7 @@ func TestOrderService_CreateOrder_InputValidation(t *testing.T) {
 				CustomerID: "",
 				Amount:     100.50,
 			},
-			wantErr: ErrCustomerIDRequired,
+			wantErr: domain.ErrCustomerIDRequired,
 		},
 		{
 			name: "invalid amount zero or negative",
@@ -72,7 +72,7 @@ func TestOrderService_CreateOrder_InputValidation(t *testing.T) {
 				CustomerID: "cust-123",
 				Amount:     0,
 			},
-			wantErr: ErrInvalidAmount,
+			wantErr: domain.ErrInvalidAmount,
 		},
 		{
 			name: "valid input",

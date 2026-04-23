@@ -94,7 +94,7 @@ func TestWorkspaceService_RegisterWorkspace_Validation(t *testing.T) {
 				TenantName: "My Company",
 				Plan:       "shared",
 			},
-			wantErr: ErrOwnerEmailRequired,
+			wantErr: domain.ErrOwnerEmailRequired,
 		},
 		{
 			name: "missing tenant_name",
@@ -103,7 +103,7 @@ func TestWorkspaceService_RegisterWorkspace_Validation(t *testing.T) {
 				TenantName: "",
 				Plan:       "shared",
 			},
-			wantErr: ErrTenantNameRequired,
+			wantErr: domain.ErrTenantNameRequired,
 		},
 		{
 			name: "invalid plan",
@@ -112,7 +112,7 @@ func TestWorkspaceService_RegisterWorkspace_Validation(t *testing.T) {
 				TenantName: "My Company",
 				Plan:       "enterprise_invalid",
 			},
-			wantErr: ErrInvalidPlan,
+			wantErr: domain.ErrInvalidPlan,
 		},
 	}
 
@@ -184,7 +184,7 @@ func TestWorkspaceService_ListTenants(t *testing.T) {
 	t.Run("missing tenant_id", func(t *testing.T) {
 		svc := NewWorkspaceService(WorkspaceServiceParams{TenantRepository: &mockTenantRepository{}})
 		_, err := svc.ListTenants(context.Background(), "")
-		if !errors.Is(err, ErrTenantIDRequired) {
+		if !errors.Is(err, domain.ErrTenantIDRequired) {
 			t.Errorf("expected ErrTenantIDRequired, got %v", err)
 		}
 	})
@@ -210,7 +210,7 @@ func TestWorkspaceService_UpdateTenant(t *testing.T) {
 	t.Run("validation error", func(t *testing.T) {
 		svc := NewWorkspaceService(WorkspaceServiceParams{TenantRepository: &mockTenantRepository{}})
 		err := svc.UpdateTenant(context.Background(), UpdateTenantServiceInput{TenantID: "", Name: "New Name"})
-		if !errors.Is(err, ErrTenantIDRequired) {
+		if !errors.Is(err, domain.ErrTenantIDRequired) {
 			t.Errorf("expected ErrTenantIDRequired, got %v", err)
 		}
 	})
@@ -244,7 +244,7 @@ func TestWorkspaceService_ChangeTenantPlan(t *testing.T) {
 	t.Run("invalid plan", func(t *testing.T) {
 		svc := NewWorkspaceService(WorkspaceServiceParams{TenantRepository: &mockTenantRepository{}})
 		err := svc.ChangeTenantPlan(context.Background(), ChangeTenantPlanInput{TenantID: "t_100", Plan: "invalid"})
-		if !errors.Is(err, ErrInvalidPlan) {
+		if !errors.Is(err, domain.ErrInvalidPlan) {
 			t.Errorf("expected ErrInvalidPlan, got %v", err)
 		}
 	})
@@ -272,7 +272,7 @@ func TestWorkspaceService_ChangeTenantPlan(t *testing.T) {
 
 func TestTenantService_ErrorContractInvariants(t *testing.T) {
 	files := map[string]string{
-		"workspace_service.go":            "workspace service:",
+		"workspace_service.go":             "workspace service:",
 		"tenant_infrastructure_service.go": "tenant infrastructure service:",
 	}
 

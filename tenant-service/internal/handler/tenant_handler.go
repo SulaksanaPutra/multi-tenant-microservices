@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"net/http"
+	"tenant-service/internal/middleware"
 
 	"tenant-service/internal/domain"
 	"tenant-service/internal/httputil"
@@ -40,7 +41,7 @@ type ChangePlanRequest struct {
 }
 
 func (tenantHandler *TenantHandler) GetTenantMe(c *gin.Context) {
-	tenantID := c.GetString("tenantID")
+	tenantID := c.GetString(middleware.ContextKeyTenantID)
 	if tenantID == "" {
 		httputil.WriteError(c, http.StatusUnauthorized, "tenant handler: missing tenant_id in token claims")
 		return
@@ -60,7 +61,7 @@ func (tenantHandler *TenantHandler) GetTenantMe(c *gin.Context) {
 }
 
 func (tenantHandler *TenantHandler) UpdateTenantMe(c *gin.Context) {
-	tenantID := c.GetString("tenantID")
+	tenantID := c.GetString(middleware.ContextKeyTenantID)
 	if tenantID == "" {
 		httputil.WriteError(c, http.StatusUnauthorized, "tenant handler: missing tenant_id in token claims")
 		return
@@ -93,7 +94,7 @@ func (tenantHandler *TenantHandler) UpdateTenantMe(c *gin.Context) {
 }
 
 func (tenantHandler *TenantHandler) ChangeTenantPlanMe(c *gin.Context) {
-	tenantID := c.GetString("tenantID")
+	tenantID := c.GetString(middleware.ContextKeyTenantID)
 	if tenantID == "" {
 		httputil.WriteError(c, http.StatusUnauthorized, "tenant handler: missing tenant_id in token claims")
 		return

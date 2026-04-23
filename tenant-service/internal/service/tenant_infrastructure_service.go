@@ -2,17 +2,12 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"strings"
 
 	"tenant-service/internal/domain"
 	"tenant-service/internal/repository"
-)
-
-var (
-	ErrServiceNameRequired = errors.New("tenant infrastructure service: service_name is required")
 )
 
 type InfrastructureUpdateInput struct {
@@ -71,10 +66,10 @@ func NewTenantInfrastructureService(params TenantInfrastructureServiceParams) *T
 
 func (s *TenantInfrastructureService) HandleInfrastructureUpdate(ctx context.Context, input InfrastructureUpdateInput) error {
 	if strings.TrimSpace(input.TenantID) == "" {
-		return ErrTenantIDRequired
+		return domain.ErrTenantIDRequired
 	}
 	if strings.TrimSpace(input.ServiceName) == "" {
-		return ErrServiceNameRequired
+		return domain.ErrServiceNameRequired
 	}
 
 	if err := s.infrastructureRepository.UpsertServiceInfrastructure(ctx, repository.UpsertServiceInfrastructureInput{
@@ -113,10 +108,10 @@ func (s *TenantInfrastructureService) HandleInfrastructureUpdate(ctx context.Con
 
 func (s *TenantInfrastructureService) GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*RoutingOutput, error) {
 	if strings.TrimSpace(tenantID) == "" {
-		return nil, ErrTenantIDRequired
+		return nil, domain.ErrTenantIDRequired
 	}
 	if strings.TrimSpace(serviceName) == "" {
-		return nil, ErrServiceNameRequired
+		return nil, domain.ErrServiceNameRequired
 	}
 
 	infra, err := s.infrastructureRepository.GetServiceInfrastructure(ctx, tenantID, serviceName)

@@ -68,15 +68,15 @@ func TestProcessEventAndTrySendWelcome_Validation(t *testing.T) {
 
 	t.Run("missing event_id", func(t *testing.T) {
 		_, err := svc.ProcessEventAndTrySendWelcome(context.Background(), ProcessEventInput{TenantID: "tenant-1"}, nil)
-		if !errors.Is(err, ErrEventIDRequired) {
+		if !errors.Is(err, domain.ErrEventIDRequired) {
 			t.Errorf("expected ErrEventIDRequired, got %v", err)
 		}
 	})
 
 	t.Run("missing tenant_id", func(t *testing.T) {
 		_, err := svc.ProcessEventAndTrySendWelcome(context.Background(), ProcessEventInput{EventID: "evt-1"}, nil)
-		if !errors.Is(err, ErrTenantIDRequired) {
-			t.Errorf("expected ErrTenantIDRequired, got %v", err)
+		if !errors.Is(err, domain.ErrTenantIDRequired) {
+			t.Errorf("expected domain.ErrTenantIDRequired, got %v", err)
 		}
 	})
 }

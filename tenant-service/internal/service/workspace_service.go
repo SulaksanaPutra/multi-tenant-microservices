@@ -13,14 +13,6 @@ import (
 	"tenant-service/internal/repository"
 )
 
-var (
-	ErrInvalidPlan        = errors.New("workspace service: invalid plan, must be shared or dedicated")
-	ErrTenantNotFound     = errors.New("workspace service: tenant not found")
-	ErrOwnerEmailRequired = errors.New("workspace service: owner_email is required")
-	ErrTenantNameRequired = errors.New("workspace service: tenant_name is required")
-	ErrTenantIDRequired   = errors.New("workspace service: tenant_id is required")
-)
-
 type RegisterWorkspaceInput struct {
 	OwnerEmail string
 	OwnerName  string
@@ -87,15 +79,15 @@ func NewWorkspaceService(params WorkspaceServiceParams) *WorkspaceService {
 
 func (workspaceService *WorkspaceService) RegisterWorkspace(ctx context.Context, input RegisterWorkspaceInput) (*RegisterWorkspaceOutput, error) {
 	if strings.TrimSpace(input.OwnerEmail) == "" {
-		return nil, ErrOwnerEmailRequired
+		return nil, domain.ErrOwnerEmailRequired
 	}
 	if strings.TrimSpace(input.TenantName) == "" {
-		return nil, ErrTenantNameRequired
+		return nil, domain.ErrTenantNameRequired
 	}
 
 	plan := domain.Plan(strings.ToLower(input.Plan))
 	if !plan.IsValid() {
-		return nil, fmt.Errorf("%w: '%s' (must be '%s' or '%s')", ErrInvalidPlan, input.Plan, domain.PlanShared, domain.PlanDedicated)
+		return nil, fmt.Errorf("%w: '%s' (must be '%s' or '%s')", domain.ErrInvalidPlan, input.Plan, domain.PlanShared, domain.PlanDedicated)
 	}
 
 	tenantID := domain.GenerateTenantID()
@@ -148,18 +140,18 @@ func (workspaceService *WorkspaceService) RegisterWorkspace(ctx context.Context,
 
 func (workspaceService *WorkspaceService) ActivateWorkspace(ctx context.Context, tenantID string) error {
 	if strings.TrimSpace(tenantID) == "" {
-		return ErrTenantIDRequired
+		return domain.ErrTenantIDRequired
 	}
 
 	tenant, err := workspaceService.tenantRepository.GetTenantByID(ctx, tenantID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
-			return fmt.Errorf("%w: %s", ErrTenantNotFound, tenantID)
+			return fmt.Errorf("%w: %s", domain.ErrTenantNotFound, tenantID)
 		}
 		return fmt.Errorf("workspace service: failed to fetch tenant for activation: %w", err)
 	}
 	if tenant == nil {
-		return fmt.Errorf("%w: %s", ErrTenantNotFound, tenantID)
+		return fmt.Errorf("%w: %s", domain.ErrTenantNotFound, tenantID)
 	}
 
 	outboxID := domain.GenerateOutboxID()
@@ -198,14 +190,14 @@ func (workspaceService *WorkspaceService) ActivateWorkspace(ctx context.Context,
 
 func (workspaceService *WorkspaceService) GetTenantByID(ctx context.Context, tenantID string) (*domain.Tenant, error) {
 	if strings.TrimSpace(tenantID) == "" {
-		return nil, ErrTenantIDRequired
+		return nil, domain.ErrTenantIDRequired
 	}
 	return workspaceService.tenantRepository.GetTenantByID(ctx, tenantID)
 }
 
 func (workspaceService *WorkspaceService) ListTenants(ctx context.Context, tenantID string) ([]domain.Tenant, error) {
 	if strings.TrimSpace(tenantID) == "" {
-		return nil, ErrTenantIDRequired
+		return nil, domain.ErrTenantIDRequired
 	}
 	tenant, err := workspaceService.tenantRepository.GetTenantByID(ctx, tenantID)
 	if err != nil {
@@ -219,13 +211,13 @@ func (workspaceService *WorkspaceService) ListTenants(ctx context.Context, tenan
 
 func (workspaceService *WorkspaceService) UpdateTenant(ctx context.Context, input UpdateTenantServiceInput) error {
 	if strings.TrimSpace(input.TenantID) == "" {
-		return ErrTenantIDRequired
+		return domain.ErrTenantIDRequired
 	}
 	if strings.TrimSpace(input.Name) == "" {
-		return ErrTenantNameRequired
+		return domain.ErrTenantNameRequired
 	}
 	if strings.TrimSpace(input.OwnerEmail) == "" {
-		return ErrOwnerEmailRequired
+		return domain.ErrOwnerEmailRequired
 	}
 	slug := input.Slug
 	if slug == "" {
@@ -243,11 +235,11 @@ func (workspaceService *WorkspaceService) UpdateTenant(ctx context.Context, inpu
 
 func (workspaceService *WorkspaceService) ChangeTenantPlan(ctx context.Context, input ChangeTenantPlanInput) error {
 	if strings.TrimSpace(input.TenantID) == "" {
-		return ErrTenantIDRequired
+		return domain.ErrTenantIDRequired
 	}
 	p := domain.Plan(strings.ToLower(input.Plan))
 	if !p.IsValid() {
-		return fmt.Errorf("%w: '%s' (must be '%s' or '%s')", ErrInvalidPlan, input.Plan, domain.PlanShared, domain.PlanDedicated)
+		return fmt.Errorf("%w: '%s' (must be '%s' or '%s')", domain.ErrInvalidPlan, input.Plan, domain.PlanShared, domain.PlanDedicated)
 	}
 
 	return workspaceService.tenantRepository.UpdateTenantPlan(ctx, repository.UpdateTenantPlanInput{

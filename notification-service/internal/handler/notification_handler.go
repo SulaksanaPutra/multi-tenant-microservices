@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"net/http"
+	"notification-service/internal/middleware"
 	"time"
 
 	"notification-service/internal/domain"
@@ -36,8 +37,7 @@ func NewNotificationHandler(notificationService NotificationService) *Notificati
 }
 
 func (h *NotificationHandler) ListNotifications(c *gin.Context) {
-	// tenantID is guaranteed to be set by RequireJWT middleware.
-	tenantID := c.GetString("tenantID")
+	tenantID := c.GetString(middleware.ContextKeyTenantID)
 	logs, err := h.notificationService.ListNotifications(c.Request.Context(), tenantID)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, "Failed to retrieve notifications: "+err.Error())

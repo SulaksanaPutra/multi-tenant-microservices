@@ -82,7 +82,7 @@ func TestUserService_CreateUserFromWorkspace_Validation(t *testing.T) {
 				OwnerEmail: "owner@company.com",
 				OwnerName:  "Alice",
 			},
-			wantErr: ErrTenantIDRequired,
+			wantErr: domain.ErrTenantIDRequired,
 		},
 		{
 			name: "missing owner_email",
@@ -91,7 +91,7 @@ func TestUserService_CreateUserFromWorkspace_Validation(t *testing.T) {
 				OwnerEmail: "",
 				OwnerName:  "Alice",
 			},
-			wantErr: ErrEmailRequired,
+			wantErr: domain.ErrEmailRequired,
 		},
 	}
 
@@ -230,7 +230,7 @@ func TestUserService_UpdateUser(t *testing.T) {
 	t.Run("validation missing user_id", func(t *testing.T) {
 		userService := NewUserService(&mockUserRepository{}, nil)
 		err := userService.UpdateUser(context.Background(), UpdateUserServiceInput{UserID: "", Name: "Alice"})
-		if !errors.Is(err, ErrUserIDRequired) {
+		if !errors.Is(err, domain.ErrUserIDRequired) {
 			t.Errorf("expected ErrUserIDRequired, got %v", err)
 		}
 	})
@@ -238,7 +238,7 @@ func TestUserService_UpdateUser(t *testing.T) {
 	t.Run("validation missing name", func(t *testing.T) {
 		userService := NewUserService(&mockUserRepository{}, nil)
 		err := userService.UpdateUser(context.Background(), UpdateUserServiceInput{UserID: "usr_1", Name: ""})
-		if !errors.Is(err, ErrUserNameRequired) {
+		if !errors.Is(err, domain.ErrUserNameRequired) {
 			t.Errorf("expected ErrUserNameRequired, got %v", err)
 		}
 	})
@@ -288,7 +288,7 @@ func TestUserService_ListUsers(t *testing.T) {
 func TestUserService_ListUsers_RequiresTenant(t *testing.T) {
 	userService := NewUserService(&mockUserRepository{}, nil)
 	_, err := userService.ListUsers(context.Background(), "")
-	if !errors.Is(err, ErrTenantIDRequired) {
+	if !errors.Is(err, domain.ErrTenantIDRequired) {
 		t.Errorf("expected ErrTenantIDRequired, got %v", err)
 	}
 }
