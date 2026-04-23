@@ -167,11 +167,10 @@
                     }
 
                     let html = "<div class='table-responsive'><table border='1' cellpadding='6' cellspacing='0' style='width:100%; border-collapse:collapse; font-size:0.9em;'>";
-                    html += "<thead><tr><th>User ID</th><th>Email</th><th>Name</th><th>Action</th></tr></thead><tbody>";
+                    html += "<thead><tr><th>Email</th><th>Name</th><th>Action</th></tr></thead><tbody>";
                     let selectOptions = '<option value="">-- Select Target User --</option>';
 
                     cachedUsers.forEach(u => {
-                        const id = u.ID || u.id || u.user_id;
                         const email = u.Email || u.email;
                         const name = u.Name || u.name || "N/A";
 
@@ -215,11 +214,10 @@
                     }
 
                     let html = "<div class='table-responsive'><table border='1' cellpadding='6' cellspacing='0' style='width:100%; border-collapse:collapse; font-size:0.9em;'>";
-                    html += "<thead><tr><th>Role ID</th><th>Name</th><th>Description</th><th>Permissions</th></tr></thead><tbody>";
+                    html += "<thead><tr><th>Name</th><th>Description</th><th>Permissions</th></tr></thead><tbody>";
                     let selectOptions = '<option value="">-- Select Role --</option>';
 
                     cachedRoles.forEach(r => {
-                        const id = r.ID || r.id || r.role_id;
                         const name = r.Name || r.name;
                         const desc = r.Description || r.description || "-";
                         const perms = (r.Permissions || r.permissions || []).join(", ") || "-";

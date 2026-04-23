@@ -14,7 +14,6 @@ import (
 
 type TenantServiceInterface interface {
 	GetTenantByID(ctx context.Context, tenantID string) (*domain.Tenant, error)
-	ListTenants(ctx context.Context, tenantID string) ([]domain.Tenant, error)
 	UpdateTenant(ctx context.Context, input service.UpdateTenantServiceInput) error
 	ChangeTenantPlan(ctx context.Context, input service.ChangeTenantPlanInput) error
 }
