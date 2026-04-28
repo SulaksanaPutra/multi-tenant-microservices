@@ -16,7 +16,6 @@ import (
 
 type mockTenantService struct {
 	getTenantByIDFn    func(ctx context.Context, tenantID string) (*domain.Tenant, error)
-	listTenantsFn      func(ctx context.Context, tenantID string) ([]domain.Tenant, error)
 	updateTenantFn     func(ctx context.Context, input service.UpdateTenantServiceInput) error
 	changeTenantPlanFn func(ctx context.Context, input service.ChangeTenantPlanInput) error
 }
@@ -24,13 +23,6 @@ type mockTenantService struct {
 func (m *mockTenantService) GetTenantByID(ctx context.Context, tenantID string) (*domain.Tenant, error) {
 	if m.getTenantByIDFn != nil {
 		return m.getTenantByIDFn(ctx, tenantID)
-	}
-	return nil, nil
-}
-
-func (m *mockTenantService) ListTenants(ctx context.Context, tenantID string) ([]domain.Tenant, error) {
-	if m.listTenantsFn != nil {
-		return m.listTenantsFn(ctx, tenantID)
 	}
 	return nil, nil
 }
