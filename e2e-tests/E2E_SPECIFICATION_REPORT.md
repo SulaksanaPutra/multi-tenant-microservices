@@ -2,7 +2,7 @@
 
 ## 1. Executive Summary
 
-This document serves as the authoritative technical test specification and architectural verification report for the multi-tenant microservices platform. The automated E2E test suite contained within this directory ([`e2e-tests`](./)) validates system-wide guarantees, including asynchronous control plane tenant registration, dynamic isolated database container orchestration, at-least-once message delivery idempotency, fanout cache invalidation, container crash resilience, horizontal scaling concurrency, outbox broker retry survival, singleflight cache stampede prevention, stateful session revocation, zero-trust token forgery rejection, and transactional database DDL rollbacks.
+This document serves as the authoritative technical test specification and architectural verification report for the multi-tenant microservices platform. The automated E2E test suite contained within this directory ([`e2e-tests`](./)) validates system-wide guarantees, including asynchronous control plane tenant registration, dynamic isolated database container orchestration, at-least-once message delivery idempotency, fanout cache invalidation, container crash resilience, horizontal scaling concurrency, outbox broker retry survival, sender-side outbox crash-window deduplication, singleflight cache stampede prevention, stateful session revocation, zero-trust internal endpoint boundaries, RBAC deny-path enforcement, token rotation/replay rejection, zero-trust token forgery rejection, and transactional database DDL rollbacks.
 
 ---
 
@@ -127,17 +127,18 @@ This document serves as the authoritative technical test specification and archi
   3. Attempt duplicate tenant registration with identical `tenant_name`.
   4. Assert unique constraint error or handling strategy.
 
-### TC-E2E-008: Outbox Event Broker Publishing & Idempotency
-- **Goal**: Verify outbox pattern ensures at-least-once delivery without duplicate broker events.
-- **Steps**:
-  1. Trigger event-producing workflow.
-  2. Register a tenant via Gateway (`POST /api/tenants/register`). At-Least-Once Delivery and Outbox Worker retry survival when the message broker is temporarily unavailable.
-* **Architectural Scope**: Outbox Repository, Outbox Worker, RabbitMQ connection manager.
-* **Failure Modes Guarded**: Transactional event loss during broker downtime, crashing background workers.
+### 3.8 Test Case TC-E2E-008/009: Outbox Event Broker Publishing, At-Least-Once Delivery & Broker Outage Retry Survival (Docs Case #1)
+* **Test File**: [`./tc_e2e_009_outbox_broker_outage_e2e_test.go`](./tc_e2e_009_outbox_broker_outage_e2e_test.go)
+* **Objective**: Verify the outbox pattern guarantees at-least-once delivery and that the background outbox worker survives a temporary message-broker outage without crashing or losing transactional events.
+* **Architectural Scope**: Outbox Repository (`public.outbox`), Outbox Worker, RabbitMQ AMQP connection manager.
+* **Failure Modes Guarded**: Transactional event loss during broker downtime, crashing background workers, event drop on broker recovery.
 * **Test Procedure**:
-  1. Stop RabbitMQ container (`docker stop rabbitmq`).
-  2. Register a tenant via Gateway (`POST /api/register`).
-* **Expected Guarantee**: Outbox worker handles broker downtime gracefully without crashing; publishes pending event upon broker recovery; tenant transitions to `active`.
+  1. Stop RabbitMQ container (`docker stop rabbitmq`) to simulate broker downtime.
+  2. Register a tenant via Gateway (`POST /api/tenants/register`) and assert HTTP 202 Accepted (outbox decouples HTTP write from AMQP publication).
+  3. Query `public.outbox` and verify the event is safely persisted in `PENDING`/`PROCESSING` status.
+  4. Restart RabbitMQ and wait for AMQP TCP readiness.
+  5. Trigger the outbox dead-letter sweeper and poll `public.tenants` until status transitions to `active`.
+* **Expected Guarantee**: Outbox worker handles broker downtime gracefully without crashing; publishes the pending event upon broker recovery; tenant transitions to `active` with zero data loss.
 
 ---
 
@@ -322,6 +323,97 @@ This document serves as the authoritative technical test specification and archi
 
 ---
 
+### 3.23 Test Case TC-E2E-024: Same-Email Multi-Tenant Registration & Unified Identity (Docs Case #21)
+* **Test File**: [`./tc_e2e_024_same_email_multi_tenant_registration_e2e_test.go`](./tc_e2e_024_same_email_multi_tenant_registration_e2e_test.go)
+* **Objective**: Validate that the same email address can independently register multiple distinct tenant workspaces (shared & dedicated plans) without unique-constraint failures or AMQP barrier sync deadlocks, and that credentials, JWT tokens, and isolated profiles are bound to their respective `tenant_id`.
+* **Architectural Scope**: Control Plane Registration, composite uniqueness `(tenant_id, email)`, unified identity, workspace selection.
+* **Failure Modes Guarded**: Registration deadlocks on shared email, cross-tenant JWT claim confusion, credential cross-binding.
+* **Test Procedure**:
+  1. Register Tenant 1 (shared) and Tenant 2 (dedicated) under the exact same `owner_email`.
+  2. Verify both tenants reach `active` and hold distinct `tenant_id` values.
+  3. Verify unified user profile in `user_db` and provision credentials for both memberships.
+  4. Authenticate with workspace selection and assert each JWT embeds the correct `tenant_id` claim.
+* **Expected Guarantee**: Unified identity supports multi-tenant memberships; workspace selection issues isolated, correctly-scoped JWTs.
+
+---
+
+### 3.24 Test Case TC-E2E-025: Sender-Side Outbox Crash-Window Duplicate Republish (Docs Case #3, Full Loop)
+* **Test File**: [`./tc_e2e_025_outbox_crash_window_duplicate_e2e_test.go`](./tc_e2e_025_outbox_crash_window_duplicate_e2e_test.go)
+* **Objective**: Validate the complete outbox+inbox closed loop for the "phantom batch" crash window: message published → sender crashes before `MarkPublished` → the outbox row is reset to `PENDING` (reproducing the post-crash state that `RecoverStuckClaims` produces for a stuck `PROCESSING` claim) → worker republishes the identical event. The downstream inbox barrier must trap the duplicate so exactly ONE inbox record and exactly ONE welcome email remain.
+* **Architectural Scope**: `public.outbox`, Outbox Worker (`FOR UPDATE SKIP LOCKED`), `public.inbox`, `notification-service`, Mailpit.
+* **Failure Modes Guarded**: Duplicate domain side-effects after publish-then-crash-then-republish, duplicate welcome emails under sender-side at-least-once delivery.
+* **Test Procedure**:
+  1. Register a shared tenant and await activation.
+  2. Resolve the tenant's `workspace.ready` outbox row (`PUBLISHED`) — its row ID doubles as the inbox `event_id`.
+  3. Assert baseline: inbox row count = 1 and Mailpit welcome email count = 1.
+  4. Force the outbox row back to `PENDING` (sweeper-style reset; production sweeper only resets `PROCESSING` rows older than 30s) and wait for the worker to republish it.
+  5. Poll until the duplicate has traversed the inbox barrier; assert final inbox count still = 1 and Mailpit email count still = 1.
+* **Expected Guarantee**: `ON CONFLICT (event_id) DO NOTHING` traps the republished duplicate; zero duplicate side-effects end-to-end.
+
+---
+
+### 3.25 Test Case TC-E2E-026: Internal Zero-Trust Endpoint Boundary (Docs Cases #8 & #9)
+* **Test File**: [`./tc_e2e_026_internal_endpoint_zero_trust_e2e_test.go`](./tc_e2e_026_internal_endpoint_zero_trust_e2e_test.go)
+* **Objective**: Validate the zero-trust control-plane boundary: internal endpoints (`/internal/auth/*`, `/internal/tenants/*`) must reject requests lacking a valid `X-Internal-Service-Token` and must never leak infrastructure metadata via path traversal, unknown service names, or nonexistent tenants.
+* **Architectural Scope**: `auth-service`, `tenant-service`, `InternalAuthMiddleware`.
+* **Failure Modes Guarded**: Lateral movement into control-plane internals, SSRF/host-takeover via `service_name`, cross-service credential theft, infrastructure metadata leakage.
+* **Test Procedure**:
+  1. Register a tenant and resolve a real `tenant_id`/`user_id`.
+  2. Probe `POST /internal/auth/setup-token` and `GET /internal/auth/users/:userID/perm-version` with missing, forged, and valid internal tokens (403 / 403 / 200).
+  3. Probe `GET /internal/tenants/:id/infrastructure/order-service` with missing, forged, and valid tokens (403 / 403 / 200).
+  4. Probe with a path-traversal `service_name`, an unknown service, and a nonexistent tenant — assert HTTP 404 with zero metadata leakage.
+* **Expected Guarantee**: Internal endpoints are strictly token-gated; unknown/traversal inputs yield 404, never data.
+
+---
+
+### 3.26 Test Case TC-E2E-027: RBAC Deny-Path Enforcement (403 Forbidden Matrix)
+* **Test File**: [`./tc_e2e_027_rbac_deny_path_e2e_test.go`](./tc_e2e_027_rbac_deny_path_e2e_test.go)
+* **Objective**: Validate the NEGATIVE authorization plane. A token minted for a read-only role must be denied at every write/manage boundary (`403 Forbidden`) while retaining read access (`200 OK`), proving least-privilege enforcement by default-deny.
+* **Architectural Scope**: `auth-service` Role API + permission resolution, `order-service`/`tenant-service`/`user-service` `RequirePermission`.
+* **Failure Modes Guarded**: Authorization bypass via over-privileged roles, missing permission checks on write endpoints, RBAC drift after role reassignment.
+* **Test Procedure**:
+  1. Register tenant, provision credentials, login as admin.
+  2. Create a custom role containing only `orders:read` and reassign the owner user to it (permission version batch-increments).
+  3. Login again to obtain a token reflecting the read-only permission set.
+  4. Assert `403` on `POST /api/orders`, `PUT /api/tenants/me/plan`, `POST /api/auth/roles`, `GET /api/auth/permissions`.
+  5. Assert `200` on `GET /api/orders`.
+* **Expected Guarantee**: Read-only tokens are denied at every gated write/manage boundary while read access succeeds.
+
+---
+
+### 3.27 Test Case TC-E2E-028: Stateful Token Rotation, Replay Rejection & Workspace Exchange Security
+* **Test File**: [`./tc_e2e_028_refresh_token_rotation_replay_e2e_test.go`](./tc_e2e_028_refresh_token_rotation_replay_e2e_test.go)
+* **Objective**: Validate the token-lifecycle abuse plane. (A) Refresh-token rotation: after a successful refresh the old token is deleted and replays yield `401`. (B) Workspace-selection exchange tokens are single-use: replaying a consumed exchange token, selecting a non-member tenant, or using a forged token all yield `400`.
+* **Architectural Scope**: `auth-service` (`RefreshHandler`, `SelectWorkspaceHandler`, `public.refresh_tokens`, `public.password_setup_tokens`), unified-identity workspace selection.
+* **Failure Modes Guarded**: Session hijacking via stolen refresh-token replay, indefinite token reuse, cross-tenant escalation through workspace exchange tokens.
+* **Test Procedure**:
+  1. Login, refresh → new pair; replay the rotated token → `401`; repeat the chain once more.
+  2. Register two tenants under the same email; login → `SELECT_WORKSPACE` exchange token.
+  3. Select Tenant A → `200`; replay the same exchange token for Tenant B → `400`.
+  4. Fresh login; select a non-member tenant → `400`; submit a forged exchange token → `400`.
+* **Expected Guarantee**: Rotated refresh tokens are permanently rejected and workspace exchange tokens are strictly single-use and membership-scoped.
+
+---
+
+### 3.28 Test Case TC-E2E-029: Order-Service (Data-Plane Consumer) Outage & Queue Catch-Up Recovery
+* **Test File**: [`./tc_e2e_029_order_service_outage_recovery_e2e_test.go`](./tc_e2e_029_order_service_outage_recovery_e2e_test.go)
+* **Objective**: Validate fault tolerance of the DATA-PLANE consumer path. While `order-service` is offline, `infrastructure.provisioned` events must accumulate in the durable `order_service_infra_provisioned` queue, the tenant must remain pending (not active), and upon container restart the tenant must activate with orders fully functional.
+* **Architectural Scope**: `order-service` (`InfrastructureProvisionedConsumer`, `PoolRegistry` bootstrap), `tenant-service`, `infra-provisioner`, Traefik Gateway.
+* **Failure Modes Guarded**: Lost routing/activation events during order-service crashes, broken `PoolRegistry` bootstrap after restart, zombie `pending` tenants after recovery.
+* **Test Procedure**:
+  1. Stop `order-service` (`docker stop order-service`).
+  2. Register a tenant via Gateway and assert the tenant does NOT reach `active` (activation is blocked on `tenant.order_db.ready`).
+  3. Restart `order-service` (`docker start order-service`).
+  4. Poll `tenant_manager_db` until the tenant transitions to `active`.
+  5. Provision credentials, login, and assert `POST /api/orders` returns HTTP 201 Created.
+* **Expected Guarantee**: Buffered events drain safely on restart; tenant activates; data-plane order execution functions post-recovery.
+* **Operational Preconditions**:
+  - Requires host Docker CLI access with permission to stop/start the `order-service` container.
+  - The durable queue `order_service_infra_provisioned` must already exist in RabbitMQ (declared by a prior `order-service` start). On a fresh RabbitMQ where `order-service` never declared it, `infrastructure.provisioned` messages are silently dropped and the tenant never activates.
+  - Must run serially (`-p 1`); stopping `order-service` while other tests execute breaks them.
+
+---
+
 ## 4. Execution Procedures & Verification Commands
 
 To execute the full automated test suite against active local Docker infrastructure:
@@ -329,5 +421,27 @@ To execute the full automated test suite against active local Docker infrastruct
 ```bash
 cd e2e-tests
 export PATH=$PATH:/usr/local/go/bin:/opt/homebrew/bin:$HOME/go/bin
-CGO_ENABLED=0 go test -v -timeout 5m ./...
+CGO_ENABLED=0 go test -v -p 1 -timeout 10m ./...
 ```
+
+> **Serial execution is REQUIRED.** Several destructive tests stop/start shared containers (`rabbitmq`, `notification-service`, `auth-service`, `order-service`) and mutate shared broker/database state. Running with `-p 1` (or `-parallel 1`) prevents cross-test interference. Do not call `t.Parallel()` inside destructive tests.
+
+---
+
+## 5. Known Architectural Limitations & Open Design Decisions
+
+The E2E suite surfaced three architectural behaviors that are either intentional trade-offs or incomplete features. They are documented here so the report reflects reality rather than aspiration:
+
+### 5.1 Tenant "Plan Upgrade" Is Metadata-Only (No Infrastructure Migration)
+`PUT /api/tenants/me/plan` only updates the `plan` column in `public.tenants` ([tenant_repository.go](../tenant-service/internal/repository/tenant_repository.go)). It does **not** publish `tenant.infrastructure_changed`, does not trigger `infra-provisioner` container orchestration, and does not migrate data from the shared schema to a dedicated container. **TC-E2E-021 therefore validates a DB column flip, not a true plan migration.** A real migration contract test (proposed TC-E2E-030) cannot pass until the feature is implemented. Decision required: implement real duality migration, or scope the documented behavior accordingly.
+
+### 5.2 "Instant JWT Revocation" Has a 60-Second Cache Window
+`VersionCache` in downstream services ([jwt_middleware.go](../order-service/internal/middleware/jwt_middleware.go)) caches the user permission version for `ttl: 60s`. If a request succeeds with `perm_version = 1` *before* a role-permission bump, the cached entry keeps `1 <= 1` true for up to 60 seconds — a revoked token remains accepted during that window. **TC-E2E-017 validates the cold-cache path only.** Any claim of "instant revocation" must either accept this window or shorten/remove the TTL.
+
+### 5.3 Permission-Version Verification Fails Open During Auth-Service Outage
+`VerifyVersion` returns `true` on any upstream error ([jwt_middleware.go](../order-service/internal/middleware/jwt_middleware.go)). When `auth-service` is unreachable, JWT *signature* verification continues locally (TC-E2E-015), but permission-version *revocation* silently stops enforcing. This is a deliberate availability-vs-security trade-off; the fail-open behavior is not yet covered by an explicit test.
+
+### 5.4 Test-Suite Document Consistency
+* The broker-outage test shipped as `tc_e2e_009_*` and is mapped to this report's TC-E2E-008/009 section.
+* TC-E2E-024 (`tc_e2e_024_*`) predates this report revision and is now documented in §3.23.
+* TC-E2E-019's mention of "forging `tenant_id` query/header parameters" is illustrative; the API derives tenant context strictly from JWT claims.

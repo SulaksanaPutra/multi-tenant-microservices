@@ -45,6 +45,15 @@ const (
 	userDBDSN = "host=localhost port=5432 user=postgres password=postgres dbname=user_db sslmode=disable"
 )
 
+// internalServiceToken resolves the inter-service bearer token (X-Internal-Service-Token)
+// from the environment, falling back to the documented docker-compose default when unset.
+func internalServiceToken() string {
+	if v := os.Getenv("INTERNAL_SERVICE_TOKEN"); v != "" {
+		return v
+	}
+	return "default_internal_service_token"
+}
+
 // defaultHTTPClient is the shared HTTP client used by all E2E tests.
 // Using a named client (rather than http.DefaultClient) gives us an explicit
 // timeout and avoids tests hanging indefinitely on unresponsive endpoints.
@@ -81,12 +90,13 @@ type customJWTClaims struct {
 // internal setup-token endpoint and the POST /api/auth/credentials/setup flow.
 //
 // Instruction:
-//   1. Request setup token from auth-service internal endpoint (/internal/auth/setup-token).
-//   2. Retry up to 5 times with exponential backoff to handle asynchronous user creation races.
-//   3. Submit password setup payload to POST /api/auth/credentials/setup.
+//  1. Request setup token from auth-service internal endpoint (/internal/auth/setup-token).
+//  2. Retry up to 5 times with exponential backoff to handle asynchronous user creation races.
+//  3. Submit password setup payload to POST /api/auth/credentials/setup.
 //
 // Architectural Invariant:
-//   User must be fully provisioned in public.user_credentials before attempting login.
+//
+//	User must be fully provisioned in public.user_credentials before attempting login.
 func setCredentials(t *testing.T, userID, tenantID, email, password string) {
 	t.Helper()
 
@@ -106,7 +116,7 @@ func setCredentials(t *testing.T, userID, tenantID, email, password string) {
 			t.Fatalf("[Auth] Failed to create internal setup-token request: %v", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Internal-Service-Token", "default_internal_service_token")
+		req.Header.Set("X-Internal-Service-Token", internalServiceToken())
 
 		resp, err := defaultHTTPClient.Do(req)
 		if err != nil {
@@ -244,12 +254,13 @@ func bearerHeader(token string) string {
 
 // loadRSAPrivateKey resolves the RSA private key used by auth-service.
 // Instruction:
-//   1. Checks AUTH_JWT_PRIVATE_KEY_PEM env variable.
-//   2. If empty, inspects nearby .env files (auth-service/.env, .env).
-//   3. Parses PEM string into *rsa.PrivateKey.
+//  1. Checks AUTH_JWT_PRIVATE_KEY_PEM env variable.
+//  2. If empty, inspects nearby .env files (auth-service/.env, .env).
+//  3. Parses PEM string into *rsa.PrivateKey.
 //
 // Architectural Invariant:
-//   Required for security E2E tests (e.g. TC-E2E-012 expired token simulation).
+//
+//	Required for security E2E tests (e.g. TC-E2E-012 expired token simulation).
 func loadRSAPrivateKey(t *testing.T) *rsa.PrivateKey {
 	t.Helper()
 
@@ -480,4 +491,3 @@ func registerAndActivateTenant(t *testing.T, plan ...string) (tenantID, userID, 
 
 	return tenantID, userID, ownerEmail, password
 }
-
