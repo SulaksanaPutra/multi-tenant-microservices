@@ -5,7 +5,7 @@ const (
 	RoutingKeyWorkspaceInitiated = "workspace.initiated"
 	RoutingKeyWorkspaceReady     = "workspace.ready"
 	RoutingKeyTenantOrderDBReady = "tenant.order_db.ready"
-	RoutingKeyInfraChanged     = "tenant.infrastructure_changed"
+	RoutingKeyInfraChanged       = "tenant.infrastructure_changed"
 	QueueTenantServiceOrderReady = "tenant_service_order_db_ready"
 )
 

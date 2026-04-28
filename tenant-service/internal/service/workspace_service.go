@@ -195,20 +195,6 @@ func (workspaceService *WorkspaceService) GetTenantByID(ctx context.Context, ten
 	return workspaceService.tenantRepository.GetTenantByID(ctx, tenantID)
 }
 
-func (workspaceService *WorkspaceService) ListTenants(ctx context.Context, tenantID string) ([]domain.Tenant, error) {
-	if strings.TrimSpace(tenantID) == "" {
-		return nil, domain.ErrTenantIDRequired
-	}
-	tenant, err := workspaceService.tenantRepository.GetTenantByID(ctx, tenantID)
-	if err != nil {
-		return nil, fmt.Errorf("workspace service: failed to list tenant: %w", err)
-	}
-	if tenant == nil {
-		return []domain.Tenant{}, nil
-	}
-	return []domain.Tenant{*tenant}, nil
-}
-
 func (workspaceService *WorkspaceService) UpdateTenant(ctx context.Context, input UpdateTenantServiceInput) error {
 	if strings.TrimSpace(input.TenantID) == "" {
 		return domain.ErrTenantIDRequired

@@ -180,32 +180,6 @@ func TestWorkspaceService_RegisterWorkspace_Success(t *testing.T) {
 	}
 }
 
-func TestWorkspaceService_ListTenants(t *testing.T) {
-	t.Run("missing tenant_id", func(t *testing.T) {
-		svc := NewWorkspaceService(WorkspaceServiceParams{TenantRepository: &mockTenantRepository{}})
-		_, err := svc.ListTenants(context.Background(), "")
-		if !errors.Is(err, domain.ErrTenantIDRequired) {
-			t.Errorf("expected ErrTenantIDRequired, got %v", err)
-		}
-	})
-
-	t.Run("success", func(t *testing.T) {
-		mockRepo := &mockTenantRepository{
-			getTenantByIDFunc: func(ctx context.Context, tenantID string) (*domain.Tenant, error) {
-				return &domain.Tenant{ID: tenantID, Name: "Acme"}, nil
-			},
-		}
-		svc := NewWorkspaceService(WorkspaceServiceParams{TenantRepository: mockRepo})
-		tenants, err := svc.ListTenants(context.Background(), "t_100")
-		if err != nil {
-			t.Fatalf("expected nil error, got %v", err)
-		}
-		if len(tenants) != 1 || tenants[0].ID != "t_100" {
-			t.Errorf("unexpected tenants returned: %+v", tenants)
-		}
-	})
-}
-
 func TestWorkspaceService_UpdateTenant(t *testing.T) {
 	t.Run("validation error", func(t *testing.T) {
 		svc := NewWorkspaceService(WorkspaceServiceParams{TenantRepository: &mockTenantRepository{}})
@@ -271,53 +245,62 @@ func TestWorkspaceService_ChangeTenantPlan(t *testing.T) {
 }
 
 func TestTenantService_ErrorContractInvariants(t *testing.T) {
-	files := map[string]string{
-		"workspace_service.go":             "workspace service:",
-		"tenant_infrastructure_service.go": "tenant infrastructure service:",
+	// Sentinel errors were centralized into the domain package by the
+	// "centralize service errors" refactor; each message still carries the
+	// owning service/domain prefix.
+	knownPrefixes := []string{
+		"domain:",
+		"workspace service:",
+		"tenant infrastructure service:",
 	}
 
-	for fileName, expectedPrefix := range files {
-		t.Run(fileName, func(t *testing.T) {
-			fset := token.NewFileSet()
-			node, err := parser.ParseFile(fset, fileName, nil, parser.ParseComments)
-			if err != nil {
-				t.Fatalf("failed to parse %s AST: %v", fileName, err)
-			}
+	const errorsFile = "../domain/errors.go"
 
-			var errorVarsFound int
-			for _, decl := range node.Decls {
-				genDecl, ok := decl.(*ast.GenDecl)
-				if !ok || genDecl.Tok != token.VAR {
-					continue
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, errorsFile, nil, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("failed to parse %s AST: %v", errorsFile, err)
+	}
+
+	var errorVarsFound int
+	for _, decl := range node.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok || genDecl.Tok != token.VAR {
+			continue
+		}
+		for _, spec := range genDecl.Specs {
+			valueSpec, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for i, name := range valueSpec.Names {
+				if !strings.HasPrefix(name.Name, "Err") {
+					t.Errorf("sentinel error variable '%s' in %s must start with prefix 'Err'", name.Name, errorsFile)
 				}
-				for _, spec := range genDecl.Specs {
-					valueSpec, ok := spec.(*ast.ValueSpec)
-					if !ok {
-						continue
-					}
-					for i, name := range valueSpec.Names {
-						if !strings.HasPrefix(name.Name, "Err") {
-							t.Errorf("sentinel error variable '%s' in %s must start with prefix 'Err'", name.Name, fileName)
-						}
-						errorVarsFound++
-						if i < len(valueSpec.Values) {
-							if call, ok := valueSpec.Values[i].(*ast.CallExpr); ok {
-								if len(call.Args) > 0 {
-									if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
-										errStr := strings.Trim(lit.Value, `"`)
-										if !strings.HasPrefix(errStr, expectedPrefix) {
-											t.Errorf("sentinel error '%s' message '%s' in %s must start with prefix '%s'", name.Name, errStr, fileName, expectedPrefix)
-										}
+				errorVarsFound++
+				if i < len(valueSpec.Values) {
+					if call, ok := valueSpec.Values[i].(*ast.CallExpr); ok {
+						if len(call.Args) > 0 {
+							if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+								errStr := strings.Trim(lit.Value, `"`)
+								matched := false
+								for _, prefix := range knownPrefixes {
+									if strings.HasPrefix(errStr, prefix) {
+										matched = true
+										break
 									}
+								}
+								if !matched {
+									t.Errorf("sentinel error '%s' message '%s' in %s must start with a known service prefix (%v)", name.Name, errStr, errorsFile, knownPrefixes)
 								}
 							}
 						}
 					}
 				}
 			}
-			if errorVarsFound == 0 {
-				t.Errorf("expected at least one sentinel error declaration in %s", fileName)
-			}
-		})
+		}
+	}
+	if errorVarsFound == 0 {
+		t.Errorf("expected at least one sentinel error declaration in %s", errorsFile)
 	}
 }

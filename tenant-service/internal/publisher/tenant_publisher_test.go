@@ -92,9 +92,6 @@ func TestTenantPublisher_PublishWorkspaceReady_ContextCancelled(t *testing.T) {
 func TestTenantPublisher_StructInitialization(t *testing.T) {
 	client := &rabbitmq.Client{}
 	pub := &TenantPublisher{client: client}
-	if pub == nil {
-		t.Fatal("expected TenantPublisher struct pointer to be non-nil")
-	}
 	if pub.client != client {
 		t.Fatalf("expected client reference to match")
 	}
