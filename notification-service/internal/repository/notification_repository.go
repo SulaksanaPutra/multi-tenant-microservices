@@ -41,6 +41,27 @@ func (r *NotificationRepository) CreateNotificationLog(ctx context.Context, inpu
 	return id, nil
 }
 
+func (r *NotificationRepository) UpdateNotificationStatus(ctx context.Context, id int, status string) error {
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
+	const query = `
+		UPDATE public.notifications
+		SET status = $1
+		WHERE id = $2;
+	`
+	res, err := exec.ExecContext(ctx, query, status, id)
+	if err != nil {
+		return fmt.Errorf("failed to update notification status for id=%d: %w", id, err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected for notification status update id=%d: %w", id, err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("notification log with id=%d not found for status update", id)
+	}
+	return nil
+}
+
 func (r *NotificationRepository) HasSentNotification(ctx context.Context, tenantID string) (bool, error) {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	const query = `
