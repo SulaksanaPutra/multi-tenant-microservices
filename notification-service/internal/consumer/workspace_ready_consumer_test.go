@@ -39,10 +39,17 @@ func TestWorkspaceReadyConsumer_HandleDelivery_Success(t *testing.T) {
 	body := makeWorkspaceReadyBody(t)
 
 	var capturedInput service.ProcessEventInput
+	statusUpdated := false
 	notifSvc := &mockNotificationService{
 		processEventAndTrySendWelcomeFunc: func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
 			capturedInput = input
 			return &service.ProcessEventOutput{LogID: 1, RecipientEmail: "owner@company.com", TenantID: "tenant-88"}, nil
+		},
+		updateNotificationStatusFunc: func(ctx context.Context, logID int, status string) error {
+			if logID == 1 && status == "sent" {
+				statusUpdated = true
+			}
+			return nil
 		},
 	}
 
@@ -67,6 +74,9 @@ func TestWorkspaceReadyConsumer_HandleDelivery_Success(t *testing.T) {
 	}
 	if !emailSent {
 		t.Error("expected email to be dispatched after transaction commits")
+	}
+	if !statusUpdated {
+		t.Error("expected notification status to be updated to 'sent'")
 	}
 	if capturedInput.EventID != "evt-ws-1" || capturedInput.TenantID != "tenant-88" || capturedInput.OwnerEmail != "owner@company.com" {
 		t.Errorf("unexpected input passed to service: %+v", capturedInput)
@@ -223,4 +233,3 @@ func TestWorkspaceReadyConsumer_HandleDelivery_MisroutedRoutingKey_AcksAndDiscar
 		t.Error("expected notification service NOT to be called for misrouted message")
 	}
 }
-

@@ -21,6 +21,7 @@ type TxManager interface {
 // NotificationService is the consumer-side interface expected by UserCreatedConsumer.
 type NotificationService interface {
 	ProcessEventAndTrySendWelcome(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error)
+	UpdateNotificationStatus(ctx context.Context, logID int, status string) error
 }
 
 // InboxService is the consumer-side interface expected by UserCreatedConsumer.
@@ -120,7 +121,7 @@ func (c *UserCreatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) e
 	}
 
 	msgs, err := c.client.Channel.Consume(
-		domain.QueueNotificationUserCreated, // queue
+		domain.QueueNotificationUserCreated,  // queue
 		"notification-user-created-consumer", // consumer tag
 		false,                                // auto-ack
 		false,                                // exclusive
@@ -245,6 +246,10 @@ func (c *UserCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Del
 			return mailErr
 		}
 		log.Printf("UserCreatedConsumer: Welcome email dispatched to '%s' for tenant='%s'", sendDetails.RecipientEmail, sendDetails.TenantID)
+
+		if updateErr := c.notificationService.UpdateNotificationStatus(ctx, sendDetails.LogID, "sent"); updateErr != nil {
+			log.Printf("UserCreatedConsumer: Failed updating status to 'sent' for log id=%d: %v", sendDetails.LogID, updateErr)
+		}
 	}
 
 	_ = d.Ack(false)

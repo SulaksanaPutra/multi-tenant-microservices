@@ -119,3 +119,90 @@ func TestNotificationRepository_ListNotifications_All_QueryError(t *testing.T) {
 		t.Errorf("expected underlying error to be dbErr, got %v", err)
 	}
 }
+
+func TestNotificationRepository_UpdateNotificationStatus_Success(t *testing.T) {
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+			if !strings.Contains(query, "UPDATE public.notifications") {
+				t.Errorf("expected UPDATE query, got %s", query)
+			}
+			if len(args) != 2 || args[0] != "sent" || args[1] != 42 {
+				t.Errorf("unexpected args: %v", args)
+			}
+			return testutil.MockResult{RowsAffectedVal: 1}, nil
+		},
+	}
+
+	repo := NewNotificationRepository(&postgres.Client{})
+	ctx := txcontext.WithExecutor(context.Background(), mockExec)
+
+	err := repo.UpdateNotificationStatus(ctx, 42, "sent")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestNotificationRepository_UpdateNotificationStatus_ExecError(t *testing.T) {
+	dbErr := errors.New("update exec error")
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+			return nil, dbErr
+		},
+	}
+
+	repo := NewNotificationRepository(&postgres.Client{})
+	ctx := txcontext.WithExecutor(context.Background(), mockExec)
+
+	err := repo.UpdateNotificationStatus(ctx, 42, "sent")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, dbErr) {
+		t.Errorf("expected underlying error to be dbErr, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "failed to update notification status for id=42") {
+		t.Errorf("expected wrapped error message, got: %v", err)
+	}
+}
+
+func TestNotificationRepository_UpdateNotificationStatus_RowsAffectedError(t *testing.T) {
+	rowsErr := errors.New("rows affected error")
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+			return testutil.MockResult{RowsAffectedErrVal: rowsErr}, nil
+		},
+	}
+
+	repo := NewNotificationRepository(&postgres.Client{})
+	ctx := txcontext.WithExecutor(context.Background(), mockExec)
+
+	err := repo.UpdateNotificationStatus(ctx, 42, "sent")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, rowsErr) {
+		t.Errorf("expected underlying error to be rowsErr, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "failed to get rows affected for notification status update id=42") {
+		t.Errorf("expected wrapped error message, got: %v", err)
+	}
+}
+
+func TestNotificationRepository_UpdateNotificationStatus_NotFound(t *testing.T) {
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+			return testutil.MockResult{RowsAffectedVal: 0}, nil
+		},
+	}
+
+	repo := NewNotificationRepository(&postgres.Client{})
+	ctx := txcontext.WithExecutor(context.Background(), mockExec)
+
+	err := repo.UpdateNotificationStatus(ctx, 999, "sent")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "notification log with id=999 not found for status update") {
+		t.Errorf("expected not-found error message, got: %v", err)
+	}
+}

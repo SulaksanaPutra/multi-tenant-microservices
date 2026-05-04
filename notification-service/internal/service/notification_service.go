@@ -30,6 +30,7 @@ type ProcessEventOutput struct {
 // NotificationRepository is the consumer-side interface expected by NotificationService.
 type NotificationRepository interface {
 	CreateNotificationLog(ctx context.Context, input repository.CreateNotificationLogInput) (int, error)
+	UpdateNotificationStatus(ctx context.Context, id int, status string) error
 	HasSentNotification(ctx context.Context, tenantID string) (bool, error)
 	ListNotifications(ctx context.Context, tenantID string) ([]domain.NotificationLog, error)
 }
@@ -44,6 +45,16 @@ func NewNotificationService(
 	return &NotificationService{
 		notificationRepository: notificationRepository,
 	}
+}
+
+func (s *NotificationService) UpdateNotificationStatus(ctx context.Context, logID int, status string) error {
+	if logID <= 0 {
+		return fmt.Errorf("invalid notification log id: %d", logID)
+	}
+	if strings.TrimSpace(status) == "" {
+		return fmt.Errorf("status cannot be empty")
+	}
+	return s.notificationRepository.UpdateNotificationStatus(ctx, logID, status)
 }
 
 func (s *NotificationService) ListNotifications(ctx context.Context, tenantID string) ([]domain.NotificationLog, error) {

@@ -25,6 +25,7 @@ func (m *mockTxManager) WithTransaction(ctx context.Context, fn func(txCtx conte
 
 type mockNotificationService struct {
 	processEventAndTrySendWelcomeFunc func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error)
+	updateNotificationStatusFunc      func(ctx context.Context, logID int, status string) error
 }
 
 func (m *mockNotificationService) ProcessEventAndTrySendWelcome(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
@@ -32,6 +33,13 @@ func (m *mockNotificationService) ProcessEventAndTrySendWelcome(ctx context.Cont
 		return m.processEventAndTrySendWelcomeFunc(ctx, input, events)
 	}
 	return nil, nil
+}
+
+func (m *mockNotificationService) UpdateNotificationStatus(ctx context.Context, logID int, status string) error {
+	if m.updateNotificationStatusFunc != nil {
+		return m.updateNotificationStatusFunc(ctx, logID, status)
+	}
+	return nil
 }
 
 type mockInboxService struct {
@@ -128,10 +136,17 @@ func TestUserCreatedConsumer_HandleDelivery_Success(t *testing.T) {
 	body := makeUserCreatedBody(t)
 
 	var capturedInput service.ProcessEventInput
+	statusUpdated := false
 	notifSvc := &mockNotificationService{
 		processEventAndTrySendWelcomeFunc: func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
 			capturedInput = input
 			return &service.ProcessEventOutput{LogID: 1, UserID: "usr_100", RecipientEmail: "john@example.com", TenantID: "tenant-99"}, nil
+		},
+		updateNotificationStatusFunc: func(ctx context.Context, logID int, status string) error {
+			if logID == 1 && status == "sent" {
+				statusUpdated = true
+			}
+			return nil
 		},
 	}
 
@@ -156,6 +171,9 @@ func TestUserCreatedConsumer_HandleDelivery_Success(t *testing.T) {
 	}
 	if !emailSent {
 		t.Error("expected email to be sent after transaction commits")
+	}
+	if !statusUpdated {
+		t.Error("expected notification status to be updated to 'sent'")
 	}
 	if capturedInput.EventID != "evt-user-1" || capturedInput.UserID != "usr_100" || capturedInput.OwnerEmail != "john@example.com" {
 		t.Errorf("unexpected input passed to service: %+v", capturedInput)
@@ -356,4 +374,3 @@ func TestUserCreatedConsumer_HandleDelivery_MisroutedRoutingKey_AcksAndDiscards(
 		t.Error("expected notification service NOT to be called for misrouted message")
 	}
 }
-

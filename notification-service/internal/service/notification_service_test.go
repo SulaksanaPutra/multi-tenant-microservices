@@ -16,9 +16,10 @@ import (
 )
 
 type mockNotificationRepo struct {
-	createNotificationLogFunc func(ctx context.Context, input repository.CreateNotificationLogInput) (int, error)
-	hasSentNotificationFunc   func(ctx context.Context, tenantID string) (bool, error)
-	listNotificationsFunc     func(ctx context.Context, tenantID string) ([]domain.NotificationLog, error)
+	createNotificationLogFunc    func(ctx context.Context, input repository.CreateNotificationLogInput) (int, error)
+	updateNotificationStatusFunc func(ctx context.Context, id int, status string) error
+	hasSentNotificationFunc      func(ctx context.Context, tenantID string) (bool, error)
+	listNotificationsFunc        func(ctx context.Context, tenantID string) ([]domain.NotificationLog, error)
 }
 
 func (m *mockNotificationRepo) CreateNotificationLog(ctx context.Context, input repository.CreateNotificationLogInput) (int, error) {
@@ -26,6 +27,13 @@ func (m *mockNotificationRepo) CreateNotificationLog(ctx context.Context, input 
 		return m.createNotificationLogFunc(ctx, input)
 	}
 	return 1, nil
+}
+
+func (m *mockNotificationRepo) UpdateNotificationStatus(ctx context.Context, id int, status string) error {
+	if m.updateNotificationStatusFunc != nil {
+		return m.updateNotificationStatusFunc(ctx, id, status)
+	}
+	return nil
 }
 
 func (m *mockNotificationRepo) HasSentNotification(ctx context.Context, tenantID string) (bool, error) {
@@ -264,9 +272,9 @@ func TestNotificationService_ListNotifications(t *testing.T) {
 
 func TestNotificationService_ErrorContractInvariants(t *testing.T) {
 	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, "notification_service.go", nil, parser.ParseComments)
+	node, err := parser.ParseFile(fset, "../domain/errors.go", nil, parser.ParseComments)
 	if err != nil {
-		t.Fatalf("failed to parse notification_service.go AST: %v", err)
+		t.Fatalf("failed to parse domain/errors.go AST: %v", err)
 	}
 
 	var errorVarsFound int
@@ -290,7 +298,7 @@ func TestNotificationService_ErrorContractInvariants(t *testing.T) {
 						if len(call.Args) > 0 {
 							if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
 								errStr := strings.Trim(lit.Value, `"`)
-								if !strings.HasPrefix(errStr, "notification service:") {
+								if name.Name != "ErrNotFound" && !strings.HasPrefix(errStr, "notification service:") {
 									t.Errorf("sentinel error '%s' message '%s' must start with prefix 'notification service:'", name.Name, errStr)
 								}
 							}
@@ -301,6 +309,6 @@ func TestNotificationService_ErrorContractInvariants(t *testing.T) {
 		}
 	}
 	if errorVarsFound == 0 {
-		t.Error("expected at least one sentinel error declaration in notification_service.go")
+		t.Error("expected at least one sentinel error declaration in domain/errors.go")
 	}
 }

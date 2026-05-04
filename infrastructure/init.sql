@@ -218,9 +218,21 @@ CREATE TABLE IF NOT EXISTS public.notifications (
     recipient_email VARCHAR(255) NOT NULL,
     subject         VARCHAR(255) NOT NULL,
     body            TEXT NOT NULL,
-    status          VARCHAR(50) DEFAULT 'sent',
+    status          VARCHAR(50) DEFAULT 'pending',
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- One-time backfill: pre-fix code dispatched the welcome email but never
+-- transitioned the audit log from 'pending' to 'sent', leaving stale rows.
+-- 'pending' is a sub-second transient state post-fix, so any residual row means
+-- the email was already dispatched. Idempotent; safe to run repeatedly.
+-- NOTE: docker-entrypoint-initdb.d only runs on fresh volumes. For existing
+-- databases, run manually:
+--   docker exec -i postgres psql -U postgres -d notification_db -c \
+--   "UPDATE public.notifications SET status='sent' WHERE status='pending';"
+UPDATE public.notifications
+SET status = 'sent'
+WHERE status = 'pending';
 
 CREATE TABLE IF NOT EXISTS public.inbox (
     event_id     VARCHAR(255) PRIMARY KEY,
