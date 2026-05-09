@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -122,10 +123,26 @@ func (r *RoleRepository) FindRoleByName(ctx context.Context, tenantID *string, n
 func (r *RoleRepository) FindRolesByTenantID(ctx context.Context, tenantID string) ([]domain.Role, error) {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	query := `
-		SELECT id, tenant_id, name, COALESCE(description, ''), is_system, created_at
-		FROM public.roles
-		WHERE tenant_id = $1 OR tenant_id IS NULL
-		ORDER BY is_system DESC, name ASC;
+		SELECT r.id, r.tenant_id, r.name, COALESCE(r.description, ''), r.is_system, r.created_at,
+		       COALESCE(
+		           json_agg(
+		               json_build_object(
+		                   'id', p.id,
+		                   'name', p.name,
+		                   'service', p.service,
+		                   'description', COALESCE(p.description, ''),
+		                   'created_at', p.created_at
+		               )
+		               ORDER BY p.service, p.name
+		           ) FILTER (WHERE p.id IS NOT NULL),
+		           '[]'::json
+		       ) AS permissions
+		FROM public.roles r
+		LEFT JOIN public.role_permissions rp ON rp.role_id = r.id
+		LEFT JOIN public.permissions p ON p.id = rp.permission_id
+		WHERE r.tenant_id = $1 OR r.tenant_id IS NULL
+		GROUP BY r.id, r.tenant_id, r.name, r.description, r.is_system, r.created_at
+		ORDER BY r.is_system DESC, r.name ASC;
 	`
 	rows, err := exec.QueryContext(ctx, query, tenantID)
 	if err != nil {
@@ -137,11 +154,15 @@ func (r *RoleRepository) FindRolesByTenantID(ctx context.Context, tenantID strin
 	for rows.Next() {
 		var role domain.Role
 		var tenantIDVal sql.NullString
-		if err := rows.Scan(&role.ID, &tenantIDVal, &role.Name, &role.Description, &role.IsSystem, &role.CreatedAt); err != nil {
+		var permissionsJSON []byte
+		if err := rows.Scan(&role.ID, &tenantIDVal, &role.Name, &role.Description, &role.IsSystem, &role.CreatedAt, &permissionsJSON); err != nil {
 			return nil, fmt.Errorf("role repository: failed to scan role: %w", err)
 		}
 		if tenantIDVal.Valid {
 			role.TenantID = &tenantIDVal.String
+		}
+		if err := json.Unmarshal(permissionsJSON, &role.Permissions); err != nil {
+			return nil, fmt.Errorf("role repository: failed to unmarshal permissions for role_id '%s': %w", role.ID, err)
 		}
 		roles = append(roles, role)
 	}
