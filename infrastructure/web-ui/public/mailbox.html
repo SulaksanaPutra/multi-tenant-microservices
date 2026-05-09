@@ -68,6 +68,37 @@
             fetchMailbox();
         });
 
+        const STORAGE_KEY_OPENED_EMAILS = "broker_demo_opened_emails";
+
+        function getOpenedEmails() {
+            try {
+                return JSON.parse(localStorage.getItem(STORAGE_KEY_OPENED_EMAILS)) || [];
+            } catch (e) {
+                return [];
+            }
+        }
+
+        function markEmailOpened(msgId) {
+            const opened = getOpenedEmails();
+            if (!opened.includes(msgId)) {
+                opened.push(msgId);
+                localStorage.setItem(STORAGE_KEY_OPENED_EMAILS, JSON.stringify(opened));
+            }
+        }
+
+        function updateRowOpened(msgId) {
+            const row = document.querySelector(`tr[data-msg-id="${msgId}"]`);
+            if (!row) return;
+            row.style.background = "#f4f4f4";
+            row.style.color = "#888";
+            const subjectCell = row.children[2];
+            if (subjectCell) subjectCell.innerHTML = subjectCell.textContent;
+            const actionCell = row.children[4];
+            if (actionCell && actionCell.firstChild) {
+                actionCell.firstChild.textContent = "View Email (Opened)";
+            }
+        }
+
         async function fetchMailbox() {
             const statusEl = document.getElementById("mailbox-status");
             const summaryEl = document.getElementById("mailbox-summary");
@@ -90,6 +121,7 @@
                 }
 
                 const tenants = getSavedTenants();
+                const openedEmails = getOpenedEmails();
                 let updatedAnyTenant = false;
 
                 let html = "";
@@ -111,12 +143,17 @@
                         });
                     }
 
-                    html += `<tr>
-                        <td>${fromStr}</td>
-                        <td><b>${toStr}</b></td>
-                        <td>${subject}</td>
-                        <td>${dateStr}</td>
-                        <td><button type="button" onclick="viewEmailDetail('${msg.ID}')">View Email</button></td>
+                    const isOpened = openedEmails.includes(msg.ID);
+                    const rowStyle = isOpened ? ' style="background:#f4f4f4; color:#888;"' : "";
+                    const subjectHtml = isOpened ? escapeHtml(subject) : `<b>${escapeHtml(subject)}</b>`;
+                    const actionLabel = isOpened ? "View Email (Opened)" : "View Email";
+
+                    html += `<tr data-msg-id="${msg.ID}"${rowStyle}>
+                        <td>${escapeHtml(fromStr)}</td>
+                        <td><b>${escapeHtml(toStr)}</b></td>
+                        <td>${subjectHtml}</td>
+                        <td>${escapeHtml(dateStr)}</td>
+                        <td><button type="button" onclick="viewEmailDetail('${msg.ID}')">${actionLabel}</button></td>
                     </tr>`;
                 });
                 bodyEl.innerHTML = html;
@@ -131,6 +168,9 @@
         }
 
         async function viewEmailDetail(msgId) {
+            markEmailOpened(msgId);
+            updateRowOpened(msgId);
+
             const contentEl = document.getElementById("email-detail-content");
             const dialog = document.getElementById("email-detail-dialog");
             contentEl.innerHTML = "Loading email detail...";
@@ -174,6 +214,14 @@
             localStorage.setItem("broker_demo_mail_clicked", "true");
             document.getElementById("email-detail-dialog").close();
             window.location.href = url;
+        }
+
+        function escapeHtml(value) {
+            return String(value == null ? "" : value)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;");
         }
     </script>
 </body>
