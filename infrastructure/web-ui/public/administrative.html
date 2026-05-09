@@ -3,15 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Step 5: Users & Roles Management</title>
+    <title>Step 5: Administrative - Multi-Tenant Flow</title>
 </head>
 <body>
     <div id="nav-container"></div>
 
     <!-- TUTORIAL NOTE (GRAY) -->
     <div style="padding:10px; background:#f0f0f0; border:1px solid #ccc; margin-bottom:15px; color:#333;">
-        <strong>Step 5: User Profile & RBAC Role Management</strong><br>
-        • <strong>What you can do here:</strong> Manage profile, view tenant users, create custom roles, and assign RBAC roles to users using minimal modal dialogs.<br>
+        <strong>Step 5: Administrative (Tenant Profile, Access & RBAC)</strong><br>
+        • <strong>What you can do here:</strong> View the active tenant profile and your current role/permissions (from the stored JWT session), manage tenant metadata and isolation plan, manage your profile, view tenant users, create custom roles, and assign RBAC roles to users.<br>
         • <strong>What to do next:</strong> Test user/role actions, then click the link below to proceed to Orders (Data Plane).
     </div>
 
@@ -19,6 +19,67 @@
     <div style="padding:10px; background:#f0f0f0; border:1px solid #ccc; margin-bottom:20px; color:#333;">
         <span>Authenticated User Session Active! Continue to Data Plane:</span><br>
         Next Step: <a href="/orders.html">Proceed to Test Orders API (Data Plane) -></a>
+    </div>
+
+    <!-- SECTION A: ACTIVE TENANT & MY ACCESS -->
+    <div style="border:1px solid #ccc; padding:15px; background:#fff; margin-bottom:20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; border-bottom:1px solid #eee; padding-bottom:8px; flex-wrap:wrap; gap:8px;">
+            <h3 style="margin:0;">Active Tenant &amp; My Access</h3>
+            <div style="display:flex; gap:6px;">
+                <button type="button" onclick="loadTenantAccess()">Refresh</button>
+            </div>
+        </div>
+        <div id="tenant-access-panel">
+            <em>Reading tenant &amp; role info from the stored session...</em>
+        </div>
+    </div>
+
+    <!-- SECTION B: MANAGE TENANT -->
+    <div style="border:1px solid #ccc; padding:15px; background:#fff; margin-bottom:20px;">
+        <h3 style="margin-top:0; border-bottom:1px solid #eee; padding-bottom:8px;">Manage Tenant</h3>
+        <div class="responsive-split" style="display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start;">
+            <div style="flex: 1; min-width: 300px;">
+                <h4 style="margin-bottom:10px;">Update Tenant Details</h4>
+                <form id="update-tenant-form">
+                    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                        <div style="flex:1; min-width:140px; margin-bottom:10px;">
+                            <label for="adm-tenant-name">Tenant Name:</label><br>
+                            <input type="text" id="adm-tenant-name" style="width:100%; margin-top:4px;" required>
+                        </div>
+                        <div style="flex:1; min-width:140px; margin-bottom:10px;">
+                            <label for="adm-tenant-slug">Slug:</label><br>
+                            <input type="text" id="adm-tenant-slug" style="width:100%; margin-top:4px;">
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                        <div style="flex:1; min-width:140px; margin-bottom:10px;">
+                            <label for="adm-tenant-owner-name">Owner Name:</label><br>
+                            <input type="text" id="adm-tenant-owner-name" style="width:100%; margin-top:4px;">
+                        </div>
+                        <div style="flex:1; min-width:140px; margin-bottom:10px;">
+                            <label for="adm-tenant-owner-email">Owner Email:</label><br>
+                            <input type="email" id="adm-tenant-owner-email" style="width:100%; margin-top:4px;" required>
+                        </div>
+                    </div>
+                    <button type="submit">Update Tenant Metadata</button>
+                </form>
+                <pre id="update-tenant-output" style="background:#f4f4f4; padding:8px; border:1px solid #ccc; display:none; margin-top:10px;"></pre>
+            </div>
+            <div style="flex: 1; min-width: 300px;">
+                <h4 style="margin-bottom:10px;">Change Isolation Plan</h4>
+                <form id="change-plan-form">
+                    <div style="margin-bottom:10px;">
+                        <label for="adm-select-plan">Target Plan:</label><br>
+                        <select id="adm-select-plan" style="padding:5px; width:220px; margin-top:4px;">
+                            <option value="shared">Shared (Schema-per-Tenant)</option>
+                            <option value="dedicated">Dedicated (Database Container)</option>
+                        </select>
+                    </div>
+                    <button type="submit">Update Isolation Plan</button>
+                </form>
+                <pre id="change-plan-output" style="background:#f4f4f4; padding:8px; border:1px solid #ccc; display:none; margin-top:10px;"></pre>
+            </div>
+        </div>
     </div>
 
     <!-- SIDE BY SIDE LAYOUT CONTAINER (RESPONSIVE SPLIT) -->
@@ -119,7 +180,7 @@
 
     <script src="/nav.js"></script>
     <script>
-        renderNavHeader("users");
+        renderNavHeader("admin");
 
         function getAuthHeader() {
             const token = getJWTToken();
@@ -130,11 +191,69 @@
         let cachedRoles = [];
 
         window.addEventListener("DOMContentLoaded", function() {
+            loadTenantAccess();
             loadUserProfile();
             loadUsers();
             loadRoles();
             loadPermissions();
         });
+
+        function loadTenantAccess() {
+            const panelEl = document.getElementById("tenant-access-panel");
+            const token = getJWTToken();
+            const sessions = getSavedSessions();
+            const session = sessions.find(s => s.token === token);
+
+            if (!token || !session) {
+                panelEl.innerHTML = `<div style="color:#b58100;">No active JWT session. Complete <a href="/login.html">Step 4: Login</a> to mint a token.</div>`;
+                return;
+            }
+
+            const tenantName = session.tenant_name || "N/A";
+            const tenantSlug = session.tenant_slug || "N/A";
+            const plan = session.tenant_plan || "N/A";
+            const status = session.tenant_status || "N/A";
+            const ownerEmail = session.owner_email || session.email || "N/A";
+            const ownerName = session.owner_name || "N/A";
+            const roleName = session.role_name || "No role assigned";
+            const perms = (session.role_permissions || []).map(p => {
+                return (typeof p === "string") ? p : (p.Name || p.name || p.Permission || p.permission);
+            }).filter(Boolean);
+
+            panelEl.innerHTML = `
+                <div class="table-responsive">
+                    <table border="1" cellpadding="8" cellspacing="0" style="width:100%; border-collapse:collapse;">
+                        <thead><tr><th>Tenant Name</th><th>Slug</th><th>Plan</th><th>Status</th><th>Owner</th></tr></thead>
+                        <tbody>
+                            <tr>
+                                <td><b>${escapeHtml(tenantName)}</b></td>
+                                <td><code>${escapeHtml(tenantSlug)}</code></td>
+                                <td>${escapeHtml(plan)}</td>
+                                <td>${escapeHtml(status)}</td>
+                                <td>${escapeHtml(ownerName)}<br><code>${escapeHtml(ownerEmail)}</code></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div style="margin-top:12px;">
+                    <strong>My Role:</strong> ${escapeHtml(roleName)}
+                    <div style="margin-top:6px;">
+                        <strong>My Permissions:</strong>
+                        <div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:6px;">
+                            ${perms.length > 0
+                                ? perms.map(p => `<span style="display:inline-block; background:#eef4ff; border:1px solid #b6d4fe; color:#1a4e8a; border-radius:999px; padding:3px 10px; font-size:0.85em; font-family:monospace;">${escapeHtml(p)}</span>`).join("")
+                                : '<em>None</em>'}
+                        </div>
+                    </div>
+                </div>`;
+
+            document.getElementById("adm-tenant-name").value = tenantName === "N/A" ? "" : tenantName;
+            document.getElementById("adm-tenant-slug").value = tenantSlug === "N/A" ? "" : tenantSlug;
+            document.getElementById("adm-tenant-owner-name").value = ownerName === "N/A" ? "" : ownerName;
+            document.getElementById("adm-tenant-owner-email").value = ownerEmail === "N/A" ? "" : ownerEmail;
+            const planSelect = document.getElementById("adm-select-plan");
+            if (planSelect && plan !== "N/A") planSelect.value = plan.toLowerCase();
+        }
 
         async function loadUserProfile() {
             try {
@@ -175,13 +294,12 @@
                         const name = u.Name || u.name || "N/A";
 
                         html += `<tr>
-                            <td><code>${id}</code></td>
-                            <td>${email}</td>
-                            <td><b>${name}</b></td>
-                            <td><button type="button" onclick="openAssignRoleForUser('${id}')">Assign Role</button></td>
+                            <td>${escapeHtml(email)}</td>
+                            <td><b>${escapeHtml(name)}</b></td>
+                            <td><button type="button" onclick="openAssignRoleForUser('${escapeHtml(u.ID || u.id)}')">Assign Role</button></td>
                         </tr>`;
 
-                        selectOptions += `<option value="${id}">${name} (${email})</option>`;
+                        selectOptions += `<option value="${escapeHtml(u.ID || u.id)}">${escapeHtml(name)} (${escapeHtml(email)})</option>`;
                     });
 
                     html += "</tbody></table></div>";
@@ -223,13 +341,12 @@
                         const perms = (r.Permissions || r.permissions || []).join(", ") || "-";
 
                         html += `<tr>
-                            <td><code>${id}</code></td>
-                            <td><b>${name}</b></td>
-                            <td>${desc}</td>
-                            <td><code>${perms}</code></td>
+                            <td><b>${escapeHtml(name)}</b></td>
+                            <td>${escapeHtml(desc)}</td>
+                            <td><code>${escapeHtml(perms)}</code></td>
                         </tr>`;
 
-                        selectOptions += `<option value="${id}">${name} - ${desc}</option>`;
+                        selectOptions += `<option value="${escapeHtml(r.ID || r.id)}">${escapeHtml(name)} - ${escapeHtml(desc)}</option>`;
                     });
 
                     html += "</tbody></table></div>";
@@ -388,6 +505,62 @@
                 out.textContent = "Error: " + err.message;
             }
         });
+        document.getElementById("update-tenant-form").addEventListener("submit", async function(e) {
+            e.preventDefault();
+            const out = document.getElementById("update-tenant-output");
+            out.style.display = "block";
+            out.textContent = "Updating tenant metadata...";
+
+            const payload = {
+                name: document.getElementById("adm-tenant-name").value.trim(),
+                slug: document.getElementById("adm-tenant-slug").value.trim(),
+                owner_name: document.getElementById("adm-tenant-owner-name").value.trim(),
+                owner_email: document.getElementById("adm-tenant-owner-email").value.trim()
+            };
+
+            try {
+                const res = await fetch("/api/tenants/me", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json", ...getAuthHeader() },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                out.textContent = JSON.stringify(data, null, 2);
+                if (res.ok) loadTenantAccess();
+            } catch (err) {
+                out.textContent = "Error: " + err.message;
+            }
+        });
+
+        document.getElementById("change-plan-form").addEventListener("submit", async function(e) {
+            e.preventDefault();
+            const out = document.getElementById("change-plan-output");
+            out.style.display = "block";
+            out.textContent = "Changing tenant isolation plan...";
+
+            const plan = document.getElementById("adm-select-plan").value;
+
+            try {
+                const res = await fetch("/api/tenants/me/plan", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json", ...getAuthHeader() },
+                    body: JSON.stringify({ plan })
+                });
+                const data = await res.json();
+                out.textContent = JSON.stringify(data, null, 2);
+                if (res.ok) loadTenantAccess();
+            } catch (err) {
+                out.textContent = "Error: " + err.message;
+            }
+        });
+
+        function escapeHtml(value) {
+            return String(value == null ? "" : value)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;");
+        }
     </script>
 </body>
 </html>

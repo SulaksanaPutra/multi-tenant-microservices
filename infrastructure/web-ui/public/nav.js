@@ -107,7 +107,38 @@ function getJWTToken() {
     return localStorage.getItem(STORAGE_KEY_JWT) || "";
 }
 
-function saveJWTToken(token) {
+async function fetchTenantMe(token) {
+    if (!token) return null;
+    try {
+        const res = await fetch("/api/tenants/me", {
+            headers: { "Authorization": "Bearer " + token }
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        return (data && data.data) ? data.data : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+async function fetchUserRole(token) {
+    if (!token) return null;
+    const parsed = parseJWTToken(token);
+    const userID = (parsed && (parsed.sub || parsed.user_id)) || "";
+    if (!userID) return null;
+    try {
+        const res = await fetch(`/api/auth/users/${encodeURIComponent(userID)}/role`, {
+            headers: { "Authorization": "Bearer " + token }
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        return (data && data.data) ? data.data : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function saveJWTToken(token, tenantInfo, userRole) {
     if (token) {
         localStorage.setItem(STORAGE_KEY_JWT, token);
         localStorage.setItem(STORAGE_KEY_PASSWORD_SET, "true");
@@ -125,11 +156,19 @@ function saveJWTToken(token) {
                 email: email,
                 tenant_id: tenant_id,
                 user_id: user_id,
+                tenant_name: tenantInfo ? tenantInfo.Name || tenantInfo.name : null,
+                tenant_slug: tenantInfo ? tenantInfo.Slug || tenantInfo.slug : null,
+                tenant_plan: tenantInfo ? tenantInfo.Plan || tenantInfo.plan : null,
+                tenant_status: tenantInfo ? tenantInfo.Status || tenantInfo.status : null,
+                owner_name: tenantInfo ? tenantInfo.OwnerName || tenantInfo.owner_name : null,
+                owner_email: tenantInfo ? tenantInfo.OwnerEmail || tenantInfo.owner_email : null,
+                role_name: userRole ? (userRole.role && (userRole.role.name || userRole.role.Name)) || userRole.role_name : null,
+                role_permissions: userRole ? (userRole.role && (userRole.role.permissions || userRole.role.Permissions)) || userRole.role_permissions : null,
                 updated_at: new Date().toISOString()
             };
 
             if (existingIdx >= 0) {
-                sessions[existingIdx] = sessionItem;
+                sessions[existingIdx] = { ...sessions[existingIdx], ...sessionItem };
             } else {
                 sessions.unshift(sessionItem);
             }
@@ -201,8 +240,8 @@ function renderNavHeader(activeTabId) {
     initSessionState();
     injectResponsiveStyles();
 
-    const tenants = getSavedTenants();
-    const count = tenants.length;
+    const sessions = getSavedSessions();
+    const count = sessions.length;
     const activeToken = getJWTToken();
     const hasToken = !!activeToken;
 
@@ -215,7 +254,7 @@ function renderNavHeader(activeTabId) {
         { id: "mailbox", label: `2. Dev Mailbox ${registered ? '' : '(Locked)'}`, href: "/mailbox.html", unlocked: registered },
         { id: "setup-password", label: `3. Setup Password ${mailClicked ? '' : '(Locked)'}`, href: "/setup-password.html", unlocked: mailClicked },
         { id: "login", label: `4. Login ${passwordSet ? '' : '(Locked)'}`, href: "/login.html", unlocked: passwordSet },
-        { id: "users", label: `5. Users & Roles ${hasToken ? '' : '(Locked)'}`, href: "/users.html", unlocked: hasToken },
+        { id: "admin", label: `5. Administrative ${hasToken ? '' : '(Locked)'}`, href: "/administrative.html", unlocked: hasToken },
         { id: "orders", label: `6. Orders (Data Plane) ${hasToken ? '' : '(Locked)'}`, href: "/orders.html", unlocked: hasToken },
         { id: "notifications", label: `7. Notifications ${hasToken ? '' : '(Locked)'}`, href: "/notifications.html", unlocked: hasToken },
         { id: "registry", label: `8. Session Registry (${count})`, href: "/registry.html", unlocked: true }
@@ -233,12 +272,14 @@ function renderNavHeader(activeTabId) {
         }
     });
 
-    const sessions = getSavedSessions();
     let accountSwitcherHtml = "";
     if (sessions.length > 0) {
         const options = sessions.map(s => {
             const isActive = s.token === activeToken;
-            return `<option value="${s.token}" ${isActive ? 'selected' : ''}>${isActive ? '' : ''}${s.email} (Tenant: ${s.tenant_id})</option>`;
+            const label = s.tenant_name
+                ? `${s.tenant_name}${s.tenant_slug ? ` / ${s.tenant_slug}` : ''}`
+                : `Tenant: ${s.tenant_id}`;
+            return `<option value="${s.token}" ${isActive ? 'selected' : ''}>${isActive ? '' : ''}${s.email} (${label})</option>`;
         }).join("");
 
         accountSwitcherHtml = `

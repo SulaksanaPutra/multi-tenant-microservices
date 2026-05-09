@@ -21,18 +21,18 @@
     <p>Submits <code>POST /api/tenants/register</code> to <code>tenant-service</code> via Traefik Gateway.</p>
     
     <div style="border: 1px solid #ccc; padding: 15px; margin-bottom: 20px; background: #fff;">
-        <form id="register-form" class="responsive-split" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+        <form id="register-form" class="responsive-split" autocomplete="off" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
             <div style="flex: 1; min-width: 180px;">
                 <label for="reg-owner-name">Owner Name:</label><br>
-                <input type="text" id="reg-owner-name" name="owner_name" value="John Doe" style="width: 100%; margin-top: 4px;" required>
+                <input type="text" id="reg-owner-name" name="owner_name" style="width: 100%; margin-top: 4px;" required>
             </div>
             <div style="flex: 1; min-width: 180px;">
                 <label for="reg-owner-email">Owner Email:</label><br>
-                <input type="email" id="reg-owner-email" name="owner_email" value="john@example.com" style="width: 100%; margin-top: 4px;" required>
+                <input type="email" id="reg-owner-email" name="owner_email" style="width: 100%; margin-top: 4px;" required>
             </div>
             <div style="flex: 1; min-width: 180px;">
                 <label for="reg-tenant-name">Tenant Name:</label><br>
-                <input type="text" id="reg-tenant-name" name="tenant_name" value="Acme Corp" style="width: 100%; margin-top: 4px;" required>
+                <input type="text" id="reg-tenant-name" name="tenant_name" style="width: 100%; margin-top: 4px;" required>
             </div>
             <div style="flex: 1; min-width: 220px;">
                 <label for="reg-plan">Isolation Plan:</label><br>

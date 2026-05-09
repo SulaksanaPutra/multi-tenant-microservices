@@ -11,7 +11,7 @@
     <!-- TUTORIAL NOTE (GRAY) -->
     <div style="padding:10px; background:#f0f0f0; border:1px solid #ccc; margin-bottom:15px; color:#333;">
         <strong>Step 8: Access Registry & Session History</strong><br>
-        • <strong>What you can see here:</strong> Every user discovered in this server session, and each workspace they can access. Workspaces are marked when they have been accessed and when they are the currently active one.
+        • <strong>What you can see here:</strong> Every JWT token minted during this server session, grouped by user email. Each session carries the tenant information fetched from <code>GET /api/tenants/me</code> at the moment the token was exchanged. Sessions are marked when they are the currently active one.
     </div>
 
     <h2>Access Registry (Users &rarr; Workspaces)</h2>
@@ -45,53 +45,54 @@
 
         function renderRegistry() {
             const token = getJWTToken();
-            const tenants = getSavedTenants();
             const sessions = getSavedSessions();
 
-            renderActiveBanner(token, tenants, sessions);
-
-            const owners = [...new Set(tenants.map(t => t.owner_email).filter(Boolean))];
-            const sessionEmails = [...new Set(sessions.map(s => s.email))];
-            const users = [...new Set([...owners, ...sessionEmails])].sort();
+            renderActiveBanner(token, sessions);
 
             const bodyEl = document.getElementById("access-registry-body");
 
-            if (users.length === 0) {
-                bodyEl.innerHTML = `<tr><td colspan="5"><em>No users or workspaces in this session yet.</em></td></tr>`;
+            if (sessions.length === 0) {
+                bodyEl.innerHTML = `<tr><td colspan="5"><em>No JWT sessions stored yet. Complete <a href="/login.html">Step 4: Login</a> to mint a token.</em></td></tr>`;
                 return;
             }
 
-            let html = "";
-            users.forEach(email => {
-                const rows = workspaceRowsForUser(email, tenants, sessions, token);
-                if (rows.length === 0) return;
+            const emails = [...new Set(sessions.map(s => s.email).filter(Boolean))].sort();
 
-                const accessedCount = rows.filter(r => r.accessed).length;
-                const activeCount = rows.filter(r => r.active).length;
+            let html = "";
+            emails.forEach(email => {
+                const userSessions = sessions
+                    .filter(s => s.email === email)
+                    .sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
+
+                const activeCount = userSessions.filter(s => s.token === token).length;
                 html += `
                     <tr style="background:#f0f0f0;">
                         <td colspan="5" style=" font-size:1.02rem;">
                             ${escapeHtml(email)}
                             <span>
-                                &mdash; ${rows.length} workspace(s)
+                                &mdash; ${userSessions.length} session(s)
                                 ${activeCount ? `, <b>${activeCount} active</b>` : ''}
                             </span>
                         </td>
                     </tr>`;
-                rows.forEach(r => {
-                    const accessedBadge = r.accessed
-                        ? `<span style="">Accessed</span>`
-                        : `<span style="">Never accessed</span>`;
-                    const activeBadge = r.active
-                        ? `<span style=" ">Active</span>`
+
+                userSessions.forEach(s => {
+                    const name = s.tenant_name || s.tenant_id;
+                    const slug = s.tenant_slug ? `<br><code style="color:#555;">${escapeHtml(s.tenant_slug)}</code>` : "";
+                    const activeBadge = s.token === token
+                        ? `<span style="margin-left:6px;">Active</span>`
                         : "";
-                    const statusColor = (r.status === "Ready" || r.status === "Active") ? "green" : "#b58100";
+                    const plan = s.tenant_plan || "N/A";
+                    const status = s.tenant_status || "UNKNOWN";
+                    const statusColor = (status === "READY" || status === "Active" || status === "active") ? "green" : "#b58100";
+                    const accessedAt = s.updated_at ? new Date(s.updated_at).toLocaleString() : "N/A";
+
                     html += `<tr>
-                        <td><b>${escapeHtml(r.tenant_name)}</b>${activeBadge}</td>
-                        <td><code>${escapeHtml(r.tenant_id)}</code></td>
-                        <td>${escapeHtml(r.plan)}</td>
-                        <td><span style=" color:${statusColor}">${escapeHtml(r.status || 'Provisioning')}</span></td>
-                        <td>${accessedBadge}</td>
+                        <td><b>${escapeHtml(name)}</b>${slug}${activeBadge}</td>
+                        <td><code>${escapeHtml(s.tenant_id)}</code></td>
+                        <td>${escapeHtml(plan)}</td>
+                        <td><span style=" color:${statusColor}">${escapeHtml(status)}</span></td>
+                        <td><span>Last active: ${escapeHtml(accessedAt)}</span></td>
                     </tr>`;
                 });
             });
@@ -99,7 +100,7 @@
             bodyEl.innerHTML = html;
         }
 
-        function renderActiveBanner(token, tenants, sessions) {
+        function renderActiveBanner(token, sessions) {
             const bannerEl = document.getElementById("active-session-banner");
             if (!token) {
                 bannerEl.innerHTML = `<div style="color:#b58100;">No active JWT token in this session. Complete <a href="/login.html">Step 4: Login</a> to issue a token.</div>`;
@@ -108,52 +109,17 @@
 
             const claims = parseJWTToken(token);
             const email = (claims && (claims.email || claims.sub)) || "unknown";
-            const tenantId = (claims && claims.tenant_id) || "unknown_tenant";
-            const tenant = tenants.find(t => t.tenant_id === tenantId);
-            const name = (tenant && tenant.tenant_name) || claims.tenant_name || tenantId;
+            const session = sessions.find(s => s.token === token);
+            const name = (session && session.tenant_name) || (claims && claims.tenant_name) || (session && session.tenant_id) || "unknown_tenant";
+            const slug = session && session.tenant_slug ? ` / ${session.tenant_slug}` : "";
 
             bannerEl.innerHTML = `
                 <div><strong style="color:#1a7f37;">[ACTIVE SESSION]</strong>
                     <button style="margin-left:10px;" onclick="revokeToken()">Logout / Purge Token</button>
                     <button style="margin-left:6px;" onclick="clearAllSessions()">Purge All Sessions</button>
                 </div>
-                <div style="margin-top:6px;">User: <code>${escapeHtml(email)}</code> &nbsp;|&nbsp; Workspace: ${escapeHtml(name)}</div>
+                <div style="margin-top:6px;">User: <code>${escapeHtml(email)}</code> &nbsp;|&nbsp; Workspace: ${escapeHtml(name)}${escapeHtml(slug)}</div>
             `;
-        }
-
-        function workspaceRowsForUser(email, tenants, sessions, token) {
-            const rows = {};
-
-            tenants.filter(t => t.owner_email === email).forEach(t => {
-                if (!rows[t.tenant_id]) {
-                    rows[t.tenant_id] = {
-                        tenant_id: t.tenant_id,
-                        tenant_name: t.tenant_name,
-                        plan: t.plan,
-                        status: t.status,
-                        accessed: false,
-                        active: false
-                    };
-                }
-            });
-
-            sessions.filter(s => s.email === email).forEach(s => {
-                if (!rows[s.tenant_id]) {
-                    rows[s.tenant_id] = {
-                        tenant_id: s.tenant_id,
-                        tenant_name: s.tenant_id,
-                        plan: "N/A",
-                        status: "ACCESSED",
-                        accessed: true,
-                        active: s.token === token
-                    };
-                } else {
-                    rows[s.tenant_id].accessed = true;
-                    if (s.token === token) rows[s.tenant_id].active = true;
-                }
-            });
-
-            return Object.values(rows).sort((a, b) => a.tenant_name.localeCompare(b.tenant_name));
         }
 
         function revokeToken() {

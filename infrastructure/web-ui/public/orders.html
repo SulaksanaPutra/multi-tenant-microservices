@@ -25,13 +25,15 @@
         <div style="flex: 1; min-width: 320px; border: 1px solid #ccc; padding: 15px; background: #fff;">
             <h3 style="margin-top:0;">Create New Order</h3>
             <form id="create-order-form">
-                <div style="margin-bottom: 12px;">
-                    <label for="order-customer">Customer ID:</label><br>
-                    <input type="text" id="order-customer" value="customer_001" style="width: 100%; margin-top:4px;" required>
-                </div>
-                <div style="margin-bottom: 12px;">
-                    <label for="order-amount">Amount:</label><br>
-                    <input type="number" step="0.01" id="order-amount" value="99.98" style="width: 100%; margin-top:4px;" required>
+                <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                    <div style="flex:1; min-width:140px; margin-bottom:12px;">
+                        <label for="order-customer">Customer ID:</label><br>
+                        <input type="text" id="order-customer" value="customer_001" style="width:100%; margin-top:4px;" required>
+                    </div>
+                    <div style="flex:1; min-width:140px; margin-bottom:12px;">
+                        <label for="order-amount">Amount:</label><br>
+                        <input type="number" step="0.01" id="order-amount" value="99.98" style="width:100%; margin-top:4px;" required>
+                    </div>
                 </div>
                 <div style="margin-bottom: 15px;">
                     <label for="order-status">Status:</label><br>

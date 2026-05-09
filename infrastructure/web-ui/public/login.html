@@ -14,7 +14,7 @@
     <div style="padding:10px; background:#f0f0f0; border:1px solid #ccc; margin-bottom:15px; color:#333;">
         <strong>Step 4: Login (Get RS256 JWT Token)</strong><br>
         • <strong>What you can do here:</strong> Authenticate with your email and password to receive an RS256 JWT Access Token.<br>
-        • <strong>What to do next:</strong> Click "Login & Proceed to User Management". If your account belongs to multiple workspaces, pick one in the selection dialog. The resulting JWT token is saved to your session (silently exchanged for a single workspace), unlocking Users & Roles, Orders, and Notifications.
+        • <strong>What to do next:</strong> Click "Login & Proceed to Administrative". If your account belongs to multiple workspaces, pick one in the selection dialog. The resulting JWT token is saved to your session (silently exchanged for a single workspace), unlocking Administrative, Orders, and Notifications.
     </div>
 
     <h2>Step 4: Login (Get RS256 JWT Token)</h2>
@@ -93,8 +93,12 @@
             return await response.json();
         }
 
-        function finalizeLogin(displayData, tokenData) {
-            saveJWTToken(tokenData.access_token);
+        async function finalizeLogin(displayData, tokenData) {
+            const [tenant, userRole] = await Promise.all([
+                fetchTenantMe(tokenData.access_token),
+                fetchUserRole(tokenData.access_token)
+            ]);
+            saveJWTToken(tokenData.access_token, tenant, userRole);
             renderNavHeader("login");
 
             const parsedClaims = parseJWTToken(tokenData.access_token);
@@ -106,7 +110,7 @@
                 JSON.stringify(displayData, null, 2) + "\n\nRedirecting to User Management in 1.5 seconds...";
 
             setTimeout(() => {
-                window.location.href = "/users.html";
+                window.location.href = "/administrative.html";
             }, 1500);
         }
 
