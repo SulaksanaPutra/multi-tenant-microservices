@@ -172,9 +172,13 @@ func TestRoleRepository_FindRoleByName(t *testing.T) {
 }
 
 func TestRoleRepository_FindRolesByTenantID(t *testing.T) {
+	var capturedQuery string
+	var capturedArgs []any
 	dbErr := errors.New("list roles error")
 	mockExec := &testutil.MockDBExecutor{
 		QueryContextFn: func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+			capturedQuery = query
+			capturedArgs = args
 			return nil, dbErr
 		},
 	}
@@ -188,6 +192,22 @@ func TestRoleRepository_FindRolesByTenantID(t *testing.T) {
 	}
 	if err == nil || !errors.Is(err, dbErr) {
 		t.Errorf("expected wrapped db error, got %v", err)
+	}
+
+	if !strings.Contains(capturedQuery, "FROM public.roles r") {
+		t.Errorf("expected roles LEFT JOIN query, got: %s", capturedQuery)
+	}
+	if !strings.Contains(capturedQuery, "LEFT JOIN public.role_permissions rp") {
+		t.Errorf("expected LEFT JOIN on role_permissions, got: %s", capturedQuery)
+	}
+	if !strings.Contains(capturedQuery, "LEFT JOIN public.permissions p") {
+		t.Errorf("expected LEFT JOIN on permissions, got: %s", capturedQuery)
+	}
+	if !strings.Contains(capturedQuery, "json_agg") {
+		t.Errorf("expected json_agg aggregation for permissions, got: %s", capturedQuery)
+	}
+	if len(capturedArgs) != 1 || capturedArgs[0] != "tnt_123" {
+		t.Errorf("unexpected query args: %v", capturedArgs)
 	}
 }
 

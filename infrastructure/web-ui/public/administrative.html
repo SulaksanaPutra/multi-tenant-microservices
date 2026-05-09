@@ -338,7 +338,9 @@
                     cachedRoles.forEach(r => {
                         const name = r.Name || r.name;
                         const desc = r.Description || r.description || "-";
-                        const perms = (r.Permissions || r.permissions || []).join(", ") || "-";
+                        const perms = (r.Permissions || r.permissions || []).map(p => {
+                            return (typeof p === "string") ? p : (p.Name || p.name || p);
+                        }).join(", ") || "-";
 
                         html += `<tr>
                             <td><b>${escapeHtml(name)}</b></td>
