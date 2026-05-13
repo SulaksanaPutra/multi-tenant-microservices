@@ -35,30 +35,12 @@ const (
 	mailpitAPIURL      = "http://localhost:8025/api/v1/messages"
 )
 
-type RegisterReq struct {
-	OwnerEmail string `json:"owner_email"`
-	OwnerName  string `json:"owner_name"`
-	Plan       string `json:"plan"`
-	TenantName string `json:"tenant_name"`
-}
-
-type RegisterRespData struct {
-	UserID   string `json:"user_id"`
-	TenantID string `json:"tenant_id"`
-}
-
-type RegisterResp struct {
-	Status  string           `json:"status"`
-	Message string           `json:"message"`
-	Data    RegisterRespData `json:"data"`
-}
-
-type OrderReq struct {
+type OrderRequest struct {
 	CustomerID string  `json:"customer_id"`
 	Amount     float64 `json:"amount"`
 }
 
-type OrderRespData struct {
+type OrderResponseData struct {
 	ID         string  `json:"id"`
 	TenantID   string  `json:"tenant_id"`
 	CustomerID string  `json:"customer_id"`
@@ -66,16 +48,16 @@ type OrderRespData struct {
 	Amount     float64 `json:"amount"`
 }
 
-type OrderResp struct {
-	Status  string        `json:"status"`
-	Message string        `json:"message"`
-	Data    OrderRespData `json:"data"`
+type OrderResponse struct {
+	Status  string            `json:"status"`
+	Message string            `json:"message"`
+	Data    OrderResponseData `json:"data"`
 }
 
-type ListOrdersResp struct {
-	Status  string          `json:"status"`
-	Message string          `json:"message"`
-	Data    []OrderRespData `json:"data"`
+type ListOrdersResponse struct {
+	Status  string              `json:"status"`
+	Message string              `json:"message"`
+	Data    []OrderResponseData `json:"data"`
 }
 
 type MailpitMsgList struct {
@@ -136,7 +118,7 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 	ownerName, ownerEmail, tenantName, _ := generateFakeData("shared")
 	t.Logf("1. Submitting Registration: owner='%s', email='%s', tenant='%s', plan='shared'", ownerName, ownerEmail, tenantName)
 
-	reqBody, _ := json.Marshal(RegisterReq{
+	reqBody, _ := json.Marshal(RegisterRequest{
 		OwnerEmail: ownerEmail,
 		OwnerName:  ownerName,
 		Plan:       "shared",
@@ -153,7 +135,7 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 		t.Fatalf("Expected HTTP 202 Accepted, got %d", resp.StatusCode)
 	}
 
-	var regResp RegisterResp
+	var regResp RegisterResponse
 	if err := json.NewDecoder(resp.Body).Decode(&regResp); err != nil {
 		t.Fatalf("Failed to decode register response: %v", err)
 	}
@@ -262,7 +244,7 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 	// Step 7: Create & Query Order on Shared Schema Database
 	// =========================================================================
 	custID := gofakeit.UUID()
-	orderBody, _ := json.Marshal(OrderReq{
+	orderBody, _ := json.Marshal(OrderRequest{
 		CustomerID: custID,
 		Amount:     149.99,
 	})
@@ -282,7 +264,7 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 		t.Fatalf("Expected HTTP 201 Created for order creation, got %d: %s", oResp.StatusCode, string(respBody))
 	}
 
-	var createOrderResp OrderResp
+	var createOrderResp OrderResponse
 	if err := json.NewDecoder(oResp.Body).Decode(&createOrderResp); err != nil {
 		t.Fatalf("Failed to decode order response: %v", err)
 	}
@@ -298,7 +280,7 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 	}
 	defer getResp.Body.Close()
 
-	var listResp ListOrdersResp
+	var listResp ListOrdersResponse
 	if err := json.NewDecoder(getResp.Body).Decode(&listResp); err != nil {
 		t.Fatalf("Failed to decode list orders response: %v", err)
 	}

@@ -23,6 +23,9 @@ import (
 	"testing"
 	"time"
 
+	"auth-service/internal/handler"
+	"auth-service/internal/httputil"
+
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -103,7 +106,7 @@ func TestE2E_TC_E2E_012_StatefulTokenRefreshLifecycle(t *testing.T) {
 		t.Fatalf("Expected HTTP 200 OK for token refresh, got %d", respRefresh.StatusCode)
 	}
 
-	var refreshResp authTokenResponse
+	var refreshResp httputil.StandardResponse[handler.RefreshTokenResponse]
 	if err := json.NewDecoder(respRefresh.Body).Decode(&refreshResp); err != nil {
 		t.Fatalf("Failed to decode refresh token response: %v", err)
 	}

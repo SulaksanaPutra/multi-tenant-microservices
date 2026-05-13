@@ -241,7 +241,7 @@
                         <strong>My Permissions:</strong>
                         <div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:6px;">
                             ${perms.length > 0
-                                ? perms.map(p => `<span style="display:inline-block; background:#eef4ff; border:1px solid #b6d4fe; color:#1a4e8a; border-radius:999px; padding:3px 10px; font-size:0.85em; font-family:monospace;">${escapeHtml(p)}</span>`).join("")
+                                ? perms.map(p => `<span style="display:inline-block;">${escapeHtml(p)}</span>`).join("")
                                 : '<em>None</em>'}
                         </div>
                     </div>

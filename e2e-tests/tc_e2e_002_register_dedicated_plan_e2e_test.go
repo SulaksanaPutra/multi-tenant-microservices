@@ -69,7 +69,7 @@ func TestE2E_DedicatedPlan_FullWorkflow(t *testing.T) {
 	ownerName, ownerEmail, tenantName, _ := generateFakeData("dedicated")
 	t.Logf("1. Submitting Dedicated Plan Registration: owner='%s', email='%s', tenant='%s'", ownerName, ownerEmail, tenantName)
 
-	reqBody, _ := json.Marshal(RegisterReq{
+	reqBody, _ := json.Marshal(RegisterRequest{
 		OwnerEmail: ownerEmail,
 		OwnerName:  ownerName,
 		Plan:       "dedicated",
@@ -86,7 +86,7 @@ func TestE2E_DedicatedPlan_FullWorkflow(t *testing.T) {
 		t.Fatalf("Expected HTTP 202 Accepted for dedicated registration, got %d", resp.StatusCode)
 	}
 
-	var regResp RegisterResp
+	var regResp RegisterResponse
 	if err := json.NewDecoder(resp.Body).Decode(&regResp); err != nil {
 		t.Fatalf("Failed to decode register response: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestE2E_DedicatedPlan_FullWorkflow(t *testing.T) {
 	// Step 6: Authenticate & Create Order on Dedicated Database Container
 	// =========================================================================
 	custID := gofakeit.UUID()
-	orderBody, _ := json.Marshal(OrderReq{
+	orderBody, _ := json.Marshal(OrderRequest{
 		CustomerID: custID,
 		Amount:     499.99,
 	})
@@ -176,11 +176,11 @@ func TestE2E_DedicatedPlan_FullWorkflow(t *testing.T) {
 		t.Fatalf("Expected HTTP 201 Created for order creation on dedicated DB, got %d: %s", oResp.StatusCode, string(respBody))
 	}
 
-	var createOrderResp OrderResp
-	if err := json.NewDecoder(oResp.Body).Decode(&createOrderResp); err != nil {
+	var createOrderResponse OrderResponse
+	if err := json.NewDecoder(oResp.Body).Decode(&createOrderResponse); err != nil {
 		t.Fatalf("Failed to decode order response: %v", err)
 	}
-	orderID := createOrderResp.Data.ID
+	orderID := createOrderResponse.Data.ID
 	t.Logf("6. Successfully created order id='%s' on dedicated tenant DB container!", orderID)
 
 	// =========================================================================
@@ -195,7 +195,7 @@ func TestE2E_DedicatedPlan_FullWorkflow(t *testing.T) {
 	}
 	defer getResp.Body.Close()
 
-	var listResp ListOrdersResp
+	var listResp ListOrdersResponse
 	if err := json.NewDecoder(getResp.Body).Decode(&listResp); err != nil {
 		t.Fatalf("Failed to decode list orders response: %v", err)
 	}

@@ -24,13 +24,10 @@ import (
 	"io"
 	"net/http"
 	"testing"
-)
 
-type ListRolesResp struct {
-	Status  string         `json:"status"`
-	Message string         `json:"message"`
-	Data    []RoleRespData `json:"data"`
-}
+	"auth-service/internal/handler"
+	"auth-service/internal/httputil"
+)
 
 func TestE2E_SystemDefaultRoleProtection(t *testing.T) {
 	tenantID, userID, ownerEmail, password := registerAndActivateTenant(t)
@@ -53,7 +50,7 @@ func TestE2E_SystemDefaultRoleProtection(t *testing.T) {
 		t.Fatalf("Expected HTTP 200 OK from GET /api/roles, got %d: %s", listResp.StatusCode, string(body))
 	}
 
-	var listRolesData ListRolesResp
+	var listRolesData httputil.StandardResponse[[]handler.RoleResponse]
 	if err := json.NewDecoder(listResp.Body).Decode(&listRolesData); err != nil {
 		t.Fatalf("Failed to decode list roles response: %v", err)
 	}
@@ -73,7 +70,7 @@ func TestE2E_SystemDefaultRoleProtection(t *testing.T) {
 	t.Logf("Testing protection guardrails on system default role ID: %s", systemRoleID)
 
 	// Step 3: Attempt Mutation (PUT /api/roles/:id/permissions)
-	updateReqPayload := UpdateRolePermsReq{
+	updateReqPayload := handler.UpdateRolePermissionsRequest{
 		Permissions: []string{"unauthorized:super_admin"},
 	}
 	updateBody, _ := json.Marshal(updateReqPayload)

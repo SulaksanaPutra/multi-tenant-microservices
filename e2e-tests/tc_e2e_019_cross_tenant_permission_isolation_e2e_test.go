@@ -32,7 +32,7 @@ func TestE2E_CrossTenantPermissionIsolationBoundary(t *testing.T) {
 	// -------------------------------------------------------------------------
 	tenantIDA, userIDA, emailA, passwordA := registerAndActivateTenant(t)
 	setCredentials(t, userIDA, tenantIDA, emailA, passwordA)
-	jwtA, _ := loginAndGetTokenPair(t, emailA, passwordA)
+	_, _ = loginAndGetTokenPair(t, emailA, passwordA)
 	t.Logf("Tenant A active: ID=%s, User=%s", tenantIDA, userIDA)
 
 	// -------------------------------------------------------------------------
@@ -41,35 +41,35 @@ func TestE2E_CrossTenantPermissionIsolationBoundary(t *testing.T) {
 	tenantIDB, userIDB, emailB, passwordB := registerAndActivateTenant(t)
 	setCredentials(t, userIDB, tenantIDB, emailB, passwordB)
 	jwtB, _ := loginAndGetTokenPair(t, emailB, passwordB)
-	jwtA, _ = loginAndGetTokenPair(t, emailA, passwordA)
+	jwtA, _ := loginAndGetTokenPair(t, emailA, passwordA)
 	t.Logf("Tenant B active: ID=%s, User=%s", tenantIDB, userIDB)
 
 	// -------------------------------------------------------------------------
 	// Step 3: Create Order under Tenant A
 	// -------------------------------------------------------------------------
-	orderReqA := OrderReq{
+	orderReqA := OrderRequest{
 		CustomerID: "cust_tenant_a_secret",
 		Amount:     499.50,
 	}
 	orderBodyA, _ := json.Marshal(orderReqA)
 
-	createOrderReq, _ := http.NewRequest(http.MethodPost, gatewayOrdersURL, bytes.NewBuffer(orderBodyA))
-	createOrderReq.Header.Set("Content-Type", "application/json")
-	createOrderReq.Header.Set("Authorization", "Bearer "+jwtA)
+	createOrderRequest, _ := http.NewRequest(http.MethodPost, gatewayOrdersURL, bytes.NewBuffer(orderBodyA))
+	createOrderRequest.Header.Set("Content-Type", "application/json")
+	createOrderRequest.Header.Set("Authorization", "Bearer "+jwtA)
 
-	createOrderResp, err := defaultHTTPClient.Do(createOrderReq)
+	createOrderResponse, err := defaultHTTPClient.Do(createOrderRequest)
 	if err != nil {
 		t.Fatalf("Failed to create order for Tenant A: %v", err)
 	}
-	defer createOrderResp.Body.Close()
+	defer createOrderResponse.Body.Close()
 
-	if createOrderResp.StatusCode != http.StatusCreated {
-		b, _ := io.ReadAll(createOrderResp.Body)
-		t.Fatalf("Expected HTTP 201 Created for Tenant A order, got %d: %s", createOrderResp.StatusCode, string(b))
+	if createOrderResponse.StatusCode != http.StatusCreated {
+		b, _ := io.ReadAll(createOrderResponse.Body)
+		t.Fatalf("Expected HTTP 201 Created for Tenant A order, got %d: %s", createOrderResponse.StatusCode, string(b))
 	}
 
-	var createdOrderData OrderResp
-	_ = json.NewDecoder(createOrderResp.Body).Decode(&createdOrderData)
+	var createdOrderData OrderResponse
+	_ = json.NewDecoder(createOrderResponse.Body).Decode(&createdOrderData)
 	orderIDA := createdOrderData.Data.ID
 	t.Logf("Created Tenant A Order ID: %s", orderIDA)
 
@@ -90,7 +90,7 @@ func TestE2E_CrossTenantPermissionIsolationBoundary(t *testing.T) {
 		t.Fatalf("Expected HTTP 200 OK for Tenant B order list query, got %d: %s", listRespB.StatusCode, string(b))
 	}
 
-	var listOrdersDataB ListOrdersResp
+	var listOrdersDataB ListOrdersResponse
 	if err := json.NewDecoder(listRespB.Body).Decode(&listOrdersDataB); err != nil {
 		t.Fatalf("Failed to decode Tenant B order list response: %v", err)
 	}

@@ -25,41 +25,11 @@ import (
 	"net/http"
 	"testing"
 
+	"auth-service/internal/handler"
+	"auth-service/internal/httputil"
+
 	_ "github.com/lib/pq"
 )
-
-type CreateRoleReq struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Permissions []string `json:"permissions"`
-}
-
-type RolePermissionData struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Service     string `json:"service"`
-	Description string `json:"description"`
-	CreatedAt   string `json:"created_at"`
-}
-
-type RoleRespData struct {
-	ID          string               `json:"id"`
-	TenantID    string               `json:"tenant_id"`
-	Name        string               `json:"name"`
-	Description string               `json:"description"`
-	IsSystem    bool                 `json:"is_system"`
-	Permissions []RolePermissionData `json:"permissions"`
-}
-
-type RoleResp struct {
-	Status  string       `json:"status"`
-	Message string       `json:"message"`
-	Data    RoleRespData `json:"data"`
-}
-
-type UpdateRolePermsReq struct {
-	Permissions []string `json:"permissions"`
-}
 
 func TestE2E_MultiTenant_CustomRoleCRUD_And_InstantPermissionInvalidation(t *testing.T) {
 	tenantID, userID, ownerEmail, password := registerAndActivateTenant(t)
@@ -77,7 +47,7 @@ func TestE2E_MultiTenant_CustomRoleCRUD_And_InstantPermissionInvalidation(t *tes
 	t.Logf("Acquired initial access token (perm_version = 1)")
 
 	// Step 4: Create Custom Role via POST /api/roles
-	roleReq := CreateRoleReq{
+	roleReq := handler.CreateRoleRequest{
 		Name:        "Inventory Manager",
 		Description: "Manages product inventory and catalog",
 		Permissions: []string{"orders:read", "orders:write"},
@@ -99,7 +69,7 @@ func TestE2E_MultiTenant_CustomRoleCRUD_And_InstantPermissionInvalidation(t *tes
 		t.Fatalf("Expected role creation success (200/201), got %d: %s", roleResp.StatusCode, string(body))
 	}
 
-	var roleData RoleResp
+	var roleData httputil.StandardResponse[handler.RoleResponse]
 	_ = json.NewDecoder(roleResp.Body).Decode(&roleData)
 	roleID := roleData.Data.ID
 	t.Logf("Created custom role ID: %s", roleID)
@@ -123,7 +93,7 @@ func TestE2E_MultiTenant_CustomRoleCRUD_And_InstantPermissionInvalidation(t *tes
 
 	// Step 5: Update Role Permissions via PUT /api/roles/:id/permissions
 	// This triggers user permission version batch incrementing in auth-service.
-	updatePermsReq := UpdateRolePermsReq{
+	updatePermsReq := handler.UpdateRolePermissionsRequest{
 		Permissions: []string{"orders:read", "orders:write", "inventory:admin"},
 	}
 	updateBody, _ := json.Marshal(updatePermsReq)
@@ -153,7 +123,7 @@ func TestE2E_MultiTenant_CustomRoleCRUD_And_InstantPermissionInvalidation(t *tes
 
 	// Step 7: Attempt to create an order using the initial JWT (perm_version = 1)
 	// Expect rejection (HTTP 401 Unauthorized) because the initial token version is superseded.
-	orderReq := OrderReq{
+	orderReq := OrderRequest{
 		CustomerID: "cust_stale_perm_test",
 		Amount:     199.99,
 	}

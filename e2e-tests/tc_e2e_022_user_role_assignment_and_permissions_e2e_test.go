@@ -19,6 +19,9 @@ import (
 	"io"
 	"net/http"
 	"testing"
+
+	"auth-service/internal/handler"
+	"auth-service/internal/httputil"
 )
 
 func TestUserRoleAssignmentAndPermissionsE2E(t *testing.T) {
@@ -74,12 +77,7 @@ func TestUserRoleAssignmentAndPermissionsE2E(t *testing.T) {
 		t.Fatalf("POST /api/auth/roles expected 201/200, got %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	var createdRole struct {
-		Data struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		} `json:"data"`
-	}
+	var createdRole httputil.StandardResponse[handler.RoleResponse]
 	if err := json.NewDecoder(resp.Body).Decode(&createdRole); err != nil {
 		t.Fatalf("failed to decode created role response: %v", err)
 	}
