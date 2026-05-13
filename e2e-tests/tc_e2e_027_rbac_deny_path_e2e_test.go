@@ -32,6 +32,9 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"auth-service/internal/handler"
+	"auth-service/internal/httputil"
 )
 
 func TestE2E_TC_E2E_027_RBACDenyPathEnforcement(t *testing.T) {
@@ -54,7 +57,7 @@ func TestE2E_TC_E2E_027_RBACDenyPathEnforcement(t *testing.T) {
 	// Step 2: Create Read-Only Custom Role
 	// Instruction: Create a role composed solely of the "orders:read" permission.
 	// =========================================================================
-	readonlyRole := CreateRoleReq{
+	readonlyRole := handler.CreateRoleRequest{
 		Name:        "E2E Read-Only Viewer",
 		Description: "Least-privilege role with read-only order access",
 		Permissions: []string{"orders:read"},
@@ -76,7 +79,7 @@ func TestE2E_TC_E2E_027_RBACDenyPathEnforcement(t *testing.T) {
 		t.Fatalf("Expected role creation success (200/201), got %d: %s", createResp.StatusCode, string(body))
 	}
 
-	var roleData RoleResp
+	var roleData httputil.StandardResponse[handler.RoleResponse]
 	if err := json.NewDecoder(createResp.Body).Decode(&roleData); err != nil || roleData.Data.ID == "" {
 		t.Fatalf("Failed to decode created role response: %v", err)
 	}
@@ -120,7 +123,7 @@ func TestE2E_TC_E2E_027_RBACDenyPathEnforcement(t *testing.T) {
 	// Step 5: Deny-Path Assertions (every gated write/manage endpoint -> 403)
 	// =========================================================================
 	// 5a. POST /api/orders -> 403 (missing orders:create)
-	orderBody, _ := json.Marshal(OrderReq{CustomerID: "cust_deny_test", Amount: 42.00})
+	orderBody, _ := json.Marshal(OrderRequest{CustomerID: "cust_deny_test", Amount: 42.00})
 	denyOrderReq, _ := http.NewRequest(http.MethodPost, gatewayOrdersURL, bytes.NewBuffer(orderBody))
 	denyOrderReq.Header.Set("Content-Type", "application/json")
 	denyOrderReq.Header.Set("Authorization", readonlyHeader)

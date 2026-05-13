@@ -73,7 +73,7 @@ func TestE2E_TC_E2E_015_DecentralizedAuthorizationResilience(t *testing.T) {
 	// Architectural Invariant: Order service validates JWT mathematically using cached RS256 key
 	//                          and processes the order independently (HTTP 201 Created).
 	// =========================================================================
-	orderBody, _ := json.Marshal(OrderReq{
+	orderBody, _ := json.Marshal(OrderRequest{
 		CustomerID: "cust_resilience_test",
 		Amount:     199.99,
 	})

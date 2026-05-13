@@ -30,6 +30,9 @@ import (
 	"testing"
 	"time"
 
+	"auth-service/internal/handler"
+	"auth-service/internal/httputil"
+
 	"github.com/golang-jwt/jwt/v5"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -43,6 +46,10 @@ const (
 	// userDBDSN is the local DSN for the user_db used as a fallback to resolve
 	// user_id when the registration response does not include it.
 	userDBDSN = "host=localhost port=5432 user=postgres password=postgres dbname=user_db sslmode=disable"
+
+	// handlerLoginStatusSelectWorkspace mirrors domain.LoginStatusSelectWorkspace
+	// in auth-service so helpers can branch on the SELECT_WORKSPACE flow.
+	handlerLoginStatusSelectWorkspace = "SELECT_WORKSPACE"
 )
 
 // internalServiceToken resolves the inter-service bearer token (X-Internal-Service-Token)
@@ -59,18 +66,6 @@ func internalServiceToken() string {
 // timeout and avoids tests hanging indefinitely on unresponsive endpoints.
 var defaultHTTPClient = &http.Client{
 	Timeout: 10 * time.Second,
-}
-
-// authTokenResponse maps the JSON envelope returned by POST /auth/login
-// and POST /auth/refresh.
-type authTokenResponse struct {
-	Status  string `json:"status"`
-	Message string `json:"message"`
-	Data    struct {
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-		ExpiresIn    int    `json:"expires_in"`
-	} `json:"data"`
 }
 
 // customJWTClaims mirrors the JWT payload structure issued by auth-service.
@@ -195,29 +190,19 @@ func loginAndGetTokenWithTenant(t *testing.T, tenantID, email, password string) 
 		t.Fatalf("[Auth] POST /api/auth/login returned status %d", resp.StatusCode)
 	}
 
-	var raw map[string]any
+	var raw httputil.StandardResponse[handler.LoginResponse]
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		t.Fatalf("[Auth] failed to decode login response: %v", err)
 	}
 
-	dataMap, _ := raw["data"].(map[string]any)
-	if dataMap == nil {
-		t.Fatalf("[Auth] login response missing data object: %v", raw)
-	}
-
-	if status, ok := dataMap["status"].(string); ok && status == "SELECT_WORKSPACE" {
-		exchangeToken, _ := dataMap["exchange_token"].(string)
-		workspaces, _ := dataMap["workspaces"].([]any)
-
+	if raw.Data.Status == handlerLoginStatusSelectWorkspace {
 		targetTenantID := tenantID
-		if targetTenantID == "" && len(workspaces) > 0 {
-			if ws, ok := workspaces[0].(map[string]any); ok {
-				targetTenantID, _ = ws["tenant_id"].(string)
-			}
+		if targetTenantID == "" && len(raw.Data.Workspaces) > 0 {
+			targetTenantID = raw.Data.Workspaces[0].TenantID
 		}
 
 		selectBody, _ := json.Marshal(map[string]string{
-			"exchange_token": exchangeToken,
+			"exchange_token": raw.Data.ExchangeToken,
 			"tenant_id":      targetTenantID,
 		})
 
@@ -231,16 +216,14 @@ func loginAndGetTokenWithTenant(t *testing.T, tenantID, email, password string) 
 			t.Fatalf("[Auth] POST /api/auth/select-tenant returned status %d", selectResp.StatusCode)
 		}
 
-		var selectTokenResp authTokenResponse
+		var selectTokenResp httputil.StandardResponse[handler.LoginResponse]
 		if err := json.NewDecoder(selectResp.Body).Decode(&selectTokenResp); err != nil {
 			t.Fatalf("[Auth] failed to decode select-tenant response: %v", err)
 		}
 		return selectTokenResp.Data.AccessToken, selectTokenResp.Data.RefreshToken
 	}
 
-	at, _ := dataMap["access_token"].(string)
-	rt, _ := dataMap["refresh_token"].(string)
-	return at, rt
+	return raw.Data.AccessToken, raw.Data.RefreshToken
 }
 
 // bearerHeader formats a standard HTTP Authorization bearer header string.
@@ -335,15 +318,13 @@ func waitForTenantActive(t *testing.T, db *sql.DB, tenantID string) {
 }
 
 // resolveUserID resolves the user ID for a tenant owner.
-// Instruction: Returns regResp.Data.UserID directly if present; otherwise queries user_db by email.
-func resolveUserID(t *testing.T, regResp RegisterResp, ownerEmail string) string {
+//
+// Instruction: Queries user_db by email since the register API response only
+// carries data.status (tenant_id travels via the workspace.initiated event).
+func resolveUserID(t *testing.T, _ RegisterResponse, ownerEmail string) string {
 	t.Helper()
 
-	if regResp.Data.UserID != "" {
-		return regResp.Data.UserID
-	}
-
-	t.Logf("[Setup] user_id not in registration response — querying user_db for email='%s'", ownerEmail)
+	t.Logf("[Setup] Resolving user_id from user_db for email='%s'", ownerEmail)
 
 	userDB, err := sql.Open("postgres", userDBDSN)
 	if err != nil {
@@ -434,7 +415,7 @@ func registerAndActivateTenant(t *testing.T, plan ...string) (tenantID, userID, 
 	ownerName, ownerEmail, tenantName, _ := generateFakeData(planName)
 	t.Logf("[Setup] Submitting Registration: owner='%s', email='%s', tenant='%s', plan='%s'", ownerName, ownerEmail, tenantName, planName)
 
-	reqBody, _ := json.Marshal(RegisterReq{
+	reqBody, _ := json.Marshal(RegisterRequest{
 		OwnerEmail: ownerEmail,
 		OwnerName:  ownerName,
 		Plan:       planName,
@@ -451,7 +432,7 @@ func registerAndActivateTenant(t *testing.T, plan ...string) (tenantID, userID, 
 		t.Fatalf("[Setup] Expected HTTP 202 Accepted, got %d", resp.StatusCode)
 	}
 
-	var regResp RegisterResp
+	var regResp RegisterResponse
 	if err := json.NewDecoder(resp.Body).Decode(&regResp); err != nil {
 		t.Fatalf("[Setup] Failed to decode register response: %v", err)
 	}

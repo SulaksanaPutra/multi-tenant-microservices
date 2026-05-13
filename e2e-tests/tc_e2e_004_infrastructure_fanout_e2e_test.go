@@ -63,7 +63,7 @@ func TestE2E_InfrastructureFanout_BroadcastPurge(t *testing.T) {
 	// Step 2: Register Shared Tenant
 	// =========================================================================
 	ownerName, ownerEmail, tenantName, _ := generateFakeData("shared")
-	reqBody, _ := json.Marshal(RegisterReq{
+	reqBody, _ := json.Marshal(RegisterRequest{
 		OwnerEmail: ownerEmail,
 		OwnerName:  ownerName,
 		Plan:       "shared",
@@ -76,7 +76,7 @@ func TestE2E_InfrastructureFanout_BroadcastPurge(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	var regResp RegisterResp
+	var regResp RegisterResponse
 	_ = json.NewDecoder(resp.Body).Decode(&regResp)
 
 	// =========================================================================
@@ -128,7 +128,7 @@ func TestE2E_InfrastructureFanout_BroadcastPurge(t *testing.T) {
 	accessToken := loginAndGetToken(t, ownerEmail, e2ePassword)
 
 	// Issue order to warm PoolRegistry connection cache
-	orderBody, _ := json.Marshal(OrderReq{CustomerID: "cust_fanout", Amount: 99.00})
+	orderBody, _ := json.Marshal(OrderRequest{CustomerID: "cust_fanout", Amount: 99.00})
 	orderReq, _ := http.NewRequest("POST", gatewayOrdersURL, bytes.NewBuffer(orderBody))
 	orderReq.Header.Set("Content-Type", "application/json")
 	orderReq.Header.Set("Authorization", bearerHeader(accessToken))

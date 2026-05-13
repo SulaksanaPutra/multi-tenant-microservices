@@ -37,6 +37,9 @@ import (
 	"testing"
 	"time"
 
+	"auth-service/internal/handler"
+	"auth-service/internal/httputil"
+
 	_ "github.com/lib/pq"
 )
 
@@ -106,7 +109,7 @@ func TestE2E_TC_E2E_028_SelectTenantExchangeTokenReplay(t *testing.T) {
 	// Step 2: Register Tenant B under the SAME owner email (unified identity)
 	// =========================================================================
 	ownerName, _, tenantNameB, _ := generateFakeData("shared")
-	reqBodyB, _ := json.Marshal(RegisterReq{
+	reqBodyB, _ := json.Marshal(RegisterRequest{
 		OwnerEmail: emailA,
 		OwnerName:  ownerName,
 		Plan:       "shared",
@@ -201,7 +204,7 @@ func doRefreshToken(t *testing.T, refreshToken string) (statusCode int, accessTo
 	}
 	defer resp.Body.Close()
 
-	var refreshResp authTokenResponse
+	var refreshResp httputil.StandardResponse[handler.RefreshTokenResponse]
 	if err := json.NewDecoder(resp.Body).Decode(&refreshResp); err != nil {
 		t.Fatalf("Failed to decode refresh response: %v", err)
 	}
@@ -224,29 +227,18 @@ func loginForWorkspaceSelection(t *testing.T, email, password string) (exchangeT
 		t.Fatalf("Login expected HTTP 200, got %d", resp.StatusCode)
 	}
 
-	var raw map[string]any
+	var raw httputil.StandardResponse[handler.LoginResponse]
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		t.Fatalf("Failed to decode login response: %v", err)
 	}
 
-	dataMap, _ := raw["data"].(map[string]any)
-	if dataMap == nil {
-		t.Fatalf("Login response missing data object: %v", raw)
+	if raw.Data.Status != handlerLoginStatusSelectWorkspace {
+		t.Fatalf("Expected SELECT_WORKSPACE status, got '%s'", raw.Data.Status)
 	}
 
-	statusStr, _ := dataMap["status"].(string)
-	if statusStr != "SELECT_WORKSPACE" {
-		t.Fatalf("Expected SELECT_WORKSPACE status, got '%s'", statusStr)
-	}
-
-	exchangeToken, _ = dataMap["exchange_token"].(string)
-	wsList, _ := dataMap["workspaces"].([]any)
-	for _, ws := range wsList {
-		if wsMap, ok := ws.(map[string]any); ok {
-			if tid, ok := wsMap["tenant_id"].(string); ok {
-				workspaces = append(workspaces, tid)
-			}
-		}
+	exchangeToken = raw.Data.ExchangeToken
+	for _, ws := range raw.Data.Workspaces {
+		workspaces = append(workspaces, ws.TenantID)
 	}
 
 	// Slight backoff so a subsequent login mints a genuinely new exchange token.

@@ -67,7 +67,7 @@ func TestE2E_TC_E2E_029_OrderServiceOutage_Recovery(t *testing.T) {
 	// Instruction: Submit POST /api/tenants/register while order-service is offline.
 	// =========================================================================
 	ownerName, ownerEmail, tenantName, _ := generateFakeData("shared")
-	reqBody, _ := json.Marshal(RegisterReq{
+	reqBody, _ := json.Marshal(RegisterRequest{
 		OwnerEmail: ownerEmail,
 		OwnerName:  ownerName,
 		Plan:       "shared",
@@ -83,7 +83,7 @@ func TestE2E_TC_E2E_029_OrderServiceOutage_Recovery(t *testing.T) {
 		t.Fatalf("Expected HTTP 202 Accepted during outage, got %d", resp.StatusCode)
 	}
 
-	var regResp RegisterResp
+	var regResp RegisterResponse
 	_ = json.NewDecoder(resp.Body).Decode(&regResp)
 
 	tenantID := resolveTenantID(t, ownerEmail)
@@ -149,7 +149,7 @@ func TestE2E_TC_E2E_029_OrderServiceOutage_Recovery(t *testing.T) {
 	setCredentials(t, userID, tenantID, ownerEmail, e2ePassword)
 	accessToken := loginAndGetToken(t, ownerEmail, e2ePassword)
 
-	orderBody, _ := json.Marshal(OrderReq{CustomerID: "cust_post_recovery", Amount: 77.50})
+	orderBody, _ := json.Marshal(OrderRequest{CustomerID: "cust_post_recovery", Amount: 77.50})
 	orderReq, _ := http.NewRequest(http.MethodPost, gatewayOrdersURL, bytes.NewBuffer(orderBody))
 	orderReq.Header.Set("Content-Type", "application/json")
 	orderReq.Header.Set("Authorization", bearerHeader(accessToken))

@@ -56,7 +56,7 @@ func TestE2E_OutboxBrokerOutage_RetryAndRecovery(t *testing.T) {
 	ownerName, ownerEmail, tenantName, _ := generateFakeData("shared")
 	t.Logf("2. Submitting Registration during broker outage: owner='%s', email='%s'", ownerName, ownerEmail)
 
-	reqBody, _ := json.Marshal(RegisterReq{
+	reqBody, _ := json.Marshal(RegisterRequest{
 		OwnerEmail: ownerEmail,
 		OwnerName:  ownerName,
 		Plan:       "shared",

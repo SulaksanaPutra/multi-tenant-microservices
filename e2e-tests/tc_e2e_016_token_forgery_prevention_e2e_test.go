@@ -28,8 +28,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// jwksResponse maps the JSON payload from GET /.well-known/jwks.json.
-type jwksResponse struct {
+// JWKSResponse maps the JSON payload from GET /.well-known/jwks.json.
+type JWKSResponse struct {
 	Keys []struct {
 		Kty string `json:"kty"`
 		Use string `json:"use"`
@@ -59,7 +59,7 @@ func fetchPublicKeyFromJWKS(t *testing.T) *rsa.PublicKey {
 		t.Fatalf("[JWKS] /.well-known/jwks.json returned status %d", resp.StatusCode)
 	}
 
-	var jwks jwksResponse
+	var jwks JWKSResponse
 	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil || len(jwks.Keys) == 0 {
 		t.Fatalf("[JWKS] Failed to decode JWKS or keys array is empty: %v", err)
 	}
