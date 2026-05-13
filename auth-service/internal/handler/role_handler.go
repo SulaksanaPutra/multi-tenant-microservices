@@ -5,17 +5,17 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"auth-service/internal/domain"
 	"auth-service/internal/httputil"
 	"auth-service/internal/middleware"
-	"auth-service/internal/repository"
 	"auth-service/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
-type RoleAppService interface {
+type RoleService interface {
 	CreateRole(ctx context.Context, input service.CreateRoleInput) (*domain.Role, error)
 	GetRole(ctx context.Context, roleID string) (*domain.Role, error)
 	ListRolesForTenant(ctx context.Context, tenantID string) ([]domain.Role, error)
@@ -23,7 +23,7 @@ type RoleAppService interface {
 	DeleteRole(ctx context.Context, roleID string) error
 	AssignUserRole(ctx context.Context, input service.AssignUserRoleInput) error
 	GetUserRole(ctx context.Context, userID, tenantID string) (*domain.UserRole, error)
-	ListUserRolesForTenant(ctx context.Context, tenantID string, userIDs []string) ([]repository.UserRoleBrief, error)
+	ListUserRolesForTenant(ctx context.Context, tenantID string, userIDs []string) ([]service.UserRoleAssignmentOutput, error)
 }
 
 type CreateRoleRequest struct {
@@ -44,12 +44,78 @@ type AssignUserRoleRequest struct {
 	RoleID   string `json:"role_id"   binding:"required"`
 }
 
-type RoleHandler struct {
-	roleService RoleAppService
+// RoleResponse is the transport DTO for a role returned to API consumers.
+type RoleResponse struct {
+	ID          string               `json:"id"`
+	Name        string               `json:"name"`
+	Description string               `json:"description,omitempty"`
+	IsSystem    bool                 `json:"is_system"`
+	CreatedAt   time.Time            `json:"created_at"`
+	Permissions []PermissionResponse `json:"permissions"`
 }
 
-func NewRoleHandler(roleService RoleAppService) *RoleHandler {
+// UserRoleResponse is the transport DTO for a user's role assignment.
+type UserRoleResponse struct {
+	UserID     string        `json:"user_id"`
+	TenantID   string        `json:"tenant_id"`
+	RoleID     string        `json:"role_id"`
+	AssignedAt time.Time     `json:"assigned_at"`
+	AssignedBy *string       `json:"assigned_by,omitempty"`
+	Role       *RoleResponse `json:"role,omitempty"`
+}
+
+// UserRoleAssignmentResponse is the transport DTO for a lightweight "user + role" row.
+type UserRoleAssignmentResponse struct {
+	UserID   string `json:"user_id"`
+	RoleID   string `json:"role_id"`
+	RoleName string `json:"role_name"`
+}
+
+type RoleHandler struct {
+	roleService RoleService
+}
+
+func NewRoleHandler(roleService RoleService) *RoleHandler {
 	return &RoleHandler{roleService: roleService}
+}
+
+func toRoleResponse(role domain.Role) RoleResponse {
+	permissions := make([]PermissionResponse, len(role.Permissions))
+	for i, permission := range role.Permissions {
+		permissions[i] = toPermissionResponse(permission)
+	}
+	return RoleResponse{
+		ID:          role.ID,
+		Name:        role.Name,
+		Description: role.Description,
+		IsSystem:    role.IsSystem,
+		CreatedAt:   role.CreatedAt,
+		Permissions: permissions,
+	}
+}
+
+func toUserRoleResponse(ur domain.UserRole) UserRoleResponse {
+	var role *RoleResponse
+	if ur.Role != nil {
+		roleResponse := toRoleResponse(*ur.Role)
+		role = &roleResponse
+	}
+	return UserRoleResponse{
+		UserID:     ur.UserID,
+		TenantID:   ur.TenantID,
+		RoleID:     ur.RoleID,
+		AssignedAt: ur.AssignedAt,
+		AssignedBy: ur.AssignedBy,
+		Role:       role,
+	}
+}
+
+func toUserRoleAssignmentResponse(assignment service.UserRoleAssignmentOutput) UserRoleAssignmentResponse {
+	return UserRoleAssignmentResponse{
+		UserID:   assignment.UserID,
+		RoleID:   assignment.RoleID,
+		RoleName: assignment.RoleName,
+	}
 }
 
 func (h *RoleHandler) CreateRole(c *gin.Context) {
@@ -87,16 +153,19 @@ func (h *RoleHandler) CreateRole(c *gin.Context) {
 		perms = req.Permissions
 	}
 	if len(perms) > 0 {
-		_ = h.roleService.UpdateRolePermissions(c.Request.Context(), service.UpdateRolePermissionsInput{
+		if err := h.roleService.UpdateRolePermissions(c.Request.Context(), service.UpdateRolePermissionsInput{
 			RoleID:        role.ID,
 			PermissionIDs: perms,
-		})
+		}); err != nil {
+			httputil.WriteError(c, http.StatusInternalServerError, err.Error())
+			return
+		}
 		if reloadedRole, err := h.roleService.GetRole(c.Request.Context(), role.ID); err == nil {
 			role = reloadedRole
 		}
 	}
 
-	httputil.WriteSuccess(c, http.StatusCreated, "Role created successfully", role)
+	httputil.WriteSuccess(c, http.StatusCreated, "Role created successfully", toRoleResponse(*role))
 }
 
 func (h *RoleHandler) GetRole(c *gin.Context) {
@@ -116,7 +185,7 @@ func (h *RoleHandler) GetRole(c *gin.Context) {
 		return
 	}
 
-	httputil.WriteSuccess(c, http.StatusOK, "Role retrieved successfully", role)
+	httputil.WriteSuccess(c, http.StatusOK, "Role retrieved successfully", toRoleResponse(*role))
 }
 
 func (h *RoleHandler) ListRoles(c *gin.Context) {
@@ -135,7 +204,12 @@ func (h *RoleHandler) ListRoles(c *gin.Context) {
 		return
 	}
 
-	httputil.WriteSuccess(c, http.StatusOK, "Roles retrieved successfully", roles)
+	roleResponses := make([]RoleResponse, len(roles))
+	for i, role := range roles {
+		roleResponses[i] = toRoleResponse(role)
+	}
+
+	httputil.WriteSuccess(c, http.StatusOK, "Roles retrieved successfully", roleResponses)
 }
 
 func (h *RoleHandler) UpdateRolePermissions(c *gin.Context) {
@@ -257,7 +331,7 @@ func (h *RoleHandler) GetUserRole(c *gin.Context) {
 		return
 	}
 
-	httputil.WriteSuccess(c, http.StatusOK, "User role retrieved successfully", ur)
+	httputil.WriteSuccess(c, http.StatusOK, "User role retrieved successfully", toUserRoleResponse(*ur))
 }
 
 // ListUserRoles returns role assignments for a set of user IDs within the
@@ -292,5 +366,10 @@ func (h *RoleHandler) ListUserRoles(c *gin.Context) {
 		return
 	}
 
-	httputil.WriteSuccess(c, http.StatusOK, "User roles retrieved successfully", assignments)
+	assignmentResponses := make([]UserRoleAssignmentResponse, len(assignments))
+	for i, assignment := range assignments {
+		assignmentResponses[i] = toUserRoleAssignmentResponse(assignment)
+	}
+
+	httputil.WriteSuccess(c, http.StatusOK, "User roles retrieved successfully", assignmentResponses)
 }

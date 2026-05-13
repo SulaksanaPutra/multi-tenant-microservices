@@ -11,13 +11,12 @@ import (
 	"auth-service/internal/domain"
 	"auth-service/internal/httputil"
 	"auth-service/internal/middleware"
-	"auth-service/internal/repository"
 	"auth-service/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
-type mockRoleAppService struct {
+type mockRoleService struct {
 	CreateRoleFn             func(ctx context.Context, input service.CreateRoleInput) (*domain.Role, error)
 	GetRoleFn                func(ctx context.Context, roleID string) (*domain.Role, error)
 	ListRolesForTenantFn     func(ctx context.Context, tenantID string) ([]domain.Role, error)
@@ -25,59 +24,59 @@ type mockRoleAppService struct {
 	DeleteRoleFn             func(ctx context.Context, roleID string) error
 	AssignUserRoleFn         func(ctx context.Context, input service.AssignUserRoleInput) error
 	GetUserRoleFn            func(ctx context.Context, userID, tenantID string) (*domain.UserRole, error)
-	ListUserRolesForTenantFn func(ctx context.Context, tenantID string, userIDs []string) ([]repository.UserRoleBrief, error)
+	ListUserRolesForTenantFn func(ctx context.Context, tenantID string, userIDs []string) ([]service.UserRoleAssignmentOutput, error)
 }
 
-func (m *mockRoleAppService) CreateRole(ctx context.Context, input service.CreateRoleInput) (*domain.Role, error) {
+func (m *mockRoleService) CreateRole(ctx context.Context, input service.CreateRoleInput) (*domain.Role, error) {
 	if m.CreateRoleFn != nil {
 		return m.CreateRoleFn(ctx, input)
 	}
 	return &domain.Role{ID: "role_1", Name: input.Name}, nil
 }
 
-func (m *mockRoleAppService) GetRole(ctx context.Context, roleID string) (*domain.Role, error) {
+func (m *mockRoleService) GetRole(ctx context.Context, roleID string) (*domain.Role, error) {
 	if m.GetRoleFn != nil {
 		return m.GetRoleFn(ctx, roleID)
 	}
 	return &domain.Role{ID: roleID, Name: "role_name"}, nil
 }
 
-func (m *mockRoleAppService) ListRolesForTenant(ctx context.Context, tenantID string) ([]domain.Role, error) {
+func (m *mockRoleService) ListRolesForTenant(ctx context.Context, tenantID string) ([]domain.Role, error) {
 	if m.ListRolesForTenantFn != nil {
 		return m.ListRolesForTenantFn(ctx, tenantID)
 	}
 	return nil, nil
 }
 
-func (m *mockRoleAppService) UpdateRolePermissions(ctx context.Context, input service.UpdateRolePermissionsInput) error {
+func (m *mockRoleService) UpdateRolePermissions(ctx context.Context, input service.UpdateRolePermissionsInput) error {
 	if m.UpdateRolePermissionsFn != nil {
 		return m.UpdateRolePermissionsFn(ctx, input)
 	}
 	return nil
 }
 
-func (m *mockRoleAppService) DeleteRole(ctx context.Context, roleID string) error {
+func (m *mockRoleService) DeleteRole(ctx context.Context, roleID string) error {
 	if m.DeleteRoleFn != nil {
 		return m.DeleteRoleFn(ctx, roleID)
 	}
 	return nil
 }
 
-func (m *mockRoleAppService) AssignUserRole(ctx context.Context, input service.AssignUserRoleInput) error {
+func (m *mockRoleService) AssignUserRole(ctx context.Context, input service.AssignUserRoleInput) error {
 	if m.AssignUserRoleFn != nil {
 		return m.AssignUserRoleFn(ctx, input)
 	}
 	return nil
 }
 
-func (m *mockRoleAppService) GetUserRole(ctx context.Context, userID, tenantID string) (*domain.UserRole, error) {
+func (m *mockRoleService) GetUserRole(ctx context.Context, userID, tenantID string) (*domain.UserRole, error) {
 	if m.GetUserRoleFn != nil {
 		return m.GetUserRoleFn(ctx, userID, tenantID)
 	}
 	return &domain.UserRole{UserID: userID, TenantID: tenantID, RoleID: "role_1"}, nil
 }
 
-func (m *mockRoleAppService) ListUserRolesForTenant(ctx context.Context, tenantID string, userIDs []string) ([]repository.UserRoleBrief, error) {
+func (m *mockRoleService) ListUserRolesForTenant(ctx context.Context, tenantID string, userIDs []string) ([]service.UserRoleAssignmentOutput, error) {
 	if m.ListUserRolesForTenantFn != nil {
 		return m.ListUserRolesForTenantFn(ctx, tenantID, userIDs)
 	}
@@ -91,7 +90,7 @@ func TestRoleHandler_CreateRole(t *testing.T) {
 		w := httptest.NewRecorder()
 		_, r := gin.CreateTestContext(w)
 
-		h := NewRoleHandler(&mockRoleAppService{})
+		h := NewRoleHandler(&mockRoleService{})
 		r.POST("/roles", h.CreateRole)
 
 		reqBody := CreateRoleRequest{Name: "custom_role"}
@@ -109,7 +108,7 @@ func TestRoleHandler_CreateRole(t *testing.T) {
 		w := httptest.NewRecorder()
 		_, r := gin.CreateTestContext(w)
 
-		mockSvc := &mockRoleAppService{
+		mockSvc := &mockRoleService{
 			CreateRoleFn: func(_ context.Context, _ service.CreateRoleInput) (*domain.Role, error) {
 				return nil, domain.ErrRoleAlreadyExists
 			},
@@ -132,7 +131,7 @@ func TestRoleHandler_CreateRole(t *testing.T) {
 		w := httptest.NewRecorder()
 		_, r := gin.CreateTestContext(w)
 
-		mockSvc := &mockRoleAppService{
+		mockSvc := &mockRoleService{
 			CreateRoleFn: func(_ context.Context, input service.CreateRoleInput) (*domain.Role, error) {
 				return &domain.Role{ID: "role_123", Name: input.Name}, nil
 			},
@@ -153,7 +152,7 @@ func TestRoleHandler_CreateRole(t *testing.T) {
 			t.Fatalf("expected status 201, got %d", w.Code)
 		}
 
-		var resp httputil.StandardResponse[domain.Role]
+		var resp httputil.StandardResponse[RoleResponse]
 		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 			t.Fatalf("failed to unmarshal response: %v", err)
 		}
@@ -170,7 +169,7 @@ func TestRoleHandler_GetRole(t *testing.T) {
 		w := httptest.NewRecorder()
 		_, r := gin.CreateTestContext(w)
 
-		mockSvc := &mockRoleAppService{
+		mockSvc := &mockRoleService{
 			GetRoleFn: func(_ context.Context, _ string) (*domain.Role, error) {
 				return nil, domain.ErrRoleNotFound
 			},
@@ -189,7 +188,7 @@ func TestRoleHandler_GetRole(t *testing.T) {
 		w := httptest.NewRecorder()
 		_, r := gin.CreateTestContext(w)
 
-		mockSvc := &mockRoleAppService{
+		mockSvc := &mockRoleService{
 			GetRoleFn: func(_ context.Context, roleID string) (*domain.Role, error) {
 				return &domain.Role{ID: roleID, Name: "manager"}, nil
 			},
@@ -212,7 +211,7 @@ func TestRoleHandler_UpdateRolePermissions(t *testing.T) {
 		w := httptest.NewRecorder()
 		_, r := gin.CreateTestContext(w)
 
-		mockSvc := &mockRoleAppService{
+		mockSvc := &mockRoleService{
 			UpdateRolePermissionsFn: func(_ context.Context, _ service.UpdateRolePermissionsInput) error {
 				return domain.ErrSystemRoleProtected
 			},
@@ -235,7 +234,7 @@ func TestRoleHandler_UpdateRolePermissions(t *testing.T) {
 		w := httptest.NewRecorder()
 		_, r := gin.CreateTestContext(w)
 
-		h := NewRoleHandler(&mockRoleAppService{})
+		h := NewRoleHandler(&mockRoleService{})
 		r.PUT("/roles/:id/permissions", h.UpdateRolePermissions)
 
 		reqBody := UpdateRolePermissionsRequest{PermissionIDs: []string{"p1", "p2"}}
@@ -257,7 +256,7 @@ func TestRoleHandler_DeleteRole(t *testing.T) {
 		w := httptest.NewRecorder()
 		_, r := gin.CreateTestContext(w)
 
-		mockSvc := &mockRoleAppService{
+		mockSvc := &mockRoleService{
 			DeleteRoleFn: func(_ context.Context, _ string) error {
 				return domain.ErrSystemRoleProtected
 			},
@@ -276,7 +275,7 @@ func TestRoleHandler_DeleteRole(t *testing.T) {
 		w := httptest.NewRecorder()
 		_, r := gin.CreateTestContext(w)
 
-		h := NewRoleHandler(&mockRoleAppService{})
+		h := NewRoleHandler(&mockRoleService{})
 		r.DELETE("/roles/:id", h.DeleteRole)
 
 		req := httptest.NewRequest(http.MethodDelete, "/roles/role_custom", nil)
@@ -294,7 +293,7 @@ func TestRoleHandler_AssignUserRole(t *testing.T) {
 		w := httptest.NewRecorder()
 		_, r := gin.CreateTestContext(w)
 
-		mockSvc := &mockRoleAppService{
+		mockSvc := &mockRoleService{
 			AssignUserRoleFn: func(_ context.Context, _ service.AssignUserRoleInput) error {
 				return domain.ErrRoleNotFound
 			},
@@ -320,7 +319,7 @@ func TestRoleHandler_AssignUserRole(t *testing.T) {
 		w := httptest.NewRecorder()
 		_, r := gin.CreateTestContext(w)
 
-		h := NewRoleHandler(&mockRoleAppService{})
+		h := NewRoleHandler(&mockRoleService{})
 		r.POST("/users/:userID/role", func(c *gin.Context) {
 			c.Set(middleware.ContextKeyTenantID, "tnt_001")
 			h.AssignUserRole(c)

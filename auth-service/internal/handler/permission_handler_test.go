@@ -67,7 +67,7 @@ func TestPermissionHandler_ListPermissions(t *testing.T) {
 			t.Fatalf("expected status 200, got %d", w.Code)
 		}
 
-		var resp httputil.StandardResponse[[]domain.Permission]
+		var resp httputil.StandardResponse[[]PermissionResponse]
 		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 			t.Fatalf("failed to unmarshal response: %v", err)
 		}

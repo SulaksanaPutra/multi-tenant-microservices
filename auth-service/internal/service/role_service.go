@@ -20,28 +20,35 @@ type RoleRepository interface {
 	AssignUserRole(ctx context.Context, userID, tenantID, roleID string, assignedBy *string) error
 	FindUserRole(ctx context.Context, userID, tenantID string) (*domain.UserRole, error)
 	UserHasMembership(ctx context.Context, userID, tenantID string) (bool, error)
-	FindUserPermissions(ctx context.Context, userID, tenantID string) ([]string, int64, error)
 	GetUserPermissionVersion(ctx context.Context, userID, tenantID string) (int64, error)
 	BumpUserPermissionVersionsForRole(ctx context.Context, roleID string) error
 	ListUserRolesByTenant(ctx context.Context, tenantID string, userIDs []string) ([]repository.UserRoleBrief, error)
 }
 
 type CreateRoleInput struct {
-	TenantID    string `json:"tenant_id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	TenantID    string
+	Name        string
+	Description string
 }
 
 type UpdateRolePermissionsInput struct {
-	RoleID        string   `json:"role_id"`
-	PermissionIDs []string `json:"permission_ids"`
+	RoleID        string
+	PermissionIDs []string
 }
 
 type AssignUserRoleInput struct {
-	UserID     string  `json:"user_id"`
-	TenantID   string  `json:"tenant_id"`
-	RoleID     string  `json:"role_id"`
-	AssignedBy *string `json:"assigned_by"`
+	UserID     string
+	TenantID   string
+	RoleID     string
+	AssignedBy *string
+}
+
+// UserRoleAssignmentOutput is the transport-agnostic projection of a single
+// role assignment row within a tenant, used to compose "users + roles" tables.
+type UserRoleAssignmentOutput struct {
+	UserID   string
+	RoleID   string
+	RoleName string
 }
 
 type RoleService struct {
@@ -184,12 +191,26 @@ func (s *RoleService) GetUserRole(ctx context.Context, userID, tenantID string) 
 // ListUserRolesForTenant returns role assignments for the given user IDs within
 // a single tenant. Scope is enforced by the underlying query (tenant_id match),
 // so callers can only receive assignments belonging to the supplied tenant.
-func (s *RoleService) ListUserRolesForTenant(ctx context.Context, tenantID string, userIDs []string) ([]repository.UserRoleBrief, error) {
+func (s *RoleService) ListUserRolesForTenant(ctx context.Context, tenantID string, userIDs []string) ([]UserRoleAssignmentOutput, error) {
 	if tenantID == "" {
 		return nil, domain.ErrTenantIDRequired
 	}
 	if len(userIDs) == 0 {
-		return []repository.UserRoleBrief{}, nil
+		return []UserRoleAssignmentOutput{}, nil
 	}
-	return s.roleRepo.ListUserRolesByTenant(ctx, tenantID, userIDs)
+
+	briefs, err := s.roleRepo.ListUserRolesByTenant(ctx, tenantID, userIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	outputs := make([]UserRoleAssignmentOutput, len(briefs))
+	for i, brief := range briefs {
+		outputs[i] = UserRoleAssignmentOutput{
+			UserID:   brief.UserID,
+			RoleID:   brief.RoleID,
+			RoleName: brief.RoleName,
+		}
+	}
+	return outputs, nil
 }

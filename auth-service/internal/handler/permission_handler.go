@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"auth-service/internal/domain"
 	"auth-service/internal/httputil"
@@ -10,24 +11,48 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type PermissionAppService interface {
+type PermissionService interface {
 	ListPermissions(ctx context.Context) ([]domain.Permission, error)
 }
 
-type PermissionHandler struct {
-	permService PermissionAppService
+// PermissionResponse is the transport DTO for a permission catalog entry.
+type PermissionResponse struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Service     string    `json:"service"`
+	Description string    `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
-func NewPermissionHandler(permService PermissionAppService) *PermissionHandler {
-	return &PermissionHandler{permService: permService}
+type PermissionHandler struct {
+	permissionService PermissionService
+}
+
+func NewPermissionHandler(permissionService PermissionService) *PermissionHandler {
+	return &PermissionHandler{permissionService: permissionService}
+}
+
+func toPermissionResponse(permission domain.Permission) PermissionResponse {
+	return PermissionResponse{
+		ID:          permission.ID,
+		Name:        permission.Name,
+		Service:     permission.Service,
+		Description: permission.Description,
+		CreatedAt:   permission.CreatedAt,
+	}
 }
 
 func (h *PermissionHandler) ListPermissions(c *gin.Context) {
-	permissions, err := h.permService.ListPermissions(c.Request.Context())
+	permissions, err := h.permissionService.ListPermissions(c.Request.Context())
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	httputil.WriteSuccess(c, http.StatusOK, "Permissions retrieved successfully", permissions)
+	permissionResponses := make([]PermissionResponse, len(permissions))
+	for i, permission := range permissions {
+		permissionResponses[i] = toPermissionResponse(permission)
+	}
+
+	httputil.WriteSuccess(c, http.StatusOK, "Permissions retrieved successfully", permissionResponses)
 }

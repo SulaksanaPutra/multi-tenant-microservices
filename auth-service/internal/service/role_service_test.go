@@ -116,23 +116,6 @@ func (m *mockRoleRepo) FindUserRole(_ context.Context, userID, tenantID string) 
 	return nil, domain.ErrRoleNotFound
 }
 
-func (m *mockRoleRepo) FindUserPermissions(_ context.Context, userID, tenantID string) ([]string, int64, error) {
-	key := userID + "_" + tenantID
-	ur, ok := m.userRoles[key]
-	if !ok || ur.Role == nil {
-		return nil, 1, nil
-	}
-	var res []string
-	for _, p := range ur.Role.Permissions {
-		res = append(res, p.Name)
-	}
-	ver := m.versions[key]
-	if ver == 0 {
-		ver = 1
-	}
-	return res, ver, nil
-}
-
 func (m *mockRoleRepo) GetUserPermissionVersion(_ context.Context, userID, tenantID string) (int64, error) {
 	key := userID + "_" + tenantID
 	ver, ok := m.versions[key]

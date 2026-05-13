@@ -34,13 +34,21 @@ type CreateRoleReq struct {
 	Permissions []string `json:"permissions"`
 }
 
+type RolePermissionData struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Service     string `json:"service"`
+	Description string `json:"description"`
+	CreatedAt   string `json:"created_at"`
+}
+
 type RoleRespData struct {
-	ID          string   `json:"id"`
-	TenantID    string   `json:"tenant_id"`
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	IsSystem    bool     `json:"is_system"`
-	Permissions []string `json:"permissions"`
+	ID          string               `json:"id"`
+	TenantID    string               `json:"tenant_id"`
+	Name        string               `json:"name"`
+	Description string               `json:"description"`
+	IsSystem    bool                 `json:"is_system"`
+	Permissions []RolePermissionData `json:"permissions"`
 }
 
 type RoleResp struct {

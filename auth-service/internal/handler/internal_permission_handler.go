@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type InternalPermissionAppService interface {
+type InternalPermissionService interface {
 	RegisterPermissions(ctx context.Context, input service.InternalRegisterPermissionsInput) error
 	GetUserPermissionVersion(ctx context.Context, userID, tenantID string) (int64, error)
 }
@@ -33,11 +33,11 @@ type InternalPermissionVersionResponse struct {
 }
 
 type InternalPermissionHandler struct {
-	permService InternalPermissionAppService
+	permissionService InternalPermissionService
 }
 
-func NewInternalPermissionHandler(permService InternalPermissionAppService) *InternalPermissionHandler {
-	return &InternalPermissionHandler{permService: permService}
+func NewInternalPermissionHandler(permissionService InternalPermissionService) *InternalPermissionHandler {
+	return &InternalPermissionHandler{permissionService: permissionService}
 }
 
 func (h *InternalPermissionHandler) RegisterPermissions(c *gin.Context) {
@@ -55,7 +55,7 @@ func (h *InternalPermissionHandler) RegisterPermissions(c *gin.Context) {
 		}
 	}
 
-	if err := h.permService.RegisterPermissions(c.Request.Context(), service.InternalRegisterPermissionsInput{
+	if err := h.permissionService.RegisterPermissions(c.Request.Context(), service.InternalRegisterPermissionsInput{
 		Service:     req.Service,
 		Permissions: items,
 	}); err != nil {
@@ -75,7 +75,7 @@ func (h *InternalPermissionHandler) GetUserPermissionVersion(c *gin.Context) {
 		return
 	}
 
-	ver, err := h.permService.GetUserPermissionVersion(c.Request.Context(), userID, tenantID)
+	ver, err := h.permissionService.GetUserPermissionVersion(c.Request.Context(), userID, tenantID)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return
