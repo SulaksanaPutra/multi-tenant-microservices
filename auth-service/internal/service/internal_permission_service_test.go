@@ -29,27 +29,6 @@ func (m *mockPermRepo) ListAllPermissions(_ context.Context) ([]domain.Permissio
 	return m.permissions, nil
 }
 
-func (m *mockPermRepo) FindByIDs(_ context.Context, ids []string) ([]domain.Permission, error) {
-	var res []domain.Permission
-	for _, p := range m.permissions {
-		for _, id := range ids {
-			if p.ID == id {
-				res = append(res, p)
-			}
-		}
-	}
-	return res, nil
-}
-
-func (m *mockPermRepo) FindByName(_ context.Context, name string) (*domain.Permission, error) {
-	for _, p := range m.permissions {
-		if p.Name == name {
-			return &p, nil
-		}
-	}
-	return nil, domain.ErrPermissionNotFound
-}
-
 func TestInternalPermissionService_RegisterAndList(t *testing.T) {
 	pRepo := &mockPermRepo{}
 	rRepo := newMockRoleRepo()

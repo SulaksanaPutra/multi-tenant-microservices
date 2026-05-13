@@ -12,13 +12,11 @@ import (
 type PermissionRepository interface {
 	BulkUpsertPermissions(ctx context.Context, serviceName string, items []repository.RegisterPermissionItem) error
 	ListAllPermissions(ctx context.Context) ([]domain.Permission, error)
-	FindByIDs(ctx context.Context, ids []string) ([]domain.Permission, error)
-	FindByName(ctx context.Context, name string) (*domain.Permission, error)
 }
 
 type InternalRegisterPermissionsInput struct {
-	Service     string                               `json:"service"`
-	Permissions []repository.RegisterPermissionItem `json:"permissions"`
+	Service     string
+	Permissions []repository.RegisterPermissionItem
 }
 
 type InternalPermissionService struct {
