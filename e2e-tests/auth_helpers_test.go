@@ -45,7 +45,8 @@ const (
 
 	// userDBDSN is the local DSN for the user_db used as a fallback to resolve
 	// user_id when the registration response does not include it.
-	userDBDSN = "host=localhost port=5432 user=postgres password=postgres dbname=user_db sslmode=disable"
+	userDBDSN         = "host=localhost port=5432 user=postgres password=postgres dbname=user_db sslmode=disable"
+	notificationDBDSN = "host=localhost port=5432 user=postgres password=postgres dbname=notification_db sslmode=disable"
 
 	// handlerLoginStatusSelectWorkspace mirrors domain.LoginStatusSelectWorkspace
 	// in auth-service so helpers can branch on the SELECT_WORKSPACE flow.

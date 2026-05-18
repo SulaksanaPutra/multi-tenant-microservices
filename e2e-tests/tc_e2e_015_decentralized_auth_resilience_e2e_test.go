@@ -105,17 +105,20 @@ func TestE2E_TC_E2E_015_DecentralizedAuthorizationResilience(t *testing.T) {
 	}
 
 	restarted := false
-	for i := 0; i < 20; i++ {
-		hResp, err := defaultHTTPClient.Get(authServiceURL + "/.well-known/jwks.json")
+	for i := 0; i < 30; i++ {
+		hResp, err := defaultHTTPClient.Get(gatewayBaseURL + "/.well-known/jwks.json")
 		if err == nil && hResp.StatusCode == http.StatusOK {
 			hResp.Body.Close()
 			restarted = true
 			break
 		}
+		if hResp != nil {
+			hResp.Body.Close()
+		}
 		time.Sleep(500 * time.Millisecond)
 	}
 	if !restarted {
-		t.Fatalf("auth-service did not recover on /health within 10 seconds after restart")
+		t.Fatalf("auth-service gateway route did not recover within 15 seconds after restart")
 	}
-	t.Log("6. auth-service container restarted and healthy.")
+	t.Log("6. auth-service container restarted and gateway route healthy.")
 }
