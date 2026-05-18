@@ -564,6 +564,13 @@ microservice-api/
 
 # 3. Run E2E Integration Tests
 (cd e2e-tests && CGO_ENABLED=0 go test -v ./...)
+
+# 4. Clean up E2E test data (optional but recommended)
+#    The E2E suite pollutes the databases (auth_db, user_db, notification_db,
+#    tenant_manager_db), drops 300+ dynamic shared_db tnt_*_order_db schemas,
+#    provisions 20+ dedicated postgres-tenant-* containers, and fills Mailpit
+#    & RabbitMQ. Run this right after the suite to leave the platform pristine:
+(cd infrastructure/scripts && bash clean-e2e-data.sh)
 ```
 
 ### Stopping All Services
