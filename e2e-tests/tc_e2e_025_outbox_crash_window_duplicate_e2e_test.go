@@ -57,6 +57,12 @@ func TestE2E_TC_E2E_025_OutboxCrashWindow_DuplicateRepublish(t *testing.T) {
 	}
 	defer db.Close()
 
+	notifDB, err := sql.Open("postgres", notificationDBDSN)
+	if err != nil {
+		t.Fatalf("Failed to connect to notification_db: %v", err)
+	}
+	defer notifDB.Close()
+
 	var outboxID, outboxStatus string
 	readyRowPublished := false
 	for i := 0; i < 30; i++ {
@@ -80,12 +86,10 @@ func TestE2E_TC_E2E_025_OutboxCrashWindow_DuplicateRepublish(t *testing.T) {
 	// Instruction: Confirm exactly one inbox record exists for the event_id and exactly
 	//              one welcome email was delivered before the crash-window simulation.
 	// =========================================================================
-	baselineInboxCount := countInboxRows(t, db, outboxID)
+	baselineInboxCount, baselineEmailCount := settleBaselineCounts(t, notifDB, outboxID, ownerEmail)
 	if baselineInboxCount != 1 {
 		t.Fatalf("Baseline violation: expected exactly 1 inbox row for event_id='%s', got %d", outboxID, baselineInboxCount)
 	}
-
-	baselineEmailCount := countMailpitEmails(t, ownerEmail)
 	if baselineEmailCount != 1 {
 		t.Fatalf("Baseline violation: expected exactly 1 welcome email for '%s', got %d", ownerEmail, baselineEmailCount)
 	}
@@ -141,7 +145,7 @@ func TestE2E_TC_E2E_025_OutboxCrashWindow_DuplicateRepublish(t *testing.T) {
 	var finalInboxCount, finalEmailCount int
 	settled := false
 	for i := 0; i < 40; i++ {
-		finalInboxCount = countInboxRows(t, db, outboxID)
+		finalInboxCount = countInboxRows(t, notifDB, outboxID)
 		finalEmailCount = countMailpitEmails(t, ownerEmail)
 		if finalInboxCount == 1 && finalEmailCount == 1 {
 			settled = true
@@ -166,6 +170,23 @@ func countInboxRows(t *testing.T, db *sql.DB, eventID string) int {
 		t.Fatalf("Failed to query inbox count for event_id='%s': %v", eventID, err)
 	}
 	return count
+}
+
+// settleBaselineCounts polls until the notification consumer has finished its
+// post-commit SMTP dispatch phase for the baseline event, then returns the
+// settled inbox row count and welcome email count for the given event/recipient.
+func settleBaselineCounts(t *testing.T, notifDB *sql.DB, eventID, ownerEmail string) (inboxCount, emailCount int) {
+	t.Helper()
+
+	for i := 0; i < 30; i++ {
+		inboxCount = countInboxRows(t, notifDB, eventID)
+		emailCount = countMailpitEmails(t, ownerEmail)
+		if inboxCount >= 1 && emailCount >= 1 {
+			return inboxCount, emailCount
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return inboxCount, emailCount
 }
 
 // countMailpitEmails returns the number of Mailpit messages addressed to the given email.
