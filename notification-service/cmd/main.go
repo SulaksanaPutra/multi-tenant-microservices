@@ -17,6 +17,7 @@ import (
 	"notification-service/internal/infrastructure/postgres"
 	"notification-service/internal/infrastructure/rabbitmq"
 	"notification-service/internal/mailer"
+	"notification-service/internal/migration"
 	"notification-service/internal/repository"
 	"notification-service/internal/service"
 	"notification-service/internal/txcontext"
@@ -57,6 +58,11 @@ func main() {
 		log.Fatalf("Failed to initialize database client: %v", err)
 	}
 	defer dbClient.Close()
+
+	// Run schema migrations (goose, library-mode, embedded; advisory-locked)
+	if err := migration.Run(context.Background(), dbClient.DB); err != nil {
+		log.Fatalf("Failed to run notification DB migrations: %v", err)
+	}
 
 	rmqClient, err := rabbitmq.NewClient(amqpURL)
 	if err != nil {

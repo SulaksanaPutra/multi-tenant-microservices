@@ -1,6 +1,6 @@
 # Microservices Architecture & Coding Standards
 
-This document establishes the unified mental model, architectural boundaries, code style, naming conventions, and error handling standards across all microservices in the system (`order-service`, `tenant-service`, `notification-service`, `user-service`, `infra-provisioner`).
+This document establishes the unified mental model, architectural boundaries, code style, naming conventions, and error handling standards across all microservices in the system (`order-service`, `auth-service`, `tenant-service`, `notification-service`, `user-service`, `infra-provisioner`).
 
 The goal of this standardization is to provide a **consistent developer mental model**: when engineers navigate from one service to another, package layouts, constructor patterns, method names, and layer responsibilities are predictable and familiar.
 
@@ -21,9 +21,12 @@ Each Go microservice is structured into standard layers:
     ├── repository/           # Persistence Data Access Layer (Raw SQL / Queries)
     ├── publisher/            # AMQP Event Publishing Adapters
     ├── infrastructure/       # External Driver Adapters (Postgres, RabbitMQ, Mailer)
+    ├── migration/            # goose Library-Mode Migrations (Control-Plane Schema)
     ├── txcontext/            # Transaction Boundary Context Helper (replaces txctx)
     └── httputil/             # Standardized HTTP JSON Response Wrappers (replaces utils)
 ```
+
+> **Service-Specific Layout Exceptions:** Archetype B (`notification-service`) omits `handler/`/`repository/` where it has no HTTP/persistence surface; Archetype C (`infra-provisioner`) omits `handler/` entirely; `order-service` is the single exception that keeps a bespoke `MigrationService` in `internal/service` for runtime per-tenant DDL provisioning (see Rule 7.2).
 
 ### Layer Responsibilities Matrix
 
@@ -34,6 +37,7 @@ Each Go microservice is structured into standard layers:
 | **`repository`** | Executes SQL queries against PostgreSQL. Pushes domain structs into storage. | `domain`, `txcontext`, `infrastructure` | Must NOT contain transport logic or HTTP response formatting. |
 | **`handler`** | Binds JSON payloads, validates transport schemas, calls application services, writes HTTP responses. | `domain`, `service` (interface), `httputil` | Must NOT write SQL queries or handle raw DB transactions directly. |
 | **`consumer`** | Consumes AMQP event messages from RabbitMQ queues, delegates to domain services/provisioners. | `domain`, `service`, `infrastructure` | Must NOT perform raw SQL mutations outside service boundaries. |
+| **`migration`** | Applies embedded goose SQL migrations against the control-plane DB at boot (versioned, advisory-locked). | stdlib (`database/sql`), goose, `migrations/` embed | Must NOT contain business logic or runtime per-tenant DDL (see Rule 7.2). |
 | **`composition` (`cmd`)**| Instantiates concrete structs, wires dependency trees, starts servers and background workers. | All packages | Must NOT contain business logic or inline SQL queries. |
 
 ---
@@ -115,29 +119,38 @@ Initialized variables, struct fields, constructor parameters, and interface decl
 * **Publisher Layer:** Use `publisher`, `tenantEventPublisher`, `userEventPublisher` *(PROHIBITED: `pub`)*.
 * **Consumer Layer:** Use `workspaceInitiatedConsumer`, `userCreatedConsumer`, `tenantReadyConsumer` *(PROHIBITED: `cons`)*.
 * **Handler Layer:** Use `workspaceHandler`, `orderHandler`, `notificationHandler` *(PROHIBITED: `hnd`, `h`)*.
+* **Migration Layer:** Use `migration.Run(ctx, db)` at the composition root; keep the goose entrypoint in `internal/migration` *(PROHIBITED: inline DDL in `cmd/migration.go`, `mig`)*.
 
 ---
 
 ## 4. Error Handling Taxonomy & Sentinel Errors
 
-### Rule 4.1: Exported Sentinel Errors
-Domain and service packages MUST declare exported sentinel errors for predictable error handling:
+### Rule 4.1: Exported Sentinel Errors in `internal/domain`
+
+Sentinel errors MUST be declared **exclusively in the pure `domain` package** (Domain Purity — see the Layer Responsibilities Matrix). Service, handler, repository, consumer, and infrastructure packages MUST NOT declare their own `Err*` sentinels; they reference `domain.Err*` for cross-cutting error contract checks.
+
 ```go
+// GOOD — declared in internal/domain/errors.go
 var (
     ErrNotFound         = errors.New("domain: resource not found")
-    ErrTenantIDRequired = errors.New("service: tenant_id is required")
-    ErrInvalidInput     = errors.New("service: invalid input payload")
+    ErrTenantIDRequired = errors.New("auth service: tenant_id is required")
+    ErrInvalidInput     = errors.New("auth service: invalid input payload")
 )
+
+// PROHIBITED — sentinels declared in internal/service/*.go, internal/handler/*.go, etc.
+var ErrUserNotFound = errors.New("service: user not found") // ← VIOLATION
 ```
 
+> **Rationale:** The domain package is the single source of truth for business invariants and can be imported by every layer without creating dependency cycles. Application services remain transport-agnostic and only wrap/`errors.Is` against `domain.Err*`.
+
 ### Rule 4.2: HTTP Status Code Mapping
-Handlers use `errors.Is(...)` to map domain errors to standard HTTP response codes:
+Handlers use `errors.Is(...)` to map domain sentinel errors to standard HTTP response codes:
 ```go
-if errors.Is(err, service.ErrInvalidInput) || errors.Is(err, service.ErrTenantIDRequired) {
+if errors.Is(err, domain.ErrInvalidInput) || errors.Is(err, domain.ErrTenantIDRequired) {
     httputil.WriteError(c, http.StatusBadRequest, err.Error())
     return
 }
-if errors.Is(err, service.ErrNotFound) {
+if errors.Is(err, domain.ErrNotFound) {
     httputil.WriteError(c, http.StatusNotFound, err.Error())
     return
 }
@@ -161,7 +174,7 @@ if errors.Is(err, sql.ErrNoRows) {
 
 // CORRECT — in service (Layer 2)
 if errors.Is(err, domain.ErrNotFound) {
-    return fmt.Errorf("%w: %s", ErrTenantNotFound, id)
+    return fmt.Errorf("%w: %s", domain.ErrTenantNotFound, id)
 }
 
 // PROHIBITED — in service (Layer 2)
@@ -287,34 +300,63 @@ To eliminate cognitive confusion between public user-facing operations and inter
 
 ## 7. Database Migration Standards
 
-All microservice schemas MUST be managed as **versioned SQL files**. Raw DDL MUST NOT be embedded as inline strings in Go source files.
+All microservice schemas MUST be managed as **versioned SQL files**. Raw DDL MUST NOT be embedded as inline strings in Go source files. The platform uses a **two-tier migration strategy**:
+
+| Tier | Owner | Mechanism | Applies to |
+| :--- | :--- | :--- | :--- |
+| **Control-Plane Schema** | `auth-service`, `user-service`, `tenant-service`, `notification-service` | goose library-mode, embedded via `//go:embed`, applied at boot by `internal/migration.Run(ctx, db)` | The service's own database (`auth_db`, `user_db`, `tenant_manager_db`, `notification_db`) |
+| **Data-Plane Per-Tenant DDL** | `order-service` | Bespoke `internal/service.MigrationService` (`MigrateTenantDB`) | Arbitrary, runtime-derived tenant DSNs (shared schemas & dedicated DB containers) |
 
 ### Rule 7.1: Versioned SQL Migration Files
 
-* Every microservice owns its schema under `<service_name>/migrations/` as ordered SQL files: `NNN_<description>.sql`.
-  - `auth-service/migrations/001_init_auth_schema.sql`
-  - `order-service/migrations/001_create_orders.sql`
-  - `tenant-service/migrations/001_init_tenant_manager_schema.sql`
-* Migrations MUST be **idempotent** (`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`) so they can be safely re-applied on every startup against an already-provisioned database.
+* **Control-plane services** own their schema under `<service_name>/migrations/` as ordered goose files: `NNNNN_<description>.sql`.
+  - `auth-service/migrations/00001_init_auth_schema.sql`
+  - `auth-service/migrations/00002_auth_inbox.sql`
+  - `tenant-service/migrations/00001_init_tenant_manager_schema.sql`
+* **Data-plane service** (`order-service`) keeps its ordered idempotent file: `order-service/migrations/001_create_orders.sql`.
+* Migrations MUST be **idempotent** (`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`) so they safely converge both fresh databases and warm databases bootstrapped by an older `infrastructure/init.sql`.
 * **PROHIBITED:** Inline DDL string literals in Go files (e.g. `cmd/migration.go`), ad-hoc `CREATE TABLE` in handler/service code, or schema defined anywhere outside `migrations/`.
 
-### Rule 7.2: Migration Loading via `internal/service.MigrationService`
+### Rule 7.2: Control-Plane Loading via `internal/migration` (goose) + Intentional Data-Plane Exception
 
-* Each service MUST load and apply its migration file through a lightweight `MigrationService` in `internal/service` exposing:
-  * `NewMigrationService(migrationFilePath string) (*MigrationService, error)` — reads the `.sql` file.
-  * `NewMigrationServiceFromSQL(migrationSQL string) *MigrationService` — intended for tests.
-  * `Migrate(ctx context.Context, database *sql.DB) error` — executes the migration SQL.
-* The composition root (`cmd/main.go`) MUST construct the `MigrationService` and invoke `Migrate` at startup **before** repositories are instantiated.
-* The `MigrationService` is the single sanctioned exception to **Rule 4.4** (services MUST NOT import `database/sql`): executing raw schema DDL is its only responsibility.
+* **Control-plane services** load and apply their migration files through a thin `internal/migration` package exposing:
+  * `Run(ctx context.Context, db *sql.DB) error` — calls `goose.SetBaseFS(migrations.FS)`, sets the `postgres` dialect, and applies all pending `NNNNN_*.sql` migrations.
+  * The SQL files are compiled into the binary via `//go:embed` in `migrations/embed.go`; the runtime container needs no sidecar migration tool.
+  * goose records applied versions in `goose_db_version` and acquires a PostgreSQL advisory lock so concurrent replica boots cannot stampede migrations.
+* The composition root (`cmd/main.go`) MUST invoke `migration.Run(...)` at startup **before** repositories are instantiated.
+* **Intentional Exception — `order-service` `MigrationService`:** `order-service` alone keeps the bespoke `internal/service.MigrationService` (`NewMigrationService`, `NewMigrationServiceFromSQL`, `MigrateTenantDB`). This is **deliberate, not drift**: it provisions schemas against *arbitrary, runtime-derived tenant DSNs* that cannot be known at boot, supports `{{SCHEMA_NAME}}` placeholder substitution, executes DDL outside the static goose version table, and supports non-transactional migrations (`-- tx: false`). goose (boot-time, one database) cannot express this workflow.
+* The `internal/migration` package (and `order-service`'s `MigrationService`) is the single sanctioned exception to **Rule 4.4** (services MUST NOT import `database/sql`): executing raw schema DDL is its only responsibility.
 
 ### Rule 7.3: Relationship with `infrastructure/init.sql`
 
-* `infrastructure/init.sql` remains the one-shot container bootstrap that creates databases and base tables on a fresh PostgreSQL volume (`/docker-entrypoint-initdb.d`).
-* Per-service `migrations/*.sql` are the **idempotent startup safety net** that guarantee the schema exists even when `init.sql` is skipped (existing volumes, local runs).
-* Per-service migrations MUST stay in sync with `infrastructure/init.sql`; the migration file is the per-service source of truth.
+* `infrastructure/init.sql` is the one-shot container bootstrap that creates **databases only** (`user_db`, `auth_db`, `tenant_manager_db`, `notification_db`) on a fresh PostgreSQL volume (`/docker-entrypoint-initdb.d`). It no longer creates service tables.
+* Per-service `migrations/*.sql` are the **authoritative schema source**: they create base tables on fresh volumes and converge warm databases that were bootstrapped by a pre-slim `init.sql`.
+* Per-service migrations are the per-service source of truth; `init.sql` must only ever add/remove databases, never tables.
 
 ### Rule 7.4: Per-Tenant Schema Provisioning (Data Plane)
 
-* Schemas provisioned per-tenant (e.g. `order-service` shared plan) MUST use `{{SCHEMA_NAME}}` placeholders in the migration file and be executed through the tenant-provisioning path (consumer/service via `MigrateTenantDB`), NOT at service startup.
+* Schemas provisioned per-tenant (e.g. `order-service` shared plan) MUST use `{{SCHEMA_NAME}}` placeholders in the migration file and be executed through the tenant-provisioning path (`order-service` consumer/service via `MigrationService.MigrateTenantDB`), NOT at service startup.
+
+---
+
+## 8. Unit Test Coverage Standards
+
+### Rule 8.1: Every Package MUST Ship Unit Tests
+
+Every **new package / module** added to any microservice MUST include a `*_test.go` file covering its exported surface. A package merged without tests is incomplete.
+
+* **New service package:** unit tests for `New*` constructors, business-rule branches, and sentinel-error contracts (mock the repository via a consumer-side interface).
+* **New repository package:** unit tests using the service-local `internal/testutil.MockDBExecutor` / `MockResult` mocks to assert query text, argument binding, and error translation — no real database required.
+* **New consumer package:** unit tests with mock `TxManager`, `InboxService`, and domain-service interfaces covering ACK / NACK / requeue / DLQ routing decisions (including duplicate-event and poison-pill paths).
+* **New migration / infrastructure package:** unit tests that do NOT require external services — e.g. structural checks over the embedded migration FS (expected files, goose `Up`/`Down` annotations, unique ordered version prefixes), nil-channel guards, and context-cancellation paths.
+* **New domain file:** struct/JSON round-trip tests and contract tests that pin event payload shapes shared across services (e.g. `UserCreatedEvent` must decode the publisher's exact JSON).
+
+### Rule 8.2: Test Command
+
+All service tests run with CGO disabled on macOS (avoids `dyld`/`LC_UUID` issues):
+
+```bash
+CGO_ENABLED=0 go test -v ./...   # inside the specific service directory
+```
 
 

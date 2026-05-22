@@ -50,7 +50,8 @@ psql_cmd auth_db '
                    public.roles,
                    public.role_permissions,
                    public.user_roles,
-                   public.user_permission_versions RESTART IDENTITY CASCADE;
+                   public.user_permission_versions,
+                   public.inbox RESTART IDENTITY CASCADE;
 '
 
 echo "[clean-e2e-data] 2/6 Cleaning user_db ..."
@@ -112,7 +113,9 @@ for q in infra_provisioner_workspace_initiated \
          notification_service_workspace_ready \
          order_service_infrastructure_provisioned \
          tenant_service_order_db_ready \
-         user_service_workspace_initiated; do
+         user_service_workspace_initiated \
+         auth_service_user_created_membership \
+         auth_service_user_created_membership_dlq; do
   rabbit_purge "$q"
 done
 
