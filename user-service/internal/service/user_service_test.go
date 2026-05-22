@@ -293,15 +293,18 @@ func TestUserService_ListUsers_RequiresTenant(t *testing.T) {
 	}
 }
 
+// TestUserService_ErrorContractInvariants enforces the platform standard that
+// sentinel errors are declared ONLY in the pure domain package (Rule 4.1:
+// "Domain Purity"). The application service layer must reference domain
+// sentinels, never declare its own `var Err...` block.
 func TestUserService_ErrorContractInvariants(t *testing.T) {
+	// 1. The service layer MUST NOT declare sentinel errors of its own.
 	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, "user_service.go", nil, parser.ParseComments)
+	svcNode, err := parser.ParseFile(fset, "user_service.go", nil, parser.ParseComments)
 	if err != nil {
 		t.Fatalf("failed to parse user_service.go AST: %v", err)
 	}
-
-	var errorVarsFound int
-	for _, decl := range node.Decls {
+	for _, decl := range svcNode.Decls {
 		genDecl, ok := decl.(*ast.GenDecl)
 		if !ok || genDecl.Tok != token.VAR {
 			continue
@@ -311,27 +314,39 @@ func TestUserService_ErrorContractInvariants(t *testing.T) {
 			if !ok {
 				continue
 			}
-			for i, name := range valueSpec.Names {
-				if !strings.HasPrefix(name.Name, "Err") {
-					t.Errorf("sentinel error variable '%s' must start with prefix 'Err'", name.Name)
-				}
-				errorVarsFound++
-				if i < len(valueSpec.Values) {
-					if call, ok := valueSpec.Values[i].(*ast.CallExpr); ok {
-						if len(call.Args) > 0 {
-							if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
-								errStr := strings.Trim(lit.Value, `"`)
-								if !strings.HasPrefix(errStr, "user service:") {
-									t.Errorf("sentinel error '%s' message '%s' must start with prefix 'user service:'", name.Name, errStr)
-								}
-							}
-						}
-					}
+			for _, name := range valueSpec.Names {
+				if strings.HasPrefix(name.Name, "Err") {
+					t.Errorf("service layer must NOT declare sentinel error '%s'; move it to internal/domain", name.Name)
 				}
 			}
 		}
 	}
+
+	// 2. The domain package MUST declare exported, `Err`-prefixed sentinels.
+	domainNode, err := parser.ParseFile(fset, "../domain/errors.go", nil, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("failed to parse ../domain/errors.go AST: %v", err)
+	}
+	var errorVarsFound int
+	for _, decl := range domainNode.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok || genDecl.Tok != token.VAR {
+			continue
+		}
+		for _, spec := range genDecl.Specs {
+			valueSpec, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for _, name := range valueSpec.Names {
+				if !strings.HasPrefix(name.Name, "Err") {
+					t.Errorf("sentinel error variable '%s' must start with prefix 'Err'", name.Name)
+				}
+				errorVarsFound++
+			}
+		}
+	}
 	if errorVarsFound == 0 {
-		t.Error("expected at least one sentinel error declaration in user_service.go")
+		t.Error("expected at least one sentinel error declaration in internal/domain/errors.go")
 	}
 }

@@ -238,10 +238,20 @@ func TestOrderService_ListOrders(t *testing.T) {
 }
 
 func TestOrderService_ErrorContractInvariants(t *testing.T) {
+	// Sentinel errors were centralized into the domain package by the
+	// "centralize service errors" refactor; each message still carries the
+	// owning service/domain prefix.
+	knownPrefixes := []string{
+		"domain:",
+		"order service:",
+	}
+
+	const errorsFile = "../domain/errors.go"
+
 	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, "order_service.go", nil, parser.ParseComments)
+	node, err := parser.ParseFile(fset, errorsFile, nil, parser.ParseComments)
 	if err != nil {
-		t.Fatalf("failed to parse order_service.go AST: %v", err)
+		t.Fatalf("failed to parse %s AST: %v", errorsFile, err)
 	}
 
 	var errorVarsFound int
@@ -257,7 +267,7 @@ func TestOrderService_ErrorContractInvariants(t *testing.T) {
 			}
 			for i, name := range valueSpec.Names {
 				if !strings.HasPrefix(name.Name, "Err") {
-					t.Errorf("sentinel error variable '%s' must start with prefix 'Err'", name.Name)
+					t.Errorf("sentinel error variable '%s' in %s must start with prefix 'Err'", name.Name, errorsFile)
 				}
 				errorVarsFound++
 				if i < len(valueSpec.Values) {
@@ -265,8 +275,15 @@ func TestOrderService_ErrorContractInvariants(t *testing.T) {
 						if len(call.Args) > 0 {
 							if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
 								errStr := strings.Trim(lit.Value, `"`)
-								if !strings.HasPrefix(errStr, "order service:") {
-									t.Errorf("sentinel error '%s' message '%s' must start with prefix 'order service:'", name.Name, errStr)
+								matched := false
+								for _, prefix := range knownPrefixes {
+									if strings.HasPrefix(errStr, prefix) {
+										matched = true
+										break
+									}
+								}
+								if !matched {
+									t.Errorf("sentinel error '%s' message '%s' in %s must start with a known service prefix (%v)", name.Name, errStr, errorsFile, knownPrefixes)
 								}
 							}
 						}
@@ -276,6 +293,6 @@ func TestOrderService_ErrorContractInvariants(t *testing.T) {
 		}
 	}
 	if errorVarsFound == 0 {
-		t.Error("expected at least one sentinel error declaration in order_service.go")
+		t.Errorf("expected at least one sentinel error declaration in %s", errorsFile)
 	}
 }

@@ -11,9 +11,12 @@ import (
 	"strings"
 	"syscall"
 
+	"auth-service/internal/consumer"
 	"auth-service/internal/crypto"
 	"auth-service/internal/handler"
 	"auth-service/internal/infrastructure/postgres"
+	"auth-service/internal/infrastructure/rabbitmq"
+	"auth-service/internal/migration"
 	"auth-service/internal/repository"
 	"auth-service/internal/service"
 	"auth-service/internal/txcontext"
@@ -32,6 +35,7 @@ func main() {
 	httpPort := getEnv("PORT", "8085")
 	privateKeyPEM := getEnv("AUTH_JWT_PRIVATE_KEY_PEM", "")
 	internalServiceToken := getEnv("INTERNAL_SERVICE_TOKEN", "default_internal_service_token")
+	amqpURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
 
 	if privateKeyPEM == "" {
 		log.Fatal("AUTH_JWT_PRIVATE_KEY_PEM environment variable is required")
@@ -50,22 +54,19 @@ func main() {
 	}
 	defer dbClient.Close()
 
-	// Run schema migrations
-	migrationService, err := service.NewMigrationService("migrations/001_init_auth_schema.sql")
-	if err != nil {
-		log.Fatalf("Failed to initialize MigrationService: %v", err)
-	}
-	if err := migrationService.Migrate(context.Background(), dbClient.DB); err != nil {
+	// Run schema migrations (goose, library-mode, embedded; advisory-locked)
+	if err := migration.Run(context.Background(), dbClient.DB); err != nil {
 		log.Fatalf("Failed to run auth DB migrations: %v", err)
 	}
 
 	// Initialize repositories
-	_ = txcontext.NewTxManager(dbClient.DB) // available for future transactional handlers
+	txManager := txcontext.NewTxManager(dbClient.DB)
 	credentialRepository := repository.NewCredentialRepository(dbClient)
 	tokenRepository := repository.NewTokenRepository(dbClient)
 	setupTokenRepository := repository.NewSetupTokenRepository(dbClient)
 	permissionRepository := repository.NewPermissionRepository(dbClient)
 	roleRepository := repository.NewRoleRepository(dbClient)
+	inboxRepository := repository.NewInboxRepository(dbClient)
 
 	// Initialize services
 	internalPermissionService := service.NewInternalPermissionService(permissionRepository, roleRepository)
@@ -85,6 +86,7 @@ func main() {
 	}
 	internalAuthService := service.NewInternalAuthService(setupTokenRepository, credentialRepository, internalPermissionService)
 	authService := service.NewAuthService(credentialRepository, tokenRepository, setupTokenRepository, jwtManager, roleRepository, internalPermissionService)
+	inboxService := service.NewInboxService(inboxRepository)
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authService, jwtManager)
@@ -106,6 +108,27 @@ func main() {
 			log.Fatalf("HTTP server error: %v", err)
 		}
 	}()
+
+	// Start the user.created membership-copy consumer (non-fatal on failure).
+	rmqClient, rmqErr := rabbitmq.NewClient(amqpURL)
+	if rmqErr != nil {
+		log.Printf("Auth Service: Warning — failed to connect RabbitMQ (%v); user.created membership copy consumer disabled until restart.", rmqErr)
+	} else {
+		defer rmqClient.Close()
+		userCreatedConsumer, consumerErr := consumer.NewUserCreatedConsumer(consumer.UserCreatedConsumerParams{
+			TxManager:            txManager,
+			Client:               rmqClient,
+			InboxService:         inboxService,
+			MembershipRepository: credentialRepository,
+		})
+		if consumerErr != nil {
+			log.Printf("Auth Service: Warning — failed to initialize UserCreatedConsumer (%v); membership copy consumer disabled.", consumerErr)
+		} else {
+			if err := userCreatedConsumer.Start(context.Background()); err != nil {
+				log.Printf("Auth Service: Warning — failed to start UserCreatedConsumer (%v); membership copy consumer disabled.", err)
+			}
+		}
+	}
 
 	// Graceful shutdown
 	stop := make(chan os.Signal, 1)

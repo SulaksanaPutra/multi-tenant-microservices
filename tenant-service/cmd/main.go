@@ -15,6 +15,7 @@ import (
 	"tenant-service/internal/infrastructure/authclient"
 	"tenant-service/internal/infrastructure/postgres"
 	"tenant-service/internal/infrastructure/rabbitmq"
+	"tenant-service/internal/migration"
 	"tenant-service/internal/publisher"
 	"tenant-service/internal/repository"
 	"tenant-service/internal/service"
@@ -54,6 +55,11 @@ func main() {
 		log.Fatalf("Failed to initialize database client: %v", err)
 	}
 	defer dbClient.Close()
+
+	// Run schema migrations (goose, library-mode, embedded; advisory-locked)
+	if err := migration.Run(context.Background(), dbClient.DB); err != nil {
+		log.Fatalf("Failed to run tenant DB migrations: %v", err)
+	}
 
 	rmqClient, err := rabbitmq.NewClient(amqpURL)
 	if err != nil {

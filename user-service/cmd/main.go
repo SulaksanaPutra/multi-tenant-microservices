@@ -16,6 +16,7 @@ import (
 	"user-service/internal/infrastructure/authclient"
 	"user-service/internal/infrastructure/postgres"
 	"user-service/internal/infrastructure/rabbitmq"
+	"user-service/internal/migration"
 	"user-service/internal/publisher"
 	"user-service/internal/repository"
 	"user-service/internal/service"
@@ -55,6 +56,11 @@ func main() {
 		log.Fatalf("Failed to initialize database client: %v", err)
 	}
 	defer dbClient.Close()
+
+	// Run schema migrations (goose, library-mode, embedded; advisory-locked)
+	if err := migration.Run(context.Background(), dbClient.DB); err != nil {
+		log.Fatalf("Failed to run user DB migrations: %v", err)
+	}
 
 	rmqClient, err := rabbitmq.NewClient(amqpURL)
 	if err != nil {

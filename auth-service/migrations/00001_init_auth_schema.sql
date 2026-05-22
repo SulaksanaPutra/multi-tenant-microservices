@@ -1,8 +1,6 @@
--- Auth Service Schema Migration: Control Plane Identity & RBAC
--- Applied idempotently at startup by internal/service.MigrationService.
--- Must stay in sync with infrastructure/init.sql (auth_db bootstrap).
+-- Auth service control-plane schema (identity & RBAC), owned via goose.
 
--- public.user_credentials: One identity row per user (email is globally unique).
+-- +goose Up
 CREATE TABLE IF NOT EXISTS public.user_credentials (
     user_id       TEXT        NOT NULL,
     email         TEXT        UNIQUE NOT NULL,
@@ -12,7 +10,6 @@ CREATE TABLE IF NOT EXISTS public.user_credentials (
     PRIMARY KEY (user_id)
 );
 
--- public.user_tenant_memberships: Which workspaces a user belongs to.
 CREATE TABLE IF NOT EXISTS public.user_tenant_memberships (
     user_id     TEXT        NOT NULL,
     tenant_id   TEXT        NOT NULL,
@@ -20,8 +17,6 @@ CREATE TABLE IF NOT EXISTS public.user_tenant_memberships (
     PRIMARY KEY (user_id, tenant_id)
 );
 
--- public.refresh_tokens: Rotating refresh tokens hashed at rest.
--- tenant_id is bound at issuance time so token refresh preserves workspace context.
 CREATE TABLE IF NOT EXISTS public.refresh_tokens (
     id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id    TEXT        NOT NULL,
@@ -32,7 +27,6 @@ CREATE TABLE IF NOT EXISTS public.refresh_tokens (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- public.password_setup_tokens: Single-use account activation tokens.
 CREATE TABLE IF NOT EXISTS public.password_setup_tokens (
     id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id    TEXT        NOT NULL,
@@ -44,7 +38,6 @@ CREATE TABLE IF NOT EXISTS public.password_setup_tokens (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- public.permissions: Global permission catalog, owned by service_name.
 CREATE TABLE IF NOT EXISTS public.permissions (
     id          VARCHAR(255) PRIMARY KEY,
     name        VARCHAR(255) NOT NULL UNIQUE,
@@ -53,7 +46,6 @@ CREATE TABLE IF NOT EXISTS public.permissions (
     created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
--- public.roles: Tenant-scoped (or global, tenant_id NULL) role definitions.
 CREATE TABLE IF NOT EXISTS public.roles (
     id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id   VARCHAR(255),
@@ -64,14 +56,12 @@ CREATE TABLE IF NOT EXISTS public.roles (
     CONSTRAINT uq_roles_tenant_name UNIQUE NULLS NOT DISTINCT (tenant_id, name)
 );
 
--- public.role_permissions: Many-to-many mapping of roles to permissions.
 CREATE TABLE IF NOT EXISTS public.role_permissions (
     role_id       UUID         NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
     permission_id VARCHAR(255) NOT NULL REFERENCES public.permissions(id) ON DELETE CASCADE,
     PRIMARY KEY (role_id, permission_id)
 );
 
--- public.user_roles: User role assignment scoped to a tenant.
 CREATE TABLE IF NOT EXISTS public.user_roles (
     user_id     VARCHAR(255) NOT NULL,
     tenant_id   VARCHAR(255) NOT NULL,
@@ -81,7 +71,6 @@ CREATE TABLE IF NOT EXISTS public.user_roles (
     PRIMARY KEY (user_id, tenant_id)
 );
 
--- public.user_permission_versions: Cache-invalidation version counter per (user, tenant).
 CREATE TABLE IF NOT EXISTS public.user_permission_versions (
     user_id    VARCHAR(255) NOT NULL,
     tenant_id  VARCHAR(255) NOT NULL,
@@ -100,3 +89,23 @@ CREATE INDEX IF NOT EXISTS idx_permissions_name            ON public.permissions
 CREATE INDEX IF NOT EXISTS idx_roles_tenant_id             ON public.roles(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_role_permissions_role_id    ON public.role_permissions(role_id);
 CREATE INDEX IF NOT EXISTS idx_user_roles_user_tenant      ON public.user_roles(user_id, tenant_id);
+-- +goose Down
+DROP INDEX IF EXISTS idx_user_roles_user_tenant;
+DROP INDEX IF EXISTS idx_role_permissions_role_id;
+DROP INDEX IF EXISTS idx_roles_tenant_id;
+DROP INDEX IF EXISTS idx_permissions_name;
+DROP INDEX IF EXISTS idx_user_credentials_user_id;
+DROP INDEX IF EXISTS idx_user_credentials_email;
+DROP INDEX IF EXISTS idx_setup_tokens_user_id;
+DROP INDEX IF EXISTS idx_setup_tokens_token_hash;
+DROP INDEX IF EXISTS idx_refresh_tokens_token_hash;
+DROP INDEX IF EXISTS idx_refresh_tokens_user_id;
+DROP TABLE IF EXISTS public.user_permission_versions;
+DROP TABLE IF EXISTS public.user_roles;
+DROP TABLE IF EXISTS public.role_permissions;
+DROP TABLE IF EXISTS public.roles;
+DROP TABLE IF EXISTS public.permissions;
+DROP TABLE IF EXISTS public.password_setup_tokens;
+DROP TABLE IF EXISTS public.refresh_tokens;
+DROP TABLE IF EXISTS public.user_tenant_memberships;
+DROP TABLE IF EXISTS public.user_credentials;

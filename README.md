@@ -359,6 +359,28 @@ The client completes the flow: with **one** workspace it exchanges the token sil
 
 ---
 
+### 2.9 Event-Fed Membership Copy (`user.created` → auth-service)
+
+To let tenant admins pre-assign roles **before** a user ever sets a password, `auth-service` keeps an eventually-consistent copy of `user_tenant_memberships` fed by the `user.created` event:
+
+```text
+[ user-service ]  Publish: user.created (company.events)
+        │
+        ▼
+[ auth-service ]  Queue: auth_service_user_created_membership (bound user.created)
+        │  1. Tx: inbox guard — INSERT INTO auth_db.inbox ON CONFLICT (event_id) DO NOTHING
+        │  2. Tx: INSERT INTO auth_db.user_tenant_memberships ON CONFLICT DO NOTHING
+        │  3. ACK only after DB commit
+        ▼
+[ auth_db.user_tenant_memberships ]  ← eventually consistent copy
+```
+
+* **Correctness backstop:** the password-setup write-through (`CredentialRepository.UpsertCredential → AddMembership`) remains the source-of-truth heal path, so a DLQ'd event is a "review during business hours" item, never a page.
+* **Poison-pill handling:** the queue declares a broker-native DLX topology (`company.events.dlx` → `auth_service_user_created_membership_dlq`) and a delivery-count cap (`x-delivery-count` / `x-death`); persistent failures are routed to the DLQ automatically.
+* **Non-fatal startup:** if RabbitMQ is unreachable at boot, auth-service logs a warning and the consumer stays disabled until restart; the HTTP surface is unaffected.
+
+---
+
 ## 3. Microservice Layer Hierarchy & Documentation Topology
 
 This workspace enforces strict **Clean Architecture boundaries** across all microservices. The documentation follows a **2-Tier Macro/Micro Model**:
@@ -369,7 +391,7 @@ This workspace enforces strict **Clean Architecture boundaries** across all micr
    - [`order-service/README.md`](order-service/README.md) - Archetype A: Dynamic DSN resolution, PoolRegistry & `MigrationService` exemption.
    - [`notification-service/README.md`](notification-service/README.md) - Archetype B: Barrier Sync pattern & Mailpit SMTP delivery outside tx.
    - [`tenant-service/README.md`](tenant-service/README.md) - Archetype A: Control-plane registry, Outbox worker & infrastructure routing update.
-   - [`auth-service/README.md`](auth-service/README.md) - Archetype A: RS256 JWT key pair, refresh token hashing & permissions registration.
+   - [`auth-service/README.md`](auth-service/README.md) - Archetype A: RS256 JWT key pair, refresh token hashing, permissions registration & `user.created` membership copy consumer.
    - [`infra-provisioner/README.md`](infra-provisioner/README.md) - Archetype C: Isolated Docker container provisioner & QoS=1 AMQP worker.
    - [`user-service/README.md`](user-service/README.md) - Archetype A: Identity profile management & `workspace.initiated` event listener.
 
@@ -415,10 +437,15 @@ microservice-api/
 ├── auth-service/                 # Central Authentication, Identity & RBAC Service
 │   ├── cmd/main.go               # Port 8085 - RS256 JWT Issuer, Credentials Setup & Permission Registry
 │   ├── internal/
+│   │   ├── consumer/             # user.created event-fed membership copy consumer (DLX/DLQ)
 │   │   ├── crypto/               # RS256 signing, verification & JWKS builder
+│   │   ├── domain/               # Events, inbox & identity domain (sentinel errors)
 │   │   ├── handler/              # Auth, Setup, Permission & Role CRUD Handlers
-│   │   ├── repository/           # Credentials, Refresh Tokens, Permissions & Roles Repositories
-│   │   └── service/              # Login, Setup Token, Permission & Role Management Core
+│   │   ├── infrastructure/       # postgres & rabbitmq drivers
+│   │   ├── migration/            # goose library-mode control-plane migrations
+│   │   ├── repository/           # Credentials, Refresh Tokens, Permissions, Roles & Inbox Repositories
+│   │   └── service/              # Login, Setup Token, Permission, Role & Inbox Core
+│   ├── migrations/               # 00001_init_auth_schema.sql, 00002_auth_inbox.sql (embedded)
 │   └── Dockerfile
 │
 ├── infra-provisioner/            # Isolated Infrastructure Provisioning Worker
@@ -434,7 +461,9 @@ microservice-api/
 │   ├── internal/
 │   │   ├── infrastructure/       # AuthClient PermissionRegistrar (tenants:read/update/plan.change)
 │   │   ├── middleware/           # InternalAuthMiddleware & RequirePermission RBAC
+│   │   ├── migration/            # goose library-mode control-plane migrations
 │   │   └── repository/           # Control plane metadata-only repository
+│   ├── migrations/               # 00001_init_tenant_manager_schema.sql (embedded)
 │   └── Dockerfile
 │
 ├── user-service/                 # User Identity Service
@@ -442,7 +471,9 @@ microservice-api/
 │   ├── internal/
 │   │   ├── service/              # Layer 2 Core (UserService)
 │   │   ├── infrastructure/       # postgres, rabbitmq persistence adapters
-│   │   └── middleware/           # RequireJWT & RequirePermission RBAC
+│   │   ├── middleware/           # RequireJWT & RequirePermission RBAC
+│   │   └── migration/            # goose library-mode control-plane migrations
+│   ├── migrations/               # 00001_init_user_schema.sql (embedded)
 │   └── Dockerfile
 │
 ├── order-service/                # Dynamic Multi-Tenant Data-Plane Service
@@ -451,23 +482,27 @@ microservice-api/
 │   │   ├── crypto/               # HMAC-SHA256 password derivation
 │   │   ├── infrastructure/       # Zero-Trust TenantDB Resolver & AuthClient PermissionRegistrar
 │   │   ├── middleware/           # RequireJWT & RequirePermission RBAC (orders:create/read)
-│   │   └── registry/             # PoolRegistry with 15-minute TTL eviction
+│   │   ├── registry/             # PoolRegistry with 15-minute TTL eviction
+│   │   └── service/              # MigrationService (intentional per-tenant DDL exception)
+│   ├── migrations/               # 001_create_orders.sql ({{SCHEMA_NAME}} placeholder)
 │   └── Dockerfile
 │
 ├── notification-service/         # Async Notification Worker & Internal Setup Client
 │   ├── cmd/main.go               # Port 8083 - Mailpit Dispatcher & Setup Token Client
 │   ├── internal/
 │   │   ├── infrastructure/       # AuthClient PermissionRegistrar (notifications:read)
-│   │   └── middleware/           # RequireJWT & RequirePermission RBAC
+│   │   ├── middleware/           # RequireJWT & RequirePermission RBAC
+│   │   └── migration/            # goose library-mode control-plane migrations
+│   ├── migrations/               # 00001_init_notification_schema.sql, 00002_backfill_... (embedded)
 │   └── Dockerfile
 │
 ├── infrastructure/               # Shared Infrastructure & Docker Topology
-│   ├── init.sql                  # Base database initialization scripts (Sanitized auth_db & tenant_services schemas)
+│   ├── init.sql                  # One-shot database bootstrap (user_db, auth_db, tenant_manager_db, notification_db)
 │   ├── docker-compose.yml        # Postgres, RabbitMQ, Mailpit, Traefik, Infra-Provisioner, Web-UI
 │   └── web-ui/                   # Functional Web UI
 │
-├── docs/                         # Architectural Deep-Dives & Technical Design Challenges (Docs 0 - 19)
-│   └── 19-how-do-we-achieve-instant-jwt-revocation...md
+├── docs/                         # Architectural Deep-Dives & Technical Design Challenges (Docs 0 - 21)
+│   └── 21-how-do-we-implement-unified-identity-and-workspace-selection.md
 │
 └── e2e-tests/                    # Automated Integration Tests
     └── register_e2e_test.go      # Dynamic registration & order flow test suite
@@ -550,9 +585,6 @@ microservice-api/
 
 ```bash
 # 1. Start Shared Infrastructure, Infra Provisioner & Web UI
-#    Note: web-ui embeds its static assets (public/*) into the Go binary at build
-#    time via //go:embed, so use --build whenever you edit any public/* file —
-#    otherwise the container keeps serving the previously baked image.
 (cd infrastructure && docker compose up -d --build)
 
 # 2. Start Microservices
@@ -566,10 +598,6 @@ microservice-api/
 (cd e2e-tests && CGO_ENABLED=0 go test -v ./...)
 
 # 4. Clean up E2E test data (optional but recommended)
-#    The E2E suite pollutes the databases (auth_db, user_db, notification_db,
-#    tenant_manager_db), drops 300+ dynamic shared_db tnt_*_order_db schemas,
-#    provisions 20+ dedicated postgres-tenant-* containers, and fills Mailpit
-#    & RabbitMQ. Run this right after the suite to leave the platform pristine:
 (cd infrastructure/scripts && bash clean-e2e-data.sh)
 ```
 

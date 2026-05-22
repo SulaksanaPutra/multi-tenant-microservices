@@ -12,6 +12,7 @@ services:
       DB_PASSWORD: postgres
       DB_NAME: auth_db
       PORT: 8085
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       AUTH_JWT_PRIVATE_KEY_PEM: ${AUTH_JWT_PRIVATE_KEY_PEM}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-default_internal_service_token}
     ports:
