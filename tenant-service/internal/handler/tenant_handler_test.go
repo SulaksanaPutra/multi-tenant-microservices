@@ -76,11 +76,42 @@ func TestTenantHandler_GetTenantMe(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", w.Code)
 	}
+
+	var resp struct {
+		Data TenantResponse `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response body: %v", err)
+	}
+	if resp.Data.TenantID != "ten_test123" {
+		t.Errorf("expected tenant_id in response DTO, got %q", resp.Data.TenantID)
+	}
+	if resp.Data.Name != "Acme Corp" {
+		t.Errorf("expected name in response DTO, got %q", resp.Data.Name)
+	}
+	if resp.Data.Slug != "acme-corp" {
+		t.Errorf("expected slug in response DTO, got %q", resp.Data.Slug)
+	}
+	if resp.Data.OwnerEmail != "owner@example.com" {
+		t.Errorf("expected owner_email in response DTO, got %q", resp.Data.OwnerEmail)
+	}
+	if resp.Data.Plan != "shared" {
+		t.Errorf("expected plan in response DTO, got %q", resp.Data.Plan)
+	}
 }
 
 func TestTenantHandler_UpdateTenantMe(t *testing.T) {
 	updated := false
 	mockSvc := &mockTenantService{
+		getTenantByIDFn: func(ctx context.Context, tenantID string) (*domain.Tenant, error) {
+			return &domain.Tenant{
+				ID:         "ten_test123",
+				Name:       "New Acme",
+				Slug:       "new-acme",
+				OwnerEmail: "owner@example.com",
+				Plan:       "shared",
+			}, nil
+		},
 		updateTenantFn: func(ctx context.Context, input service.UpdateTenantServiceInput) error {
 			if input.TenantID == "ten_test123" && input.Name == "New Acme" {
 				updated = true
@@ -91,11 +122,11 @@ func TestTenantHandler_UpdateTenantMe(t *testing.T) {
 	tenantHandler := NewTenantHandler(mockSvc)
 	r := setupTenantTestRouter(tenantHandler)
 
+	ownerEmail := "owner@example.com"
 	body, _ := json.Marshal(UpdateTenantRequest{
 		Name:       "New Acme",
 		Slug:       "new-acme",
-		OwnerEmail: "owner@example.com",
-		OwnerName:  "John Doe",
+		OwnerEmail: &ownerEmail,
 	})
 	req := httptest.NewRequest(http.MethodPut, "/api/tenants/me", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -107,6 +138,45 @@ func TestTenantHandler_UpdateTenantMe(t *testing.T) {
 	}
 	if !updated {
 		t.Fatalf("expected UpdateTenant to be called with correct payload")
+	}
+}
+
+func TestTenantHandler_UpdateTenantMe_OwnerFieldsOptional(t *testing.T) {
+	updated := false
+	mockSvc := &mockTenantService{
+		getTenantByIDFn: func(ctx context.Context, tenantID string) (*domain.Tenant, error) {
+			return &domain.Tenant{
+				ID:         "ten_test123",
+				Name:       "New Acme",
+				Slug:       "new-acme",
+				OwnerEmail: "owner@example.com",
+				Plan:       "shared",
+			}, nil
+		},
+		updateTenantFn: func(ctx context.Context, input service.UpdateTenantServiceInput) error {
+			if input.TenantID == "ten_test123" && input.Name == "New Acme" && input.OwnerEmail == nil && input.OwnerName == nil {
+				updated = true
+			}
+			return nil
+		},
+	}
+	tenantHandler := NewTenantHandler(mockSvc)
+	r := setupTenantTestRouter(tenantHandler)
+
+	body, _ := json.Marshal(UpdateTenantRequest{
+		Name: "New Acme",
+		Slug: "new-acme",
+	})
+	req := httptest.NewRequest(http.MethodPut, "/api/tenants/me", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+	if !updated {
+		t.Fatalf("expected UpdateTenant to be called without owner fields")
 	}
 }
 
@@ -134,5 +204,18 @@ func TestTenantHandler_ChangeTenantPlanMe(t *testing.T) {
 	}
 	if !changed {
 		t.Fatalf("expected ChangeTenantPlan to be called with dedicated plan")
+	}
+
+	var resp struct {
+		Data ChangeTenantPlanResponse `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response body: %v", err)
+	}
+	if resp.Data.TenantID != "ten_test123" {
+		t.Errorf("expected tenant_id in plan response DTO, got %q", resp.Data.TenantID)
+	}
+	if resp.Data.Plan != "dedicated" {
+		t.Errorf("expected plan in plan response DTO, got %q", resp.Data.Plan)
 	}
 }

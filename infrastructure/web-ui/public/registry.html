@@ -10,8 +10,8 @@
 
     <!-- TUTORIAL NOTE (GRAY) -->
     <div style="padding:10px; background:#f0f0f0; border:1px solid #ccc; margin-bottom:15px; color:#333;">
-        <strong>Step 8: Access Registry & Session History</strong><br>
-        • <strong>What you can see here:</strong> Every JWT token minted during this server session, grouped by user email. Each session carries the tenant information fetched from <code>GET /api/tenants/me</code> at the moment the token was exchanged. Sessions are marked when they are the currently active one.
+        <strong>Step 8: Access Registry</strong><br>
+        Every JWT minted this session, grouped by user, with tenant context from <code>GET /api/tenants/me</code>. The currently active session is marked <b>Active</b>.
     </div>
 
     <h2>Access Registry (Users &rarr; Workspaces)</h2>
@@ -27,7 +27,7 @@
                     <th>Tenant ID</th>
                     <th>Plan</th>
                     <th>Status</th>
-                    <th>Access History</th>
+                    <th>Last Active</th>
                 </tr>
             </thead>
             <tbody id="access-registry-body">
@@ -69,10 +69,8 @@
                     <tr style="background:#f0f0f0;">
                         <td colspan="5" style=" font-size:1.02rem;">
                             ${escapeHtml(email)}
-                            <span>
-                                &mdash; ${userSessions.length} session(s)
-                                ${activeCount ? `, <b>${activeCount} active</b>` : ''}
-                            </span>
+                            &mdash; ${userSessions.length} session(s)
+                            ${activeCount ? `, <b>${activeCount} active</b>` : ''}
                         </td>
                     </tr>`;
 
@@ -92,7 +90,7 @@
                         <td><code>${escapeHtml(s.tenant_id)}</code></td>
                         <td>${escapeHtml(plan)}</td>
                         <td><span style=" color:${statusColor}">${escapeHtml(status)}</span></td>
-                        <td><span>Last active: ${escapeHtml(accessedAt)}</span></td>
+                        <td>${escapeHtml(accessedAt)}</td>
                     </tr>`;
                 });
             });

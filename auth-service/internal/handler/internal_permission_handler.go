@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"auth-service/internal/httputil"
-	"auth-service/internal/repository"
 	"auth-service/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -47,9 +46,9 @@ func (h *InternalPermissionHandler) RegisterPermissions(c *gin.Context) {
 		return
 	}
 
-	items := make([]repository.RegisterPermissionItem, len(req.Permissions))
+	items := make([]service.InternalRegisterPermissionItem, len(req.Permissions))
 	for i, item := range req.Permissions {
-		items[i] = repository.RegisterPermissionItem{
+		items[i] = service.InternalRegisterPermissionItem{
 			Name:        item.Name,
 			Description: item.Description,
 		}

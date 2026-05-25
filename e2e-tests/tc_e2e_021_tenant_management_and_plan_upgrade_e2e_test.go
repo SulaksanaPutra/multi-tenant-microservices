@@ -52,16 +52,16 @@ func TestTenantManagementAndPlanUpgradeE2E(t *testing.T) {
 
 	var tenantProfileResp struct {
 		Data struct {
-			ID   string `json:"ID"`
-			Name string `json:"Name"`
-			Plan string `json:"Plan"`
+			TenantID string `json:"tenant_id"`
+			Name     string `json:"name"`
+			Plan     string `json:"plan"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&tenantProfileResp); err != nil {
 		t.Fatalf("failed to decode tenant profile response: %v", err)
 	}
-	if tenantProfileResp.Data.ID != tenantID {
-		t.Errorf("expected tenant ID '%s', got '%s'", tenantID, tenantProfileResp.Data.ID)
+	if tenantProfileResp.Data.TenantID != tenantID {
+		t.Errorf("expected tenant ID '%s', got '%s'", tenantID, tenantProfileResp.Data.TenantID)
 	}
 
 	// 4. PUT /api/tenants/me (Update Tenant Metadata)

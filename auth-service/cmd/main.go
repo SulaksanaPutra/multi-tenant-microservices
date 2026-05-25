@@ -77,7 +77,7 @@ func main() {
 	// admin roles automatically inherit these capabilities.
 	if err := internalPermissionService.RegisterPermissions(context.Background(), service.InternalRegisterPermissionsInput{
 		Service: "auth-service",
-		Permissions: []repository.RegisterPermissionItem{
+		Permissions: []service.InternalRegisterPermissionItem{
 			{Name: "auth:roles:manage", Description: "Create, update, delete and assign tenant roles"},
 			{Name: "auth:roles:read", Description: "List roles, list permissions and read role assignments"},
 		},

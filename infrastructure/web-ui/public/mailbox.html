@@ -64,8 +64,19 @@
     <script>
         renderNavHeader("mailbox");
 
+        const AUTO_REFRESH_MS = 2000;
+        let autoRefreshTimer = null;
+
+        function startAutoRefresh() {
+            if (autoRefreshTimer) return;
+            autoRefreshTimer = setInterval(function() {
+                fetchMailbox(true);
+            }, AUTO_REFRESH_MS);
+        }
+
         window.addEventListener("DOMContentLoaded", function() {
             fetchMailbox();
+            startAutoRefresh();
         });
 
         const STORAGE_KEY_OPENED_EMAILS = "broker_demo_opened_emails";
@@ -99,11 +110,13 @@
             }
         }
 
-        async function fetchMailbox() {
+        async function fetchMailbox(silent) {
             const statusEl = document.getElementById("mailbox-status");
             const summaryEl = document.getElementById("mailbox-summary");
             const bodyEl = document.getElementById("mailbox-body");
-            statusEl.textContent = "Fetching from Mailpit proxy...";
+            if (!silent) {
+                statusEl.textContent = "Fetching from Mailpit proxy...";
+            }
 
             try {
                 const response = await fetch("/api/mailpit/messages");
@@ -113,7 +126,7 @@
                 const data = await response.json();
                 const total = data.total || (data.messages ? data.messages.length : 0);
                 statusEl.textContent = `Total Emails: ${total}`;
-                summaryEl.textContent = `Last refreshed at ${new Date().toLocaleTimeString()}`;
+                summaryEl.textContent = `Last refreshed at ${new Date().toLocaleTimeString()} (auto-refreshes every ${AUTO_REFRESH_MS / 1000}s)`;
 
                 if (!data.messages || data.messages.length === 0) {
                     bodyEl.innerHTML = `<tr><td colspan="5"><em>No emails in Mailpit inbox yet. Register a tenant in Step 1 to trigger emails.</em></td></tr>`;

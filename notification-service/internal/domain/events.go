@@ -23,4 +23,7 @@ type WorkspaceReadyEvent struct {
 	EventID    string `json:"event_id"`
 	TenantID   string `json:"tenant_id"`
 	OwnerEmail string `json:"owner_email"`
+	TenantName string `json:"tenant_name"`
+	TenantSlug string `json:"tenant_slug"`
+	OwnerName  string `json:"owner_name"`
 }

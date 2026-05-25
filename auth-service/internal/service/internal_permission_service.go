@@ -14,9 +14,17 @@ type PermissionRepository interface {
 	ListAllPermissions(ctx context.Context) ([]domain.Permission, error)
 }
 
+// InternalRegisterPermissionItem is the service-level DTO for a single
+// permission registration entry. It decouples the handler and service layers
+// from the repository's persistence DTO.
+type InternalRegisterPermissionItem struct {
+	Name        string
+	Description string
+}
+
 type InternalRegisterPermissionsInput struct {
 	Service     string
-	Permissions []repository.RegisterPermissionItem
+	Permissions []InternalRegisterPermissionItem
 }
 
 type InternalPermissionService struct {
@@ -39,7 +47,15 @@ func (s *InternalPermissionService) RegisterPermissions(ctx context.Context, inp
 		return nil
 	}
 
-	if err := s.permRepo.BulkUpsertPermissions(ctx, input.Service, input.Permissions); err != nil {
+	items := make([]repository.RegisterPermissionItem, len(input.Permissions))
+	for i, item := range input.Permissions {
+		items[i] = repository.RegisterPermissionItem{
+			Name:        item.Name,
+			Description: item.Description,
+		}
+	}
+
+	if err := s.permRepo.BulkUpsertPermissions(ctx, input.Service, items); err != nil {
 		return fmt.Errorf("internal permission service: failed to register permissions: %w", err)
 	}
 

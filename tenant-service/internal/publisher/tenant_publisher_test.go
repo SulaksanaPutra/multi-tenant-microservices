@@ -63,6 +63,9 @@ func TestTenantPublisher_PublishWorkspaceReady_NilChannel(t *testing.T) {
 		EventID:    "evt-201",
 		TenantID:   "tenant-201",
 		OwnerEmail: "owner@company.com",
+		TenantName: "Acme Corp",
+		TenantSlug: "acme-corp",
+		OwnerName:  "Jane Owner",
 	}
 
 	err := pub.PublishWorkspaceReady(context.Background(), evt)

@@ -151,21 +151,30 @@ function saveJWTToken(token, tenantInfo, userRole) {
 
             const sessions = getSavedSessions();
             const existingIdx = sessions.findIndex(s => (s.tenant_id === tenant_id && s.email === email) || s.token === token);
+
+            // Base fields always updated from the token payload.
             const sessionItem = {
                 token: token,
                 email: email,
                 tenant_id: tenant_id,
                 user_id: user_id,
-                tenant_name: tenantInfo ? tenantInfo.Name || tenantInfo.name : null,
-                tenant_slug: tenantInfo ? tenantInfo.Slug || tenantInfo.slug : null,
-                tenant_plan: tenantInfo ? tenantInfo.Plan || tenantInfo.plan : null,
-                tenant_status: tenantInfo ? tenantInfo.Status || tenantInfo.status : null,
-                owner_name: tenantInfo ? tenantInfo.OwnerName || tenantInfo.owner_name : null,
-                owner_email: tenantInfo ? tenantInfo.OwnerEmail || tenantInfo.owner_email : null,
-                role_name: userRole ? (userRole.role && (userRole.role.name || userRole.role.Name)) || userRole.role_name : null,
-                role_permissions: userRole ? (userRole.role && (userRole.role.permissions || userRole.role.Permissions)) || userRole.role_permissions : null,
                 updated_at: new Date().toISOString()
             };
+
+            // Only enrich session metadata when fresh tenant/role data is
+            // supplied. Never overwrite previously-fetched details with null.
+            if (tenantInfo) {
+                sessionItem.tenant_name = tenantInfo.Name || tenantInfo.name;
+                sessionItem.tenant_slug = tenantInfo.Slug || tenantInfo.slug;
+                sessionItem.tenant_plan = tenantInfo.Plan || tenantInfo.plan;
+                sessionItem.tenant_status = tenantInfo.Status || tenantInfo.status;
+                sessionItem.owner_name = tenantInfo.OwnerName || tenantInfo.owner_name;
+                sessionItem.owner_email = tenantInfo.OwnerEmail || tenantInfo.owner_email;
+            }
+            if (userRole) {
+                sessionItem.role_name = (userRole.role && (userRole.role.name || userRole.role.Name)) || userRole.role_name;
+                sessionItem.role_permissions = (userRole.role && (userRole.role.permissions || userRole.role.Permissions)) || userRole.role_permissions;
+            }
 
             if (existingIdx >= 0) {
                 sessions[existingIdx] = { ...sessions[existingIdx], ...sessionItem };
@@ -180,8 +189,11 @@ function saveJWTToken(token, tenantInfo, userRole) {
 }
 
 function switchActiveSession(token) {
+    // The account switcher must ONLY change the active JWT pointer in
+    // localStorage. It must NOT re-run saveJWTToken: without fresh
+    // tenantInfo/userRole that would clobber the stored session metadata.
     if (token) {
-        saveJWTToken(token);
+        localStorage.setItem(STORAGE_KEY_JWT, token);
         window.location.reload();
     }
 }

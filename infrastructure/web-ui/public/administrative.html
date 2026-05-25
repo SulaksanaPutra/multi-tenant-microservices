@@ -54,11 +54,11 @@
                     <div style="display:flex; gap:12px; flex-wrap:wrap;">
                         <div style="flex:1; min-width:140px; margin-bottom:10px;">
                             <label for="adm-tenant-owner-name">Owner Name:</label><br>
-                            <input type="text" id="adm-tenant-owner-name" style="width:100%; margin-top:4px;">
+                            <input type="text" id="adm-tenant-owner-name" style="width:100%; margin-top:4px; background-color:#e9ecef; color:#6c757d; cursor:not-allowed; border:1px solid #ccc;" readonly>
                         </div>
                         <div style="flex:1; min-width:140px; margin-bottom:10px;">
                             <label for="adm-tenant-owner-email">Owner Email:</label><br>
-                            <input type="email" id="adm-tenant-owner-email" style="width:100%; margin-top:4px;" required>
+                            <input type="email" id="adm-tenant-owner-email" style="width:100%; margin-top:4px; background-color:#e9ecef; color:#6c757d; cursor:not-allowed; border:1px solid #ccc;" readonly>
                         </div>
                     </div>
                     <button type="submit">Update Tenant Metadata</button>
@@ -515,9 +515,7 @@
 
             const payload = {
                 name: document.getElementById("adm-tenant-name").value.trim(),
-                slug: document.getElementById("adm-tenant-slug").value.trim(),
-                owner_name: document.getElementById("adm-tenant-owner-name").value.trim(),
-                owner_email: document.getElementById("adm-tenant-owner-email").value.trim()
+                slug: document.getElementById("adm-tenant-slug").value.trim()
             };
 
             try {
@@ -526,9 +524,65 @@
                     headers: { "Content-Type": "application/json", ...getAuthHeader() },
                     body: JSON.stringify(payload)
                 });
-                const data = await res.json();
-                out.textContent = JSON.stringify(data, null, 2);
-                if (res.ok) loadTenantAccess();
+
+                const responseData = await res.json();
+
+                // Output the raw JSON response to the grey box for visibility
+                out.textContent = JSON.stringify(responseData, null, 2);
+
+                if (res.ok && responseData.data) {
+                    // Target the "data" object from your API response
+                    const t = responseData.data;
+
+                    // The Bulletproof LocalStorage Fix
+                    if (typeof getJWTToken === "function") {
+                        const token = getJWTToken();
+                        let storageKey = null;
+                        let sessionsArray = null;
+
+                        // Hunt down the EXACT key nav.js is using in LocalStorage
+                        for (let i = 0; i < localStorage.length; i++) {
+                            let key = localStorage.key(i);
+                            try {
+                                let parsed = JSON.parse(localStorage.getItem(key));
+                                // If this array contains our current token, we found the right key
+                                if (Array.isArray(parsed) && parsed.some(s => s.token === token)) {
+                                    storageKey = key;
+                                    sessionsArray = parsed;
+                                    break;
+                                }
+                            } catch (e) {
+                                // Skip any keys that aren't valid JSON
+                            }
+                        }
+
+                        if (storageKey && sessionsArray) {
+                            const sessionIndex = sessionsArray.findIndex(s => s.token === token);
+
+                            if (sessionIndex > -1) {
+                                // Map exactly to the localStorage format you provided
+                                sessionsArray[sessionIndex].tenant_name = t.name;
+                                sessionsArray[sessionIndex].tenant_slug = t.slug;
+                                sessionsArray[sessionIndex].owner_name = t.owner_name;
+                                sessionsArray[sessionIndex].owner_email = t.owner_email;
+                                sessionsArray[sessionIndex].tenant_plan = t.plan;
+                                sessionsArray[sessionIndex].tenant_status = t.status;
+
+                                // OVERWRITE the exact key nav.js actually reads from
+                                localStorage.setItem(storageKey, JSON.stringify(sessionsArray));
+
+                                out.textContent += "\n\nLocal storage updated. Refreshing page...";
+
+                                // Auto-refresh the page to ensure the correct local storage is loaded everywhere
+                                setTimeout(() => {
+                                    window.location.reload();
+                                }, 800);
+                            }
+                        } else {
+                            out.textContent += "\n\nError: Could not locate the active session array in localStorage.";
+                        }
+                    }
+                }
             } catch (err) {
                 out.textContent = "Error: " + err.message;
             }

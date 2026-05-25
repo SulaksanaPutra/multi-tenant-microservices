@@ -229,7 +229,7 @@ func TestUserService_CreateUserFromWorkspace_OutboxRepoError(t *testing.T) {
 func TestUserService_UpdateUser(t *testing.T) {
 	t.Run("validation missing user_id", func(t *testing.T) {
 		userService := NewUserService(&mockUserRepository{}, nil)
-		err := userService.UpdateUser(context.Background(), UpdateUserServiceInput{UserID: "", Name: "Alice"})
+		err := userService.UpdateUser(context.Background(), UpdateUserInput{UserID: "", Name: "Alice"})
 		if !errors.Is(err, domain.ErrUserIDRequired) {
 			t.Errorf("expected ErrUserIDRequired, got %v", err)
 		}
@@ -237,7 +237,7 @@ func TestUserService_UpdateUser(t *testing.T) {
 
 	t.Run("validation missing name", func(t *testing.T) {
 		userService := NewUserService(&mockUserRepository{}, nil)
-		err := userService.UpdateUser(context.Background(), UpdateUserServiceInput{UserID: "usr_1", Name: ""})
+		err := userService.UpdateUser(context.Background(), UpdateUserInput{UserID: "usr_1", Name: ""})
 		if !errors.Is(err, domain.ErrUserNameRequired) {
 			t.Errorf("expected ErrUserNameRequired, got %v", err)
 		}
@@ -254,7 +254,7 @@ func TestUserService_UpdateUser(t *testing.T) {
 			},
 		}
 		userService := NewUserService(mockRepo, nil)
-		err := userService.UpdateUser(context.Background(), UpdateUserServiceInput{UserID: "usr_1", Name: "Alice Smith"})
+		err := userService.UpdateUser(context.Background(), UpdateUserInput{UserID: "usr_1", Name: "Alice Smith"})
 		if err != nil {
 			t.Fatalf("expected nil error, got %v", err)
 		}

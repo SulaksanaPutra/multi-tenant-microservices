@@ -29,8 +29,8 @@ type UpdateTenantServiceInput struct {
 	TenantID   string
 	Name       string
 	Slug       string
-	OwnerEmail string
-	OwnerName  string
+	OwnerEmail *string
+	OwnerName  *string
 }
 
 type ChangeTenantPlanInput struct {
@@ -159,6 +159,9 @@ func (workspaceService *WorkspaceService) ActivateWorkspace(ctx context.Context,
 		EventID:    outboxID,
 		TenantID:   tenantID,
 		OwnerEmail: tenant.OwnerEmail,
+		TenantName: tenant.Name,
+		TenantSlug: tenant.Slug,
+		OwnerName:  tenant.OwnerName,
 	}
 	payloadBytes, err := json.Marshal(readyEvt)
 	if err != nil {
@@ -201,9 +204,6 @@ func (workspaceService *WorkspaceService) UpdateTenant(ctx context.Context, inpu
 	}
 	if strings.TrimSpace(input.Name) == "" {
 		return domain.ErrTenantNameRequired
-	}
-	if strings.TrimSpace(input.OwnerEmail) == "" {
-		return domain.ErrOwnerEmailRequired
 	}
 	slug := input.Slug
 	if slug == "" {

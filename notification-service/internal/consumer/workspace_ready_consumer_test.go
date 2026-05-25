@@ -55,7 +55,7 @@ func TestWorkspaceReadyConsumer_HandleDelivery_Success(t *testing.T) {
 
 	emailSent := false
 	mailer := &mockMailer{
-		sendWelcomeEmailFunc: func(recipientEmail, tenantID, setupToken string) (string, string, error) {
+		sendWelcomeEmailFunc: func(recipientEmail, tenantID, tenantName, tenantSlug, ownerName, setupToken string) (string, string, error) {
 			emailSent = true
 			return "subj", "body", nil
 		},
@@ -130,7 +130,7 @@ func TestWorkspaceReadyConsumer_HandleDelivery_SMTPError_Nacks(t *testing.T) {
 		},
 	}
 	mailer := &mockMailer{
-		sendWelcomeEmailFunc: func(recipientEmail, tenantID, setupToken string) (string, string, error) {
+		sendWelcomeEmailFunc: func(recipientEmail, tenantID, tenantName, tenantSlug, ownerName, setupToken string) (string, string, error) {
 			return "", "", smtpErr
 		},
 	}
@@ -159,7 +159,7 @@ func TestWorkspaceReadyConsumer_HandleDelivery_NoEmailWhenBarrierNotMet(t *testi
 
 	emailSent := false
 	mailer := &mockMailer{
-		sendWelcomeEmailFunc: func(recipientEmail, tenantID, setupToken string) (string, string, error) {
+		sendWelcomeEmailFunc: func(recipientEmail, tenantID, tenantName, tenantSlug, ownerName, setupToken string) (string, string, error) {
 			emailSent = true
 			return "", "", nil
 		},

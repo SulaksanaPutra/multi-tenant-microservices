@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"go/ast"
 	"go/parser"
@@ -180,6 +181,68 @@ func TestWorkspaceService_RegisterWorkspace_Success(t *testing.T) {
 	}
 }
 
+func TestWorkspaceService_ActivateWorkspace_EmitsTenantInfo(t *testing.T) {
+	var capturedOutbox repository.CreateOutboxMessageInput
+
+	tenantRepo := &mockTenantRepository{
+		getTenantByIDFunc: func(ctx context.Context, tenantID string) (*domain.Tenant, error) {
+			return &domain.Tenant{
+				ID:         tenantID,
+				Name:       "Acme Corp",
+				Slug:       "acme-corp",
+				OwnerEmail: "owner@acme.com",
+				OwnerName:  "Bob Jones",
+				Plan:       "shared",
+				Status:     "pending",
+			}, nil
+		},
+		activateTenantFunc: func(ctx context.Context, tenantID string) error {
+			return nil
+		},
+	}
+
+	outboxRepo := &mockOutboxRepository{
+		createOutboxMessageFunc: func(ctx context.Context, input repository.CreateOutboxMessageInput) error {
+			capturedOutbox = input
+			return nil
+		},
+	}
+
+	svc := NewWorkspaceService(WorkspaceServiceParams{
+		TenantRepository: tenantRepo,
+		OutboxRepository: outboxRepo,
+		OutboxWorker:     &mockOutboxWorker{},
+	})
+
+	if err := svc.ActivateWorkspace(context.Background(), "tnt_acme"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedOutbox.EventType != "workspace.ready" {
+		t.Fatalf("expected workspace.ready outbox message, got %+v", capturedOutbox)
+	}
+
+	var evt domain.WorkspaceReadyEvent
+	if err := json.Unmarshal(capturedOutbox.Payload, &evt); err != nil {
+		t.Fatalf("failed to unmarshal WorkspaceReady payload: %v", err)
+	}
+	if evt.TenantID != "tnt_acme" {
+		t.Errorf("expected TenantID 'tnt_acme', got '%s'", evt.TenantID)
+	}
+	if evt.TenantName != "Acme Corp" {
+		t.Errorf("expected TenantName 'Acme Corp', got '%s'", evt.TenantName)
+	}
+	if evt.TenantSlug != "acme-corp" {
+		t.Errorf("expected TenantSlug 'acme-corp', got '%s'", evt.TenantSlug)
+	}
+	if evt.OwnerName != "Bob Jones" {
+		t.Errorf("expected OwnerName 'Bob Jones', got '%s'", evt.OwnerName)
+	}
+	if evt.OwnerEmail != "owner@acme.com" {
+		t.Errorf("expected OwnerEmail 'owner@acme.com', got '%s'", evt.OwnerEmail)
+	}
+}
+
 func TestWorkspaceService_UpdateTenant(t *testing.T) {
 	t.Run("validation error", func(t *testing.T) {
 		svc := NewWorkspaceService(WorkspaceServiceParams{TenantRepository: &mockTenantRepository{}})
@@ -191,8 +254,10 @@ func TestWorkspaceService_UpdateTenant(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		updated := false
+		var capturedInput repository.UpdateTenantInput
 		mockRepo := &mockTenantRepository{
 			updateTenantFunc: func(ctx context.Context, input repository.UpdateTenantInput) error {
+				capturedInput = input
 				if input.ID == "t_100" && input.Name == "New Acme" {
 					updated = true
 				}
@@ -200,16 +265,44 @@ func TestWorkspaceService_UpdateTenant(t *testing.T) {
 			},
 		}
 		svc := NewWorkspaceService(WorkspaceServiceParams{TenantRepository: mockRepo})
+		ownerEmail := "owner@acme.com"
 		err := svc.UpdateTenant(context.Background(), UpdateTenantServiceInput{
 			TenantID:   "t_100",
 			Name:       "New Acme",
-			OwnerEmail: "owner@acme.com",
+			OwnerEmail: &ownerEmail,
 		})
 		if err != nil {
 			t.Fatalf("expected nil error, got %v", err)
 		}
 		if !updated {
 			t.Error("expected UpdateTenant to be called")
+		}
+		if capturedInput.OwnerEmail == nil || *capturedInput.OwnerEmail != "owner@acme.com" {
+			t.Errorf("expected OwnerEmail to be passed through, got %v", capturedInput.OwnerEmail)
+		}
+		if capturedInput.OwnerName != nil {
+			t.Errorf("expected OwnerName to remain nil when not provided, got %v", *capturedInput.OwnerName)
+		}
+	})
+
+	t.Run("owner fields omitted leaves repository input nil", func(t *testing.T) {
+		var capturedInput repository.UpdateTenantInput
+		mockRepo := &mockTenantRepository{
+			updateTenantFunc: func(ctx context.Context, input repository.UpdateTenantInput) error {
+				capturedInput = input
+				return nil
+			},
+		}
+		svc := NewWorkspaceService(WorkspaceServiceParams{TenantRepository: mockRepo})
+		err := svc.UpdateTenant(context.Background(), UpdateTenantServiceInput{
+			TenantID: "t_100",
+			Name:     "New Acme",
+		})
+		if err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+		if capturedInput.OwnerEmail != nil || capturedInput.OwnerName != nil {
+			t.Errorf("expected owner fields to remain nil, got OwnerEmail=%v OwnerName=%v", capturedInput.OwnerEmail, capturedInput.OwnerName)
 		}
 	})
 }
