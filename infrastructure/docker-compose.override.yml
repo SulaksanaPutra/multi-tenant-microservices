@@ -1,0 +1,11 @@
+# Development override: runs web-ui with hot-reload (air) so the binary is
+# rebuilt automatically whenever files under infrastructure/web-ui change.
+# This file is auto-applied by `docker compose up` when present, so no extra
+# flags are needed. Remove it (or rename) to go back to the production build.
+services:
+  web-ui:
+    build:
+      context: ./web-ui
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./web-ui:/app

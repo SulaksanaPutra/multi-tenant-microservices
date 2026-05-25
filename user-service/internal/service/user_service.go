@@ -21,7 +21,7 @@ type CreateUserFromWorkspaceInput struct {
 	OwnerName  string
 }
 
-type UpdateUserServiceInput struct {
+type UpdateUserInput struct {
 	UserID string
 	Name   string
 }
@@ -122,7 +122,7 @@ func (userService *UserService) CreateUserFromWorkspace(ctx context.Context, inp
 	return nil
 }
 
-func (userService *UserService) UpdateUser(ctx context.Context, input UpdateUserServiceInput) error {
+func (userService *UserService) UpdateUser(ctx context.Context, input UpdateUserInput) error {
 	if input.UserID == "" {
 		return domain.ErrUserIDRequired
 	}

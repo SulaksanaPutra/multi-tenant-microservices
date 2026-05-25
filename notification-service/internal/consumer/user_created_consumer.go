@@ -37,7 +37,7 @@ type AuthClient interface {
 
 // Mailer is the consumer-side interface expected by UserCreatedConsumer.
 type Mailer interface {
-	SendWelcomeEmail(recipientEmail, tenantID, setupToken string) (string, string, error)
+	SendWelcomeEmail(recipientEmail, tenantID, tenantName, tenantSlug, ownerName, setupToken string) (string, string, error)
 }
 
 type UserCreatedConsumerParams struct {
@@ -239,7 +239,7 @@ func (c *UserCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Del
 			return fetchErr
 		}
 
-		if _, _, mailErr := c.mailer.SendWelcomeEmail(sendDetails.RecipientEmail, sendDetails.TenantID, setupToken); mailErr != nil {
+		if _, _, mailErr := c.mailer.SendWelcomeEmail(sendDetails.RecipientEmail, sendDetails.TenantID, sendDetails.TenantName, sendDetails.TenantSlug, sendDetails.OwnerName, setupToken); mailErr != nil {
 			log.Printf("UserCreatedConsumer: SMTP dispatch failed for event_id='%s' recipient='%s': %v — NACKing for retry.",
 				evt.EventID, sendDetails.RecipientEmail, mailErr)
 			_ = d.Nack(false, true) // Requeue — inbox ON CONFLICT ensures idempotent retry

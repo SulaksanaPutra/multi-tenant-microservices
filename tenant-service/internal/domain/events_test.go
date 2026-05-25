@@ -27,6 +27,9 @@ func TestWorkspaceReadyEvent_JSON(t *testing.T) {
 		EventID:    "evt_2",
 		TenantID:   "tnt_1",
 		OwnerEmail: "owner@test.com",
+		TenantName: "Acme Corp",
+		TenantSlug: "acme-corp",
+		OwnerName:  "Bob Jones",
 	}
 
 	unmarshaled := testutil.AssertJSONRoundtrip(t, evt)

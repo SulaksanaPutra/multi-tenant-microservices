@@ -194,12 +194,14 @@ func TestTenantRepository_UpdateTenant_Success(t *testing.T) {
 	repo := NewTenantRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
+	ownerEmail := "owner@example.com"
+	ownerName := "Owner Name"
 	err := repo.UpdateTenant(ctx, UpdateTenantInput{
 		ID:         "t-100",
 		Name:       "Updated Name",
 		Slug:       "updated-slug",
-		OwnerEmail: "owner@example.com",
-		OwnerName:  "Owner Name",
+		OwnerEmail: &ownerEmail,
+		OwnerName:  &ownerName,
 	})
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
@@ -208,7 +210,42 @@ func TestTenantRepository_UpdateTenant_Success(t *testing.T) {
 	if !strings.Contains(capturedQuery, "UPDATE public.tenants") {
 		t.Errorf("expected query to contain UPDATE, got %s", capturedQuery)
 	}
+	if !strings.Contains(capturedQuery, "owner_email = $4") || !strings.Contains(capturedQuery, "owner_name = $5") {
+		t.Errorf("expected query to include owner columns, got %s", capturedQuery)
+	}
 	if len(capturedArgs) != 5 || capturedArgs[0] != "t-100" {
+		t.Errorf("unexpected captured args: %v", capturedArgs)
+	}
+}
+
+func TestTenantRepository_UpdateTenant_OwnerFieldsOmitted(t *testing.T) {
+	var capturedQuery string
+	var capturedArgs []any
+
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+			capturedQuery = query
+			capturedArgs = args
+			return testutil.MockResult{RowsAffectedVal: 1}, nil
+		},
+	}
+
+	repo := NewTenantRepository(&postgres.Client{})
+	ctx := txcontext.WithExecutor(context.Background(), mockExec)
+
+	err := repo.UpdateTenant(ctx, UpdateTenantInput{
+		ID:   "t-100",
+		Name: "Updated Name",
+		Slug: "updated-slug",
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+
+	if strings.Contains(capturedQuery, "owner_email") || strings.Contains(capturedQuery, "owner_name") {
+		t.Errorf("expected query NOT to update owner columns when omitted, got %s", capturedQuery)
+	}
+	if len(capturedArgs) != 3 || capturedArgs[0] != "t-100" {
 		t.Errorf("unexpected captured args: %v", capturedArgs)
 	}
 }

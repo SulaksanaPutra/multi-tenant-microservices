@@ -25,6 +25,9 @@ type ProcessEventOutput struct {
 	UserID         string
 	RecipientEmail string
 	TenantID       string
+	TenantName     string
+	TenantSlug     string
+	OwnerName      string
 }
 
 // NotificationRepository is the consumer-side interface expected by NotificationService.
@@ -77,7 +80,7 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(
 	}
 
 	var hasUserCreated, hasWorkspaceReady bool
-	var userID, recipientEmail string
+	var userID, recipientEmail, tenantName, tenantSlug, ownerName string
 
 	for _, evt := range events {
 		if evt.EventType == "user.created" {
@@ -98,9 +101,23 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(
 			hasWorkspaceReady = true
 			var wsEvt struct {
 				OwnerEmail string `json:"owner_email"`
+				TenantName string `json:"tenant_name"`
+				TenantSlug string `json:"tenant_slug"`
+				OwnerName  string `json:"owner_name"`
 			}
-			if err := json.Unmarshal(evt.Payload, &wsEvt); err == nil && recipientEmail == "" {
-				recipientEmail = wsEvt.OwnerEmail
+			if err := json.Unmarshal(evt.Payload, &wsEvt); err == nil {
+				if recipientEmail == "" {
+					recipientEmail = wsEvt.OwnerEmail
+				}
+				if tenantName == "" {
+					tenantName = wsEvt.TenantName
+				}
+				if tenantSlug == "" {
+					tenantSlug = wsEvt.TenantSlug
+				}
+				if ownerName == "" {
+					ownerName = wsEvt.OwnerName
+				}
 			}
 		}
 	}
@@ -133,11 +150,19 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(
 		return nil, nil
 	}
 
+	// Tenant display name: prefer the human-readable name carried on the
+	// workspace.ready event; fall back to the opaque tenant ID for events
+	// published before tenant info was added to the payload.
+	displayName := tenantName
+	if strings.TrimSpace(displayName) == "" {
+		displayName = input.TenantID
+	}
+
 	subject := "Welcome! Your Tenant Workspace is Ready"
-	bodyText := fmt.Sprintf(
-		"Hello,\n\nYour tenant workspace '%s' has been successfully provisioned and is ready for use.\n\nThank you for choosing our platform!",
-		input.TenantID,
-	)
+	if strings.TrimSpace(tenantName) != "" {
+		subject = fmt.Sprintf("Welcome to %s!", tenantName)
+	}
+	bodyText := buildWelcomeBody(displayName, tenantSlug, ownerName)
 
 	// Write an audit log with the status "pending" inside the caller's transaction.
 	// The consumer updates this to "sent" after the SMTP call succeeds post-commit.
@@ -161,5 +186,30 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(
 		UserID:         userID,
 		RecipientEmail: recipientEmail,
 		TenantID:       input.TenantID,
+		TenantName:     tenantName,
+		TenantSlug:     tenantSlug,
+		OwnerName:      ownerName,
 	}, nil
+}
+
+// buildWelcomeBody renders the plain-text welcome message shown to the tenant
+// owner. The display name is always human-readable (either the tenant name or a
+// fallback to the tenant ID), and the greeting is personalized with the owner's
+// name when available.
+func buildWelcomeBody(displayName, tenantSlug, ownerName string) string {
+	greeting := "Hello"
+	if strings.TrimSpace(ownerName) != "" {
+		greeting = fmt.Sprintf("Hello %s", ownerName)
+	}
+
+	body := fmt.Sprintf(
+		"%s,\n\nGreat news — your workspace \"%s\" has been successfully provisioned and is ready for use.",
+		greeting,
+		displayName,
+	)
+	if strings.TrimSpace(tenantSlug) != "" {
+		body += fmt.Sprintf("\nWorkspace slug: %s", tenantSlug)
+	}
+	body += "\n\nThank you for choosing our platform!"
+	return body
 }

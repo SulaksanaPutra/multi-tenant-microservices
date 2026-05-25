@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"notification-service/internal/middleware"
 	"time"
@@ -38,9 +39,18 @@ func NewNotificationHandler(notificationService NotificationService) *Notificati
 
 func (h *NotificationHandler) ListNotifications(c *gin.Context) {
 	tenantID := c.GetString(middleware.ContextKeyTenantID)
+	if tenantID == "" {
+		httputil.WriteError(c, http.StatusUnauthorized, "notification handler: missing tenant_id in token claims")
+		return
+	}
+
 	logs, err := h.notificationService.ListNotifications(c.Request.Context(), tenantID)
 	if err != nil {
-		httputil.WriteError(c, http.StatusInternalServerError, "Failed to retrieve notifications: "+err.Error())
+		if errors.Is(err, domain.ErrTenantIDRequired) {
+			httputil.WriteError(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		httputil.WriteError(c, http.StatusInternalServerError, "failed to retrieve notifications: "+err.Error())
 		return
 	}
 

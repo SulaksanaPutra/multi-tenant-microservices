@@ -60,7 +60,16 @@ func userCreatedPayload(userID, email string) []byte {
 }
 
 func workspaceReadyPayload(ownerEmail string) []byte {
-	b, _ := json.Marshal(map[string]string{"owner_email": ownerEmail})
+	return workspaceReadyPayloadWithTenant(ownerEmail, "", "", "")
+}
+
+func workspaceReadyPayloadWithTenant(ownerEmail, tenantName, tenantSlug, ownerName string) []byte {
+	b, _ := json.Marshal(map[string]string{
+		"owner_email": ownerEmail,
+		"tenant_name": tenantName,
+		"tenant_slug": tenantSlug,
+		"owner_name":  ownerName,
+	})
 	return b
 }
 
@@ -230,6 +239,92 @@ func TestProcessEventAndTrySendWelcome_PayloadFallback(t *testing.T) {
 	}
 	if capturedLog.UserID != "usr_explicit" || capturedLog.RecipientEmail != "explicit@domain.com" {
 		t.Errorf("expected fallback to input values, got %+v", capturedLog)
+	}
+}
+
+func TestProcessEventAndTrySendWelcome_BarrierMet_IncludesTenantInfo(t *testing.T) {
+	var capturedLog repository.CreateNotificationLogInput
+	notifRepo := &mockNotificationRepo{
+		createNotificationLogFunc: func(ctx context.Context, input repository.CreateNotificationLogInput) (int, error) {
+			capturedLog = input
+			return 7, nil
+		},
+	}
+	svc := NewNotificationService(notifRepo)
+
+	events := []domain.InboxMessage{
+		{EventType: "user.created", Payload: userCreatedPayload("usr_123", "owner@acme.com")},
+		{EventType: "workspace.ready", Payload: workspaceReadyPayloadWithTenant("owner@acme.com", "Acme Corp", "acme-corp", "Bob Jones")},
+	}
+
+	details, err := svc.ProcessEventAndTrySendWelcome(context.Background(), ProcessEventInput{
+		EventID:   "evt-tenant-info",
+		TenantID:  "tenant-acme",
+		EventType: "workspace.ready",
+	}, events)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if details == nil {
+		t.Fatal("expected non-nil ProcessEventOutput")
+	}
+	if details.TenantName != "Acme Corp" || details.TenantSlug != "acme-corp" || details.OwnerName != "Bob Jones" {
+		t.Errorf("unexpected tenant info in output: %+v", details)
+	}
+	if capturedLog.Subject != "Welcome to Acme Corp!" {
+		t.Errorf("expected subject 'Welcome to Acme Corp!', got '%s'", capturedLog.Subject)
+	}
+	if !strings.Contains(capturedLog.Body, "Hello Bob Jones,") {
+		t.Errorf("expected body to greet 'Hello Bob Jones,', got:\n%s", capturedLog.Body)
+	}
+	if !strings.Contains(capturedLog.Body, `workspace "Acme Corp"`) {
+		t.Errorf("expected body to reference workspace \"Acme Corp\", got:\n%s", capturedLog.Body)
+	}
+	if !strings.Contains(capturedLog.Body, "Workspace slug: acme-corp") {
+		t.Errorf("expected body to include workspace slug, got:\n%s", capturedLog.Body)
+	}
+}
+
+func TestProcessEventAndTrySendWelcome_TenantInfoFallback(t *testing.T) {
+	var capturedLog repository.CreateNotificationLogInput
+	notifRepo := &mockNotificationRepo{
+		createNotificationLogFunc: func(ctx context.Context, input repository.CreateNotificationLogInput) (int, error) {
+			capturedLog = input
+			return 8, nil
+		},
+	}
+	svc := NewNotificationService(notifRepo)
+
+	// Legacy workspace.ready payloads do not carry tenant_name/tenant_slug/owner_name.
+	events := []domain.InboxMessage{
+		{EventType: "user.created", Payload: userCreatedPayload("usr_123", "owner@legacy.com")},
+		{EventType: "workspace.ready", Payload: workspaceReadyPayload("owner@legacy.com")},
+	}
+
+	details, err := svc.ProcessEventAndTrySendWelcome(context.Background(), ProcessEventInput{
+		EventID:   "evt-legacy",
+		TenantID:  "tenant-legacy",
+		EventType: "workspace.ready",
+	}, events)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if details == nil {
+		t.Fatal("expected non-nil ProcessEventOutput")
+	}
+	if details.TenantName != "" || details.TenantSlug != "" || details.OwnerName != "" {
+		t.Errorf("expected empty tenant info for legacy payload, got: %+v", details)
+	}
+	if capturedLog.Subject != "Welcome! Your Tenant Workspace is Ready" {
+		t.Errorf("expected generic fallback subject, got '%s'", capturedLog.Subject)
+	}
+	if !strings.Contains(capturedLog.Body, "Hello,") {
+		t.Errorf("expected generic greeting fallback, got:\n%s", capturedLog.Body)
+	}
+	if !strings.Contains(capturedLog.Body, `workspace "tenant-legacy"`) {
+		t.Errorf("expected body to fall back to tenant ID, got:\n%s", capturedLog.Body)
 	}
 }
 

@@ -16,7 +16,7 @@ import (
 
 type mockUserService struct {
 	listUsersFn  func(ctx context.Context, tenantID string) ([]domain.User, error)
-	updateUserFn func(ctx context.Context, input service.UpdateUserServiceInput) error
+	updateUserFn func(ctx context.Context, input service.UpdateUserInput) error
 }
 
 func (m *mockUserService) ListUsers(ctx context.Context, tenantID string) ([]domain.User, error) {
@@ -26,7 +26,7 @@ func (m *mockUserService) ListUsers(ctx context.Context, tenantID string) ([]dom
 	return nil, nil
 }
 
-func (m *mockUserService) UpdateUser(ctx context.Context, input service.UpdateUserServiceInput) error {
+func (m *mockUserService) UpdateUser(ctx context.Context, input service.UpdateUserInput) error {
 	if m.updateUserFn != nil {
 		return m.updateUserFn(ctx, input)
 	}
@@ -74,7 +74,7 @@ func TestUserHandler_ListUsers(t *testing.T) {
 func TestUserHandler_UpdateMe(t *testing.T) {
 	updated := false
 	mockSvc := &mockUserService{
-		updateUserFn: func(ctx context.Context, input service.UpdateUserServiceInput) error {
+		updateUserFn: func(ctx context.Context, input service.UpdateUserInput) error {
 			if input.UserID == "usr_test123" && input.Name == "Jane Doe" {
 				updated = true
 			}

@@ -3,6 +3,8 @@ package handler
 import (
 	"context"
 	"net/http"
+	"time"
+
 	"tenant-service/internal/middleware"
 
 	"tenant-service/internal/domain"
@@ -29,14 +31,45 @@ func NewTenantHandler(workspaceService TenantServiceInterface) *TenantHandler {
 }
 
 type UpdateTenantRequest struct {
-	Name       string `json:"name" binding:"required"`
-	Slug       string `json:"slug"`
-	OwnerEmail string `json:"owner_email" binding:"required"`
-	OwnerName  string `json:"owner_name"`
+	Name       string  `json:"name" binding:"required"`
+	Slug       string  `json:"slug"`
+	OwnerEmail *string `json:"owner_email"`
+	OwnerName  *string `json:"owner_name"`
 }
 
 type ChangePlanRequest struct {
 	Plan string `json:"plan" binding:"required"`
+}
+
+// TenantResponse is the transport DTO for a tenant profile returned to API consumers.
+type TenantResponse struct {
+	TenantID   string    `json:"tenant_id"`
+	Name       string    `json:"name"`
+	Slug       string    `json:"slug"`
+	OwnerEmail string    `json:"owner_email"`
+	OwnerName  string    `json:"owner_name"`
+	Plan       string    `json:"plan"`
+	Status     string    `json:"status"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// ChangeTenantPlanResponse is the transport DTO for a tenant isolation plan mutation.
+type ChangeTenantPlanResponse struct {
+	TenantID string `json:"tenant_id"`
+	Plan     string `json:"plan"`
+}
+
+func toTenantResponse(tenant domain.Tenant) TenantResponse {
+	return TenantResponse{
+		TenantID:   tenant.ID,
+		Name:       tenant.Name,
+		Slug:       tenant.Slug,
+		OwnerEmail: tenant.OwnerEmail,
+		OwnerName:  tenant.OwnerName,
+		Plan:       tenant.Plan,
+		Status:     tenant.Status,
+		CreatedAt:  tenant.CreatedAt,
+	}
 }
 
 func (tenantHandler *TenantHandler) GetTenantMe(c *gin.Context) {
@@ -56,7 +89,7 @@ func (tenantHandler *TenantHandler) GetTenantMe(c *gin.Context) {
 		return
 	}
 
-	httputil.WriteSuccess(c, http.StatusOK, "Tenant profile retrieved successfully", tenant)
+	httputil.WriteSuccess(c, http.StatusOK, "Tenant profile retrieved successfully", toTenantResponse(*tenant))
 }
 
 func (tenantHandler *TenantHandler) UpdateTenantMe(c *gin.Context) {
@@ -85,11 +118,19 @@ func (tenantHandler *TenantHandler) UpdateTenantMe(c *gin.Context) {
 		return
 	}
 
-	httputil.WriteSuccess[any](c, http.StatusOK, "Tenant profile updated successfully", gin.H{
-		"tenant_id":   tenantID,
-		"name":        req.Name,
-		"owner_email": req.OwnerEmail,
-	})
+	// Return the persisted tenant as the response so clients can reset their
+	// local tenant state from the authoritative updated record.
+	tenant, err := tenantHandler.workspaceService.GetTenantByID(c.Request.Context(), tenantID)
+	if err != nil {
+		httputil.WriteError(c, http.StatusInternalServerError, "tenant handler: failed to reload tenant after update: "+err.Error())
+		return
+	}
+	if tenant == nil {
+		httputil.WriteError(c, http.StatusNotFound, "tenant handler: tenant not found after update")
+		return
+	}
+
+	httputil.WriteSuccess(c, http.StatusOK, "Tenant profile updated successfully", toTenantResponse(*tenant))
 }
 
 func (tenantHandler *TenantHandler) ChangeTenantPlanMe(c *gin.Context) {
@@ -115,8 +156,8 @@ func (tenantHandler *TenantHandler) ChangeTenantPlanMe(c *gin.Context) {
 		return
 	}
 
-	httputil.WriteSuccess[any](c, http.StatusOK, "Tenant plan updated successfully", gin.H{
-		"tenant_id": tenantID,
-		"plan":      req.Plan,
+	httputil.WriteSuccess(c, http.StatusOK, "Tenant plan updated successfully", ChangeTenantPlanResponse{
+		TenantID: tenantID,
+		Plan:     req.Plan,
 	})
 }

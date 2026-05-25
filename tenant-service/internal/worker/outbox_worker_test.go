@@ -207,6 +207,9 @@ func TestOutboxWorker_ProcessBatch_WorkspaceReady_Success(t *testing.T) {
 		EventID:    "evt-2",
 		TenantID:   "tenant-2",
 		OwnerEmail: "owner@example.com",
+		TenantName: "Acme Corp",
+		TenantSlug: "acme-corp",
+		OwnerName:  "Bob Jones",
 	}
 	payload, _ := json.Marshal(evt)
 

@@ -37,7 +37,7 @@ func TestInternalPermissionService_RegisterAndList(t *testing.T) {
 
 	err := svc.RegisterPermissions(ctx, service.InternalRegisterPermissionsInput{
 		Service: "order-service",
-		Permissions: []repository.RegisterPermissionItem{
+		Permissions: []service.InternalRegisterPermissionItem{
 			{Name: "orders:create", Description: "Create order"},
 			{Name: "orders:read", Description: "Read order"},
 		},

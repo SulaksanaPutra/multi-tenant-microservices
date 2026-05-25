@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"tenant-service/internal/domain"
 	"tenant-service/internal/infrastructure/postgres"
@@ -24,8 +25,8 @@ type UpdateTenantInput struct {
 	ID         string
 	Name       string
 	Slug       string
-	OwnerEmail string
-	OwnerName  string
+	OwnerEmail *string
+	OwnerName  *string
 }
 
 type UpdateTenantPlanInput struct {
@@ -90,12 +91,24 @@ func (tenantRepository *TenantRepository) GetTenantByID(ctx context.Context, ten
 
 func (tenantRepository *TenantRepository) UpdateTenant(ctx context.Context, input UpdateTenantInput) error {
 	exec := txcontext.GetExecutor(ctx, tenantRepository.dbClient)
-	const query = `
-		UPDATE public.tenants
-		SET name = $2, slug = $3, owner_email = $4, owner_name = $5
-		WHERE id = $1;
-	`
-	res, err := exec.ExecContext(ctx, query, input.ID, input.Name, input.Slug, input.OwnerEmail, input.OwnerName)
+
+	// Build a dynamic UPDATE that only touches fields actually provided by the caller.
+	// name and slug are always updated (slug is normalized by the service layer).
+	setClauses := []string{"name = $2", "slug = $3"}
+	args := []any{input.ID, input.Name, input.Slug}
+	nextParam := 4
+	if input.OwnerEmail != nil {
+		setClauses = append(setClauses, fmt.Sprintf("owner_email = $%d", nextParam))
+		args = append(args, *input.OwnerEmail)
+		nextParam++
+	}
+	if input.OwnerName != nil {
+		setClauses = append(setClauses, fmt.Sprintf("owner_name = $%d", nextParam))
+		args = append(args, *input.OwnerName)
+	}
+
+	query := fmt.Sprintf("UPDATE public.tenants SET %s WHERE id = $1;", strings.Join(setClauses, ", "))
+	res, err := exec.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("tenant repository: failed to update tenant '%s': %w", input.ID, err)
 	}

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"user-service/internal/domain"
@@ -12,16 +13,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type UserServiceInterface interface {
+type UserService interface {
 	ListUsers(ctx context.Context, tenantID string) ([]domain.User, error)
-	UpdateUser(ctx context.Context, input service.UpdateUserServiceInput) error
+	UpdateUser(ctx context.Context, input service.UpdateUserInput) error
 }
 
 type UserHandler struct {
-	userService UserServiceInterface
+	userService UserService
 }
 
-func NewUserHandler(userService UserServiceInterface) *UserHandler {
+func NewUserHandler(userService UserService) *UserHandler {
 	return &UserHandler{
 		userService: userService,
 	}
@@ -37,6 +38,12 @@ type UpdateUserRequest struct {
 	Name string `json:"name" binding:"required"`
 }
 
+// UpdateMeResponse is the transport DTO returned after a profile mutation.
+type UpdateMeResponse struct {
+	UserID string `json:"user_id"`
+	Name   string `json:"name"`
+}
+
 func (userHandler *UserHandler) ListUsers(c *gin.Context) {
 	tenantID := c.GetString(middleware.ContextKeyTenantID)
 	if tenantID == "" {
@@ -46,7 +53,7 @@ func (userHandler *UserHandler) ListUsers(c *gin.Context) {
 
 	users, err := userHandler.userService.ListUsers(c.Request.Context(), tenantID)
 	if err != nil {
-		httputil.WriteError(c, http.StatusInternalServerError, "user handler: failed to list users: "+err.Error())
+		httputil.WriteError(c, http.StatusInternalServerError, "failed to list users: "+err.Error())
 		return
 	}
 
@@ -70,22 +77,31 @@ func (userHandler *UserHandler) UpdateMe(c *gin.Context) {
 
 	var req UpdateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httputil.WriteError(c, http.StatusBadRequest, "user handler: invalid request body: "+err.Error())
+		httputil.WriteValidationError(c, err)
 		return
 	}
 
-	input := service.UpdateUserServiceInput{
+	input := service.UpdateUserInput{
 		UserID: userID,
 		Name:   req.Name,
 	}
 
 	if err := userHandler.userService.UpdateUser(c.Request.Context(), input); err != nil {
-		httputil.WriteError(c, http.StatusInternalServerError, "user handler: failed to update user profile: "+err.Error())
+		if errors.Is(err, domain.ErrUserIDRequired) ||
+			errors.Is(err, domain.ErrUserNameRequired) {
+			httputil.WriteError(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		if errors.Is(err, domain.ErrNotFound) {
+			httputil.WriteError(c, http.StatusNotFound, err.Error())
+			return
+		}
+		httputil.WriteError(c, http.StatusInternalServerError, "failed to update user profile: "+err.Error())
 		return
 	}
 
-	httputil.WriteSuccess[any](c, http.StatusOK, "User profile updated successfully", gin.H{
-		"user_id": userID,
-		"name":    req.Name,
+	httputil.WriteSuccess(c, http.StatusOK, "User profile updated successfully", UpdateMeResponse{
+		UserID: userID,
+		Name:   req.Name,
 	})
 }

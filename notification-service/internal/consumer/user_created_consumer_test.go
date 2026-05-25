@@ -73,12 +73,12 @@ func (m *mockAuthClient) FetchSetupToken(ctx context.Context, userID, tenantID, 
 }
 
 type mockMailer struct {
-	sendWelcomeEmailFunc func(recipientEmail, tenantID, setupToken string) (string, string, error)
+	sendWelcomeEmailFunc func(recipientEmail, tenantID, tenantName, tenantSlug, ownerName, setupToken string) (string, string, error)
 }
 
-func (m *mockMailer) SendWelcomeEmail(recipientEmail, tenantID, setupToken string) (string, string, error) {
+func (m *mockMailer) SendWelcomeEmail(recipientEmail, tenantID, tenantName, tenantSlug, ownerName, setupToken string) (string, string, error) {
 	if m.sendWelcomeEmailFunc != nil {
-		return m.sendWelcomeEmailFunc(recipientEmail, tenantID, setupToken)
+		return m.sendWelcomeEmailFunc(recipientEmail, tenantID, tenantName, tenantSlug, ownerName, setupToken)
 	}
 	return "Welcome", "Body", nil
 }
@@ -152,7 +152,7 @@ func TestUserCreatedConsumer_HandleDelivery_Success(t *testing.T) {
 
 	emailSent := false
 	mailer := &mockMailer{
-		sendWelcomeEmailFunc: func(recipientEmail, tenantID, setupToken string) (string, string, error) {
+		sendWelcomeEmailFunc: func(recipientEmail, tenantID, tenantName, tenantSlug, ownerName, setupToken string) (string, string, error) {
 			emailSent = true
 			return "subj", "body", nil
 		},
@@ -249,7 +249,7 @@ func TestUserCreatedConsumer_HandleDelivery_SMTPError_Nacks(t *testing.T) {
 		},
 	}
 	mailer := &mockMailer{
-		sendWelcomeEmailFunc: func(recipientEmail, tenantID, setupToken string) (string, string, error) {
+		sendWelcomeEmailFunc: func(recipientEmail, tenantID, tenantName, tenantSlug, ownerName, setupToken string) (string, string, error) {
 			return "", "", smtpErr
 		},
 	}
@@ -301,7 +301,7 @@ func TestUserCreatedConsumer_HandleDelivery_NoEmailWhenBarrierNotMet(t *testing.
 
 	emailSent := false
 	mailer := &mockMailer{
-		sendWelcomeEmailFunc: func(recipientEmail, tenantID, setupToken string) (string, string, error) {
+		sendWelcomeEmailFunc: func(recipientEmail, tenantID, tenantName, tenantSlug, ownerName, setupToken string) (string, string, error) {
 			emailSent = true
 			return "", "", nil
 		},
