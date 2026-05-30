@@ -29,3 +29,13 @@ func (p *InfrastructurePublisher) PublishInfrastructureProvisioned(ctx context.C
 	return nil
 }
 
+func (p *InfrastructurePublisher) PublishTenantMigrationFailed(ctx context.Context, evt domain.TenantMigrationFailedEvent) error {
+	if err := p.client.PublishEvent(ctx, domain.ExchangeCompanyEvents, domain.RoutingKeyTenantMigrationFailed, evt); err != nil {
+		return fmt.Errorf("infrastructure_publisher: failed to publish TenantMigrationFailed event: %w", err)
+	}
+
+	log.Printf("InfrastructurePublisher: Published TenantMigrationFailed event_id='%s' tenant_id='%s'", evt.EventID, evt.TenantID)
+	return nil
+}
+
+

@@ -45,6 +45,7 @@ type TenantRepository interface {
 	ActivateTenant(ctx context.Context, tenantID string) error
 	UpdateTenant(ctx context.Context, input repository.UpdateTenantInput) error
 	UpdateTenantPlan(ctx context.Context, input repository.UpdateTenantPlanInput) error
+	SetTenantStatus(ctx context.Context, tenantID, status string) error
 }
 
 // OutboxRepository is the consumer-side interface expected by WorkspaceService.
@@ -184,7 +185,25 @@ func (workspaceService *WorkspaceService) ActivateWorkspace(ctx context.Context,
 		return fmt.Errorf("workspace service: failed to stage workspace.ready outbox event: %w", err)
 	}
 
-	log.Printf("WorkspaceService: Workspace ACTIVE for tenant_id='%s' — WorkspaceReady staged.", tenantID)
+	// Stage tenant.infrastructure_changed broadcast outbox event to purge stale routing/connection pools across all microservices
+	infraChangedID := domain.GenerateOutboxID()
+	infraChangedEvt := domain.InfraChangedEvent{
+		EventID:  infraChangedID,
+		TenantID: tenantID,
+	}
+	icPayload, err := json.Marshal(infraChangedEvt)
+	if err == nil {
+		_ = workspaceService.outboxRepository.CreateOutboxMessage(ctx, repository.CreateOutboxMessageInput{
+			ID:            infraChangedID,
+			TenantID:      tenantID,
+			AggregateType: "WORKSPACE",
+			AggregateID:   tenantID,
+			EventType:     domain.RoutingKeyInfraChanged,
+			Payload:       icPayload,
+		})
+	}
+
+	log.Printf("WorkspaceService: Workspace ACTIVE for tenant_id='%s' — WorkspaceReady & InfraChanged staged.", tenantID)
 	if workspaceService.outboxWorker != nil {
 		workspaceService.outboxWorker.Poke()
 	}
@@ -228,8 +247,73 @@ func (workspaceService *WorkspaceService) ChangeTenantPlan(ctx context.Context, 
 		return fmt.Errorf("%w: '%s' (must be '%s' or '%s')", domain.ErrInvalidPlan, input.Plan, domain.PlanShared, domain.PlanDedicated)
 	}
 
-	return workspaceService.tenantRepository.UpdateTenantPlan(ctx, repository.UpdateTenantPlanInput{
+	tenant, err := workspaceService.tenantRepository.GetTenantByID(ctx, input.TenantID)
+	if err != nil {
+		return fmt.Errorf("workspace service: failed to get tenant: %w", err)
+	}
+
+	if err := workspaceService.tenantRepository.UpdateTenantPlan(ctx, repository.UpdateTenantPlanInput{
 		ID:   input.TenantID,
 		Plan: p.String(),
-	})
+	}); err != nil {
+		return fmt.Errorf("workspace service: failed to update plan: %w", err)
+	}
+
+	if err := workspaceService.tenantRepository.SetTenantStatus(ctx, input.TenantID, domain.StatusMigrating); err != nil {
+		return fmt.Errorf("workspace service: failed to set status to MIGRATING: %w", err)
+	}
+
+	// 1. Stage tenant.infrastructure_locking broadcast event
+	lockEvtID := domain.GenerateOutboxID()
+	lockEvt := domain.InfrastructureLockingEvent{
+		EventID:  lockEvtID,
+		TenantID: input.TenantID,
+	}
+	lockPayload, err := json.Marshal(lockEvt)
+	if err != nil {
+		return fmt.Errorf("workspace service: failed to marshal lock event: %w", err)
+	}
+
+	if err := workspaceService.outboxRepository.CreateOutboxMessage(ctx, repository.CreateOutboxMessageInput{
+		ID:            lockEvtID,
+		TenantID:      input.TenantID,
+		AggregateType: "WORKSPACE",
+		AggregateID:   input.TenantID,
+		EventType:     domain.RoutingKeyInfrastructureLocking,
+		Payload:       lockPayload,
+	}); err != nil {
+		return fmt.Errorf("workspace service: failed to stage lock event: %w", err)
+	}
+
+	// 2. Stage workspace.initiated outbox event to trigger infra-provisioner
+	initEvtID := domain.GenerateOutboxID()
+	initEvt := domain.WorkspaceInitiatedEvent{
+		EventID:    initEvtID,
+		TenantID:   input.TenantID,
+		Plan:       p.String(),
+		OwnerEmail: tenant.OwnerEmail,
+		OwnerName:  tenant.OwnerName,
+	}
+	initPayload, err := json.Marshal(initEvt)
+	if err != nil {
+		return fmt.Errorf("workspace service: failed to marshal workspace.initiated event: %w", err)
+	}
+
+	if err := workspaceService.outboxRepository.CreateOutboxMessage(ctx, repository.CreateOutboxMessageInput{
+		ID:            initEvtID,
+		TenantID:      input.TenantID,
+		AggregateType: "WORKSPACE",
+		AggregateID:   input.TenantID,
+		EventType:     domain.RoutingKeyWorkspaceInitiated,
+		Payload:       initPayload,
+	}); err != nil {
+		return fmt.Errorf("workspace service: failed to stage workspace.initiated event: %w", err)
+	}
+
+	if workspaceService.outboxWorker != nil {
+		workspaceService.outboxWorker.Poke()
+	}
+
+	return nil
+}
 }

@@ -8,6 +8,7 @@ import (
 	"log"
 	"strings"
 
+	"infra-provisioner/internal/crypto"
 	"infra-provisioner/internal/domain"
 	"infra-provisioner/internal/infrastructure/rabbitmq"
 )
@@ -15,6 +16,7 @@ import (
 // InfrastructureEventPublisher is the consumer-side interface expected by WorkspaceInitiatedConsumer.
 type InfrastructureEventPublisher interface {
 	PublishInfrastructureProvisioned(ctx context.Context, evt domain.InfrastructureProvisionedEvent) error
+	PublishTenantMigrationFailed(ctx context.Context, evt domain.TenantMigrationFailedEvent) error
 }
 
 // Provisioner is the consumer-side interface expected by WorkspaceInitiatedConsumer.
@@ -22,22 +24,35 @@ type Provisioner interface {
 	ProvisionDedicatedContainer(ctx context.Context, tenantID, infraMasterSecret string, domainSecrets map[string]string) (host string, port int, dbName, dbUser string, err error)
 }
 
+// Migrator is the consumer-side interface expected by WorkspaceInitiatedConsumer for data migration & schema locking.
+type Migrator interface {
+	CheckSchemaExists(ctx context.Context, sharedDSN, schemaName string) (bool, error)
+	LockSchema(ctx context.Context, sharedDSN, schemaName, lockedSchemaName string) error
+	RestoreSchema(ctx context.Context, sharedDSN, lockedSchemaName, originalSchemaName string) error
+	MigrateData(ctx context.Context, sourceHost string, sourcePort int, sourceUser, sourcePass, sourceDB, lockedSourceSchema string, targetHost string, targetPort int, targetUser, targetPass, targetDB string) error
+	DestroyContainer(ctx context.Context, containerName string) error
+}
+
 type WorkspaceInitiatedConsumer struct {
 	client            *rabbitmq.Client
 	publisher         InfrastructureEventPublisher
 	provisioner       Provisioner
+	migrator          Migrator
 	infraMasterSecret string
 	domainSecrets     map[string]string
 	sharedDBHost      string
+	sharedDBPass      string
 }
 
 type WorkspaceInitiatedConsumerParams struct {
 	Client            *rabbitmq.Client
 	Publisher         InfrastructureEventPublisher
 	Provisioner       Provisioner
+	Migrator          Migrator
 	InfraMasterSecret string
 	DomainSecrets     map[string]string
 	SharedDBHost      string
+	SharedDBPass      string
 }
 
 type Params = WorkspaceInitiatedConsumerParams
@@ -46,6 +61,10 @@ func NewWorkspaceInitiatedConsumer(params WorkspaceInitiatedConsumerParams) (*Wo
 	sharedHost := params.SharedDBHost
 	if sharedHost == "" {
 		sharedHost = "postgres"
+	}
+	sharedPass := params.SharedDBPass
+	if sharedPass == "" {
+		sharedPass = "postgres"
 	}
 
 	domainSec := params.DomainSecrets
@@ -59,9 +78,11 @@ func NewWorkspaceInitiatedConsumer(params WorkspaceInitiatedConsumerParams) (*Wo
 		client:            params.Client,
 		publisher:         params.Publisher,
 		provisioner:       params.Provisioner,
+		migrator:          params.Migrator,
 		infraMasterSecret: params.InfraMasterSecret,
 		domainSecrets:     domainSec,
 		sharedDBHost:      sharedHost,
+		sharedDBPass:      sharedPass,
 	}
 
 	if err := consumer.setupTopology(); err != nil {
@@ -200,6 +221,47 @@ func (c *WorkspaceInitiatedConsumer) handleProvisioning(ctx context.Context, evt
 		host, port, dbName, dbUser, err := c.provisioner.ProvisionDedicatedContainer(ctx, evt.TenantID, c.infraMasterSecret, c.domainSecrets)
 		if err != nil {
 			return nil, err
+		}
+
+		containerName := fmt.Sprintf("postgres-tenant-%s", sanitizeTenantID(evt.TenantID))
+		schemaName := fmt.Sprintf("%s_order_db", sanitizeTenantID(evt.TenantID))
+		lockedSchemaName := fmt.Sprintf("%s_locked", schemaName)
+		sharedDSN := fmt.Sprintf("host=%s port=5432 user=postgres password=%s dbname=shared_db sslmode=disable", c.sharedDBHost, c.sharedDBPass)
+
+		if c.migrator != nil {
+			schemaExists, chkErr := c.migrator.CheckSchemaExists(ctx, sharedDSN, schemaName)
+			if chkErr == nil && schemaExists {
+				log.Printf("WorkspaceInitiatedConsumer: Shared schema '%s' detected for tenant='%s'. Initiating data migration to dedicated container...", schemaName, evt.TenantID)
+
+				// Step 1: Deterministic schema lock (ALTER SCHEMA ... RENAME TO ..._locked)
+				if lockErr := c.migrator.LockSchema(ctx, sharedDSN, schemaName, lockedSchemaName); lockErr != nil {
+					log.Printf("WorkspaceInitiatedConsumer Error: Schema lock failed for tenant='%s': %v — executing compensating rollback", evt.TenantID, lockErr)
+					_ = c.migrator.DestroyContainer(ctx, containerName)
+					_ = c.publisher.PublishTenantMigrationFailed(ctx, domain.TenantMigrationFailedEvent{
+						EventID:  evt.EventID,
+						TenantID: evt.TenantID,
+						Reason:   lockErr.Error(),
+					})
+					return nil, lockErr
+				}
+
+				// Step 2: Data copy (pg_dump | sed | psql)
+				targetPass := crypto.DeriveTenantDBPassword(c.domainSecrets["order_db"], evt.TenantID)
+				if migErr := c.migrator.MigrateData(ctx,
+					c.sharedDBHost, 5432, "postgres", c.sharedDBPass, "shared_db", lockedSchemaName,
+					host, port, dbUser, targetPass, dbName,
+				); migErr != nil {
+					log.Printf("WorkspaceInitiatedConsumer Error: Data migration failed for tenant='%s': %v — executing schema restore & compensating rollback", evt.TenantID, migErr)
+					_ = c.migrator.RestoreSchema(ctx, sharedDSN, lockedSchemaName, schemaName)
+					_ = c.migrator.DestroyContainer(ctx, containerName)
+					_ = c.publisher.PublishTenantMigrationFailed(ctx, domain.TenantMigrationFailedEvent{
+						EventID:  evt.EventID,
+						TenantID: evt.TenantID,
+						Reason:   migErr.Error(),
+					})
+					return nil, migErr
+				}
+			}
 		}
 
 		return &domain.InfrastructureProvisionedEvent{

@@ -13,6 +13,7 @@ import (
 type consumerRunner struct {
 	workspaceReadyConsumer *consumer.WorkspaceReadyConsumer
 	userCreatedConsumer    *consumer.UserCreatedConsumer
+	orderCreatedConsumer   *consumer.OrderCreatedConsumer
 }
 
 func registerConsumers(
@@ -47,9 +48,19 @@ func registerConsumers(
 		return nil, fmt.Errorf("failed to initialize UserCreatedConsumer: %w", err)
 	}
 
+	orderCreatedConsumer, err := consumer.NewOrderCreatedConsumer(consumer.OrderCreatedConsumerParams{
+		TxManager:    txManager,
+		Client:       rmqClient,
+		InboxService: inboxService,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize OrderCreatedConsumer: %w", err)
+	}
+
 	return &consumerRunner{
 		workspaceReadyConsumer: workspaceReadyConsumer,
 		userCreatedConsumer:    userCreatedConsumer,
+		orderCreatedConsumer:   orderCreatedConsumer,
 	}, nil
 }
 
@@ -59,6 +70,9 @@ func (cr *consumerRunner) start(ctx context.Context) error {
 	}
 	if err := cr.userCreatedConsumer.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start UserCreatedConsumer: %w", err)
+	}
+	if err := cr.orderCreatedConsumer.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start OrderCreatedConsumer: %w", err)
 	}
 	return nil
 }

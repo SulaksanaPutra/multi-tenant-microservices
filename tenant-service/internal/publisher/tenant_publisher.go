@@ -35,3 +35,28 @@ func (p *TenantPublisher) PublishWorkspaceReady(ctx context.Context, evt domain.
 	log.Printf("TenantPublisher: Published WorkspaceReady event_id='%s' tenant_id='%s'", evt.EventID, evt.TenantID)
 	return nil
 }
+
+func (p *TenantPublisher) PublishInfrastructureLocking(ctx context.Context, evt domain.InfrastructureLockingEvent) error {
+	if err := p.client.PublishEvent(ctx, domain.ExchangeCompanyEvents, domain.RoutingKeyInfrastructureLocking, evt); err != nil {
+		return fmt.Errorf("tenant_publisher: failed to publish InfrastructureLocking event: %w", err)
+	}
+	log.Printf("TenantPublisher: Published InfrastructureLocking event_id='%s' tenant_id='%s'", evt.EventID, evt.TenantID)
+	return nil
+}
+
+func (p *TenantPublisher) PublishInfraChanged(ctx context.Context, evt domain.InfraChangedEvent) error {
+	if err := p.client.PublishEvent(ctx, domain.ExchangeCompanyEvents, domain.RoutingKeyInfraChanged, evt); err != nil {
+		return fmt.Errorf("tenant_publisher: failed to publish InfraChanged event: %w", err)
+	}
+	log.Printf("TenantPublisher: Published InfraChanged event_id='%s' tenant_id='%s'", evt.EventID, evt.TenantID)
+	return nil
+}
+
+func (p *TenantPublisher) PublishMigrationFailed(ctx context.Context, evt domain.TenantMigrationFailedEvent) error {
+	if err := p.client.PublishEvent(ctx, domain.ExchangeCompanyEvents, domain.RoutingKeyTenantMigrationFailed, evt); err != nil {
+		return fmt.Errorf("tenant_publisher: failed to publish TenantMigrationFailed event: %w", err)
+	}
+	log.Printf("TenantPublisher: Published TenantMigrationFailed event_id='%s' tenant_id='%s'", evt.EventID, evt.TenantID)
+	return nil
+}
+

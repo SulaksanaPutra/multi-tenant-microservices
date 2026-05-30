@@ -3,7 +3,11 @@ package tenantdb
 import (
 	"context"
 	"database/sql"
+	"errors"
 )
+
+// ErrTenantMigrating is returned when a tenant's infrastructure status is MIGRATING.
+var ErrTenantMigrating = errors.New("tenant database is locked for migration")
 
 // Config holds the resolved database connection handle, schema name, and tenant ID
 // passed explicitly into per-request repository and service instances.
@@ -25,4 +29,5 @@ func FromContext(ctx context.Context) (Config, bool) {
 	cfg, ok := ctx.Value(configKey{}).(Config)
 	return cfg, ok
 }
+
 

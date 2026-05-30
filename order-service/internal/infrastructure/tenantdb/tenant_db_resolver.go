@@ -96,6 +96,10 @@ func (r *Resolver) GetTenantDB(ctx context.Context, tenantID string) (Config, er
 		r.routingRegistry.Set(meta)
 	}
 
+	if meta.Status == "MIGRATING" {
+		return Config{}, ErrTenantMigrating
+	}
+
 	// 3. Shared Plan Duality Check:
 	// If DBHost is the shared Postgres cluster ("postgres" or "localhost"), return the single shared pool.
 	if isSharedHost(meta.DBHost) {

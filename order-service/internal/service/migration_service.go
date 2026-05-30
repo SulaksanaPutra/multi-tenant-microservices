@@ -24,6 +24,25 @@ func NewMigrationService(migrationFilePath string) (*MigrationService, error) {
 	return NewMigrationServiceFromSQL(string(migrationBytes)), nil
 }
 
+func NewMigrationServiceFromDir(dirPath string) (*MigrationService, error) {
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read migration directory '%s': %w", dirPath, err)
+	}
+	var sb strings.Builder
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".sql") {
+			content, err := os.ReadFile(dirPath + "/" + entry.Name())
+			if err != nil {
+				return nil, fmt.Errorf("failed to read migration file '%s': %w", entry.Name(), err)
+			}
+			sb.Write(content)
+			sb.WriteString("\n\n")
+		}
+	}
+	return NewMigrationServiceFromSQL(sb.String()), nil
+}
+
 func NewMigrationServiceFromSQL(migrationSQL string) *MigrationService {
 	return &MigrationService{
 		migrationSQL: migrationSQL,

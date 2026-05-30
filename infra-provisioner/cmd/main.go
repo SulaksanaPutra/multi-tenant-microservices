@@ -46,19 +46,29 @@ func main() {
 		log.Fatalf("Failed to initialize Docker provisioner: %v", err)
 	}
 
-	// 3. Initialize Publisher & Consumer
+	// 3. Initialize Schema Migrator
+	schemaMigrator, err := docker.NewSchemaMigrator()
+	if err != nil {
+		log.Printf("InfraProvisioner Warning: Failed to initialize SchemaMigrator (%v); migration support disabled", err)
+	}
+
+	// 4. Initialize Publisher & Consumer
 	infraPub, err := publisher.NewInfrastructurePublisher(rmqClient)
 	if err != nil {
 		log.Fatalf("Failed to initialize InfrastructurePublisher: %v", err)
 	}
 
+	sharedDBPass := getEnv("SHARED_DB_PASSWORD", getEnv("DB_PASSWORD", "postgres"))
+
 	wiConsumer, err := consumer.NewWorkspaceInitiatedConsumer(consumer.Params{
 		Client:            rmqClient,
 		Publisher:         infraPub,
 		Provisioner:       dockerProv,
+		Migrator:          schemaMigrator,
 		InfraMasterSecret: infraMasterSecret,
 		DomainSecrets:     domainSecrets,
 		SharedDBHost:      sharedDBHost,
+		SharedDBPass:      sharedDBPass,
 	})
 	if err != nil {
 		log.Fatalf("Failed to initialize WorkspaceInitiated consumer: %v", err)

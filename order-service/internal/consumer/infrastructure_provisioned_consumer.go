@@ -196,6 +196,7 @@ func (c *InfrastructureProvisionedConsumer) handleDelivery(ctx context.Context, 
 		DBName:     evt.DBName,
 		DBUser:     evt.DBUser,
 		SchemaName: evt.SchemaName,
+		Status:     "active",
 	})
 
 	// 3. Evict any cached pool in order-service pool registry, so fresh connection parameters are used

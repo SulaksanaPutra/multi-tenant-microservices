@@ -13,6 +13,9 @@ type RoutingMetadata struct {
 	DBName     string `json:"db_name"`
 	DBUser     string `json:"db_user"`
 	SchemaName string `json:"schema_name"`
+	// Status reflects the tenant's current migration state.
+	// Valid values: "" (normal), "MIGRATING" (distributed lock active).
+	Status string `json:"status,omitempty"`
 }
 
 // RoutingRegistry is a thread-safe in-memory materialized view of tenant routing metadata.
@@ -46,6 +49,29 @@ func (r *RoutingRegistry) Get(tenantID string) (RoutingMetadata, bool) {
 	return meta, ok
 }
 
+// GetStatus returns the current Status string for a tenant ("" if not found). Thread-safe.
+func (r *RoutingRegistry) GetStatus(tenantID string) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.routes[tenantID].Status
+}
+
+// SetStatus updates only the Status field for an existing tenant entry.
+// If no entry exists, it creates a minimal one with just the status set.
+// Thread-safe.
+func (r *RoutingRegistry) SetStatus(tenantID, status string) {
+	if tenantID == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	meta := r.routes[tenantID]
+	meta.TenantID = tenantID
+	meta.Status = status
+	r.routes[tenantID] = meta
+	log.Printf("RoutingRegistry: Status for tenant='%s' set to '%s'", tenantID, status)
+}
+
 // Delete removes routing metadata for a tenant. Thread-safe.
 func (r *RoutingRegistry) Delete(tenantID string) {
 	r.mu.Lock()
@@ -61,3 +87,4 @@ func (r *RoutingRegistry) PurgeAll() {
 	r.mu.Unlock() // Release before logging — no need to hold lock during I/O.
 	log.Printf("RoutingRegistry: Purged all tenant routes (%d routes evicted)", count)
 }
+

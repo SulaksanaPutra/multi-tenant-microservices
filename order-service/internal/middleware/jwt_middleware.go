@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -193,6 +194,11 @@ func RequireJWT(publicKeyPEM string, resolver Resolver, versionCache ...*Version
 
 		tenantCfg, err := resolver.GetTenantDB(c.Request.Context(), tenantID)
 		if err != nil {
+			if errors.Is(err, tenantdb.ErrTenantMigrating) {
+				httputil.WriteError(c, http.StatusLocked, "tenant infrastructure is locked for migration")
+				c.Abort()
+				return
+			}
 			httputil.WriteError(c, http.StatusInternalServerError, fmt.Sprintf("failed to resolve tenant database: %v", err))
 			c.Abort()
 			return
