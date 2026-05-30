@@ -142,3 +142,25 @@ func (tenantRepository *TenantRepository) UpdateTenantPlan(ctx context.Context, 
 	}
 	return nil
 }
+
+func (tenantRepository *TenantRepository) SetTenantStatus(ctx context.Context, tenantID, status string) error {
+	exec := txcontext.GetExecutor(ctx, tenantRepository.dbClient)
+	const query = `
+		UPDATE public.tenants
+		SET status = $2
+		WHERE id = $1;
+	`
+	res, err := exec.ExecContext(ctx, query, tenantID, status)
+	if err != nil {
+		return fmt.Errorf("tenant repository: failed to set status for tenant '%s': %w", tenantID, err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("tenant repository: failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("tenant '%s': %w", tenantID, domain.ErrNotFound)
+	}
+	return nil
+}
+

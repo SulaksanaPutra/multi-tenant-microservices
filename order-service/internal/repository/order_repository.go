@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"order-service/internal/domain"
@@ -77,15 +78,45 @@ func (r *OrderRepository) CreateOrder(ctx context.Context, input CreateOrderInpu
 	}
 
 	exec := txcontext.GetExecutor(ctx, r.config.DB)
+	quotedSchema := pq.QuoteIdentifier(schemaName)
 
-	query := fmt.Sprintf(`
+	// 1. Insert into orders table.
+	orderQuery := fmt.Sprintf(`
 		INSERT INTO %s.orders (id, tenant_id, customer_id, status, amount, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-	`, pq.QuoteIdentifier(schemaName))
+	`, quotedSchema)
 
-	_, err := exec.ExecContext(ctx, query, input.ID, input.TenantID, input.CustomerID, input.Status, input.Amount)
-	if err != nil {
+	if _, err := exec.ExecContext(ctx, orderQuery, input.ID, input.TenantID, input.CustomerID, input.Status, input.Amount); err != nil {
 		return fmt.Errorf("failed to insert order into schema '%s': %w", schemaName, err)
 	}
+
+	// 2. Stage outbox event in the same executor (atomic dual-write).
+	outboxID := domain.GenerateOutboxID()
+	evt := domain.OrderCreatedEvent{
+		EventID:    outboxID,
+		TenantID:   input.TenantID,
+		OrderID:    input.ID,
+		CustomerID: input.CustomerID,
+		Amount:     input.Amount,
+		Status:     input.Status,
+	}
+	payload, err := json.Marshal(evt)
+	if err != nil {
+		return fmt.Errorf("order repository: failed to marshal OrderCreated event payload: %w", err)
+	}
+
+	outboxQuery := fmt.Sprintf(`
+		INSERT INTO %s.outbox (
+			id, tenant_id, aggregate_type, aggregate_id, event_type, payload, status, retry_count
+		) VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', 0);
+	`, quotedSchema)
+
+	if _, err := exec.ExecContext(ctx, outboxQuery,
+		outboxID, input.TenantID, "ORDER", input.ID, domain.RoutingKeyOrderCreated, string(payload),
+	); err != nil {
+		return fmt.Errorf("order repository: failed to stage outbox event for order '%s': %w", input.ID, err)
+	}
+
 	return nil
 }
+

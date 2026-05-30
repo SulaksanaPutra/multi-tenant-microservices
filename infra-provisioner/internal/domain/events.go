@@ -4,6 +4,7 @@ const (
 	ExchangeCompanyEvents               = "company.events"
 	RoutingKeyWorkspaceInitiated        = "workspace.initiated"
 	RoutingKeyInfrastructureProvisioned = "infrastructure.provisioned"
+	RoutingKeyTenantMigrationFailed     = "tenant.migration_failed"
 	QueueInfraProvisionerWorkspace      = "infra_provisioner_workspace_initiated"
 )
 
@@ -25,3 +26,10 @@ type InfrastructureProvisionedEvent struct {
 	DBUser     string `json:"db_user"`
 	SchemaName string `json:"schema_name"`
 }
+
+type TenantMigrationFailedEvent struct {
+	EventID  string `json:"event_id"`
+	TenantID string `json:"tenant_id"`
+	Reason   string `json:"reason,omitempty"`
+}
+

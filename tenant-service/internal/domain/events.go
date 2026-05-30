@@ -1,12 +1,21 @@
 package domain
 
 const (
-	ExchangeCompanyEvents        = "company.events"
-	RoutingKeyWorkspaceInitiated = "workspace.initiated"
-	RoutingKeyWorkspaceReady     = "workspace.ready"
-	RoutingKeyTenantOrderDBReady = "tenant.order_db.ready"
-	RoutingKeyInfraChanged       = "tenant.infrastructure_changed"
-	QueueTenantServiceOrderReady = "tenant_service_order_db_ready"
+	ExchangeCompanyEvents             = "company.events"
+	RoutingKeyWorkspaceInitiated      = "workspace.initiated"
+	RoutingKeyWorkspaceReady          = "workspace.ready"
+	RoutingKeyTenantOrderDBReady      = "tenant.order_db.ready"
+	RoutingKeyInfraChanged            = "tenant.infrastructure_changed"
+	RoutingKeyInfrastructureLocking   = "tenant.infrastructure_locking"
+	RoutingKeyTenantMigrationFailed   = "tenant.migration_failed"
+	QueueTenantServiceOrderReady      = "tenant_service_order_db_ready"
+	QueueTenantServiceMigrationFailed = "tenant_service_migration_failed"
+)
+
+const (
+	StatusActive    = "active"
+	StatusPending   = "pending"
+	StatusMigrating = "MIGRATING"
 )
 
 type WorkspaceInitiatedEvent struct {
@@ -41,3 +50,15 @@ type InfraChangedEvent struct {
 	EventID  string `json:"event_id"`
 	TenantID string `json:"tenant_id"`
 }
+
+type InfrastructureLockingEvent struct {
+	EventID  string `json:"event_id"`
+	TenantID string `json:"tenant_id"`
+}
+
+type TenantMigrationFailedEvent struct {
+	EventID  string `json:"event_id"`
+	TenantID string `json:"tenant_id"`
+	Reason   string `json:"reason,omitempty"`
+}
+

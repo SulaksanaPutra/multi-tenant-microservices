@@ -12,9 +12,17 @@ import (
 
 type consumerRunner struct {
 	tenantOrderDBReadyConsumer *consumer.TenantOrderDBReadyConsumer
+	migrationFailedConsumer    *consumer.MigrationFailedConsumer
 }
 
-func registerConsumers(txManager *txcontext.SQLTxManager, rmqClient *rabbitmq.Client, tenantInfrastructureSvc *service.TenantInfrastructureService, inboxSvc *service.InboxService) (*consumerRunner, error) {
+func registerConsumers(
+	txManager *txcontext.SQLTxManager,
+	rmqClient *rabbitmq.Client,
+	tenantInfrastructureSvc *service.TenantInfrastructureService,
+	inboxSvc *service.InboxService,
+	tenantRepo consumer.TenantRepository,
+	outboxRepo consumer.OutboxRepository,
+) (*consumerRunner, error) {
 	c, err := consumer.NewTenantOrderDBReadyConsumer(consumer.TenantOrderDBReadyConsumerParams{
 		TxManager:                   txManager,
 		Client:                      rmqClient,
@@ -25,8 +33,20 @@ func registerConsumers(txManager *txcontext.SQLTxManager, rmqClient *rabbitmq.Cl
 		return nil, fmt.Errorf("failed to register TenantOrderDBReadyConsumer: %w", err)
 	}
 
+	mfConsumer, err := consumer.NewMigrationFailedConsumer(consumer.MigrationFailedConsumerParams{
+		TxManager:        txManager,
+		Client:           rmqClient,
+		InboxService:     inboxSvc,
+		TenantRepository: tenantRepo,
+		OutboxRepository: outboxRepo,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to register MigrationFailedConsumer: %w", err)
+	}
+
 	return &consumerRunner{
 		tenantOrderDBReadyConsumer: c,
+		migrationFailedConsumer:    mfConsumer,
 	}, nil
 }
 
@@ -34,6 +54,11 @@ func (cr *consumerRunner) start(ctx context.Context) error {
 	if cr.tenantOrderDBReadyConsumer != nil {
 		if err := cr.tenantOrderDBReadyConsumer.Start(ctx); err != nil {
 			return fmt.Errorf("failed to start TenantOrderDBReadyConsumer: %w", err)
+		}
+	}
+	if cr.migrationFailedConsumer != nil {
+		if err := cr.migrationFailedConsumer.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start MigrationFailedConsumer: %w", err)
 		}
 	}
 	return nil

@@ -27,6 +27,9 @@ type OutboxRepository interface {
 type TenantEventPublisher interface {
 	PublishWorkspaceInitiated(ctx context.Context, evt domain.WorkspaceInitiatedEvent) error
 	PublishWorkspaceReady(ctx context.Context, evt domain.WorkspaceReadyEvent) error
+	PublishInfrastructureLocking(ctx context.Context, evt domain.InfrastructureLockingEvent) error
+	PublishInfraChanged(ctx context.Context, evt domain.InfraChangedEvent) error
+	PublishMigrationFailed(ctx context.Context, evt domain.TenantMigrationFailedEvent) error
 }
 
 type OutboxWorker struct {
@@ -103,7 +106,14 @@ drainLoop:
 }
 
 func (w *OutboxWorker) recoverAndProcess(ctx context.Context) {
-	for _, eventType := range []string{domain.RoutingKeyWorkspaceInitiated, domain.RoutingKeyWorkspaceReady} {
+	eventTypes := []string{
+		domain.RoutingKeyWorkspaceInitiated,
+		domain.RoutingKeyWorkspaceReady,
+		domain.RoutingKeyInfrastructureLocking,
+		domain.RoutingKeyInfraChanged,
+		domain.RoutingKeyTenantMigrationFailed,
+	}
+	for _, eventType := range eventTypes {
 		if err := w.outboxRepository.RecoverStuckClaims(ctx, eventType); err != nil {
 			log.Printf("OutboxWorker Warning: Stuck-claim recovery failed for '%s': %v", eventType, err)
 		}
@@ -144,6 +154,33 @@ func (w *OutboxWorker) processBatch(ctx context.Context, eventType string) {
 				continue
 			}
 			pubErr = w.publisher.PublishWorkspaceReady(ctx, evt)
+
+		case domain.RoutingKeyInfrastructureLocking:
+			var evt domain.InfrastructureLockingEvent
+			if err := json.Unmarshal(msg.Payload, &evt); err != nil {
+				log.Printf("OutboxWorker Error: Bad payload for id='%s': %v", msg.ID, err)
+				_ = w.outboxRepository.MarkFailed(ctx, msg.ID, err)
+				continue
+			}
+			pubErr = w.publisher.PublishInfrastructureLocking(ctx, evt)
+
+		case domain.RoutingKeyInfraChanged:
+			var evt domain.InfraChangedEvent
+			if err := json.Unmarshal(msg.Payload, &evt); err != nil {
+				log.Printf("OutboxWorker Error: Bad payload for id='%s': %v", msg.ID, err)
+				_ = w.outboxRepository.MarkFailed(ctx, msg.ID, err)
+				continue
+			}
+			pubErr = w.publisher.PublishInfraChanged(ctx, evt)
+
+		case domain.RoutingKeyTenantMigrationFailed:
+			var evt domain.TenantMigrationFailedEvent
+			if err := json.Unmarshal(msg.Payload, &evt); err != nil {
+				log.Printf("OutboxWorker Error: Bad payload for id='%s': %v", msg.ID, err)
+				_ = w.outboxRepository.MarkFailed(ctx, msg.ID, err)
+				continue
+			}
+			pubErr = w.publisher.PublishMigrationFailed(ctx, evt)
 
 		default:
 			log.Printf("OutboxWorker Warning: Unknown event_type='%s' for id='%s'. Skipping.", eventType, msg.ID)

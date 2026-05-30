@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -13,10 +14,14 @@ import (
 
 	"order-service/internal/domain"
 	"order-service/internal/infrastructure/authclient"
+	"order-service/internal/infrastructure/postgres"
 	"order-service/internal/infrastructure/rabbitmq"
 	"order-service/internal/infrastructure/tenantdb"
+	"order-service/internal/publisher"
 	"order-service/internal/registry"
+	"order-service/internal/repository"
 	"order-service/internal/service"
+	"order-service/internal/worker"
 )
 
 func main() {
@@ -66,13 +71,32 @@ func main() {
 		SharedDBPass:         sharedDBPass,
 	})
 
-	// 3. Initialize Migration Service
-	migrationSvc, err := service.NewMigrationService("migrations/001_create_orders.sql")
+	// 3. Initialize Migration Service (loads all SQL migrations from migrations/ directory)
+	migrationSvc, err := service.NewMigrationServiceFromDir("migrations")
 	if err != nil {
 		log.Fatalf("Failed to initialize MigrationService: %v", err)
 	}
 
-	// 4. Register & Start Inbound Consumers
+	// 4. Initialize Outbox Worker
+	sharedDBHost := getEnv("SHARED_DB_HOST", "postgres")
+	sharedDSN := fmt.Sprintf("host=%s port=5432 user=postgres password=%s dbname=postgres sslmode=disable", sharedDBHost, sharedDBPass)
+	sharedDB, err := postgres.NewClientFromDSN(sharedDSN)
+	if err != nil {
+		log.Printf("Order Service Warning: Failed to connect to shared DB for outbox worker (%v); outbox worker deferred", err)
+	} else {
+		defer sharedDB.Close()
+		outboxRepo := repository.NewOutboxRepository(tenantdb.Config{DB: sharedDB, SchemaName: "public"})
+		orderEventPub, err := publisher.NewOrderEventPublisher(rmqClient)
+		if err != nil {
+			log.Fatalf("Failed to initialize OrderEventPublisher: %v", err)
+		}
+		outboxWorker := worker.NewOutboxWorker(outboxRepo, orderEventPub, routingRegistry)
+		workerCtx, workerCancel := context.WithCancel(context.Background())
+		defer workerCancel()
+		go outboxWorker.Start(workerCtx)
+	}
+
+	// 5. Register & Start Inbound Consumers
 	cRunner, err := registerConsumers(rmqClient, migrationSvc, poolRegistry, routingRegistry, sharedSecret, sharedDBPass)
 	if err != nil {
 		log.Fatalf("Failed to register consumers: %v", err)
