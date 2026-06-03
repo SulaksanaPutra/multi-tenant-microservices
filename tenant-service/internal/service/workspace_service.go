@@ -155,34 +155,40 @@ func (workspaceService *WorkspaceService) ActivateWorkspace(ctx context.Context,
 		return fmt.Errorf("%w: %s", domain.ErrTenantNotFound, tenantID)
 	}
 
-	outboxID := domain.GenerateOutboxID()
-	readyEvt := domain.WorkspaceReadyEvent{
-		EventID:    outboxID,
-		TenantID:   tenantID,
-		OwnerEmail: tenant.OwnerEmail,
-		TenantName: tenant.Name,
-		TenantSlug: tenant.Slug,
-		OwnerName:  tenant.OwnerName,
-	}
-	payloadBytes, err := json.Marshal(readyEvt)
-	if err != nil {
-		return fmt.Errorf("workspace service: failed to marshal WorkspaceReady event: %w", err)
-	}
-
 	if err := workspaceService.tenantRepository.ActivateTenant(ctx, tenantID); err != nil {
 		return fmt.Errorf("workspace service: failed to activate tenant: %w", err)
 	}
 
-	outboxInput := repository.CreateOutboxMessageInput{
-		ID:            outboxID,
-		TenantID:      tenantID,
-		AggregateType: "WORKSPACE",
-		AggregateID:   tenantID,
-		EventType:     "workspace.ready",
-		Payload:       payloadBytes,
-	}
-	if err := workspaceService.outboxRepository.CreateOutboxMessage(ctx, outboxInput); err != nil {
-		return fmt.Errorf("workspace service: failed to stage workspace.ready outbox event: %w", err)
+	// A tenant in MIGRATING state is being cut over to new infrastructure (plan upgrade).
+	// The welcome email was already delivered during initial activation, so skip re-staging
+	// workspace.ready to avoid phantom duplicate notifications. The infra_changed broadcast
+	// below is still required to unlock all order-service replicas.
+	if tenant.Status != domain.StatusMigrating {
+		outboxID := domain.GenerateOutboxID()
+		readyEvt := domain.WorkspaceReadyEvent{
+			EventID:    outboxID,
+			TenantID:   tenantID,
+			OwnerEmail: tenant.OwnerEmail,
+			TenantName: tenant.Name,
+			TenantSlug: tenant.Slug,
+			OwnerName:  tenant.OwnerName,
+		}
+		payloadBytes, err := json.Marshal(readyEvt)
+		if err != nil {
+			return fmt.Errorf("workspace service: failed to marshal WorkspaceReady event: %w", err)
+		}
+
+		outboxInput := repository.CreateOutboxMessageInput{
+			ID:            outboxID,
+			TenantID:      tenantID,
+			AggregateType: "WORKSPACE",
+			AggregateID:   tenantID,
+			EventType:     domain.RoutingKeyWorkspaceReady,
+			Payload:       payloadBytes,
+		}
+		if err := workspaceService.outboxRepository.CreateOutboxMessage(ctx, outboxInput); err != nil {
+			return fmt.Errorf("workspace service: failed to stage workspace.ready outbox event: %w", err)
+		}
 	}
 
 	// Stage tenant.infrastructure_changed broadcast outbox event to purge stale routing/connection pools across all microservices
@@ -192,15 +198,18 @@ func (workspaceService *WorkspaceService) ActivateWorkspace(ctx context.Context,
 		TenantID: tenantID,
 	}
 	icPayload, err := json.Marshal(infraChangedEvt)
-	if err == nil {
-		_ = workspaceService.outboxRepository.CreateOutboxMessage(ctx, repository.CreateOutboxMessageInput{
-			ID:            infraChangedID,
-			TenantID:      tenantID,
-			AggregateType: "WORKSPACE",
-			AggregateID:   tenantID,
-			EventType:     domain.RoutingKeyInfraChanged,
-			Payload:       icPayload,
-		})
+	if err != nil {
+		return fmt.Errorf("workspace service: failed to marshal InfraChanged event: %w", err)
+	}
+	if err := workspaceService.outboxRepository.CreateOutboxMessage(ctx, repository.CreateOutboxMessageInput{
+		ID:            infraChangedID,
+		TenantID:      tenantID,
+		AggregateType: "WORKSPACE",
+		AggregateID:   tenantID,
+		EventType:     domain.RoutingKeyInfraChanged,
+		Payload:       icPayload,
+	}); err != nil {
+		return fmt.Errorf("workspace service: failed to stage InfraChanged outbox event: %w", err)
 	}
 
 	log.Printf("WorkspaceService: Workspace ACTIVE for tenant_id='%s' — WorkspaceReady & InfraChanged staged.", tenantID)
