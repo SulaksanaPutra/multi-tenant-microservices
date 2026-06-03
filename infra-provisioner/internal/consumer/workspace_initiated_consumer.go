@@ -229,23 +229,33 @@ func (c *WorkspaceInitiatedConsumer) handleProvisioning(ctx context.Context, evt
 		sharedDSN := fmt.Sprintf("host=%s port=5432 user=postgres password=%s dbname=shared_db sslmode=disable", c.sharedDBHost, c.sharedDBPass)
 
 		if c.migrator != nil {
-			schemaExists, chkErr := c.migrator.CheckSchemaExists(ctx, sharedDSN, schemaName)
-			if chkErr == nil && schemaExists {
-				log.Printf("WorkspaceInitiatedConsumer: Shared schema '%s' detected for tenant='%s'. Initiating data migration to dedicated container...", schemaName, evt.TenantID)
+			originalExists, chkErr := c.migrator.CheckSchemaExists(ctx, sharedDSN, schemaName)
+			lockedExists, lockChkErr := c.migrator.CheckSchemaExists(ctx, sharedDSN, lockedSchemaName)
 
-				// Step 1: Deterministic schema lock (ALTER SCHEMA ... RENAME TO ..._locked)
-				if lockErr := c.migrator.LockSchema(ctx, sharedDSN, schemaName, lockedSchemaName); lockErr != nil {
-					log.Printf("WorkspaceInitiatedConsumer Error: Schema lock failed for tenant='%s': %v — executing compensating rollback", evt.TenantID, lockErr)
-					_ = c.migrator.DestroyContainer(ctx, containerName)
-					_ = c.publisher.PublishTenantMigrationFailed(ctx, domain.TenantMigrationFailedEvent{
-						EventID:  evt.EventID,
-						TenantID: evt.TenantID,
-						Reason:   lockErr.Error(),
-					})
-					return nil, lockErr
+			// RabbitMQ delivers at-least-once: an ack-loss redelivery may re-enter this branch
+			// after the schema lock already succeeded. The locked-schema existence check makes
+			// the pipeline idempotent — resume instead of re-locking or skipping the copy.
+			if chkErr == nil && lockChkErr == nil && (originalExists || lockedExists) {
+				log.Printf("WorkspaceInitiatedConsumer: Data migration required for tenant='%s' (original_exists=%v locked_exists=%v).", evt.TenantID, originalExists, lockedExists)
+
+				// Step 1: Deterministic schema lock (ALTER SCHEMA ... RENAME TO ..._locked).
+				// Skipped when a prior delivery already acquired the lock.
+				if !lockedExists {
+					if lockErr := c.migrator.LockSchema(ctx, sharedDSN, schemaName, lockedSchemaName); lockErr != nil {
+						log.Printf("WorkspaceInitiatedConsumer Error: Schema lock failed for tenant='%s': %v — executing compensating rollback", evt.TenantID, lockErr)
+						_ = c.migrator.DestroyContainer(ctx, containerName)
+						_ = c.publisher.PublishTenantMigrationFailed(ctx, domain.TenantMigrationFailedEvent{
+							EventID:  evt.EventID,
+							TenantID: evt.TenantID,
+							Reason:   lockErr.Error(),
+						})
+						return nil, lockErr
+					}
+				} else {
+					log.Printf("WorkspaceInitiatedConsumer: Schema already locked ('%s'); resuming data migration pipeline.", lockedSchemaName)
 				}
 
-				// Step 2: Data copy (pg_dump | sed | psql)
+				// Step 2: Data copy (pg_dump | sed | psql) — idempotent via --clean --if-exists
 				targetPass := crypto.DeriveTenantDBPassword(c.domainSecrets["order_db"], evt.TenantID)
 				if migErr := c.migrator.MigrateData(ctx,
 					c.sharedDBHost, 5432, "postgres", c.sharedDBPass, "shared_db", lockedSchemaName,

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"order-service/internal/domain"
 	"order-service/internal/httputil"
 	"order-service/internal/infrastructure/tenantdb"
 
@@ -194,7 +195,7 @@ func RequireJWT(publicKeyPEM string, resolver Resolver, versionCache ...*Version
 
 		tenantCfg, err := resolver.GetTenantDB(c.Request.Context(), tenantID)
 		if err != nil {
-			if errors.Is(err, tenantdb.ErrTenantMigrating) {
+			if errors.Is(err, domain.ErrTenantMigrating) {
 				httputil.WriteError(c, http.StatusLocked, "tenant infrastructure is locked for migration")
 				c.Abort()
 				return
