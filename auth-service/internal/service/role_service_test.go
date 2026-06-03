@@ -33,9 +33,16 @@ func (m *mockRoleRepo) UserHasMembership(_ context.Context, userID, tenantID str
 	return true, nil
 }
 
-func (m *mockRoleRepo) CreateRole(_ context.Context, role domain.Role) (*domain.Role, error) {
-	r := role
-	r.ID = "role_" + role.Name
+func (m *mockRoleRepo) CreateRole(_ context.Context, input repository.CreateRoleInput) (*domain.Role, error) {
+	r := domain.Role{
+		Name:        input.Name,
+		Description: input.Description,
+		IsSystem:    input.IsSystem,
+	}
+	if input.TenantID != "" {
+		r.TenantID = &input.TenantID
+	}
+	r.ID = "role_" + input.Name
 	m.roles[r.ID] = &r
 	return &r, nil
 }
@@ -66,13 +73,13 @@ func (m *mockRoleRepo) FindRolesByTenantID(_ context.Context, tenantID string) (
 	return res, nil
 }
 
-func (m *mockRoleRepo) UpdateRolePermissions(_ context.Context, roleID string, permissionIDs []string) error {
-	r, ok := m.roles[roleID]
+func (m *mockRoleRepo) UpdateRolePermissions(_ context.Context, input repository.UpdateRolePermissionsInput) error {
+	r, ok := m.roles[input.RoleID]
 	if !ok {
 		return domain.ErrRoleNotFound
 	}
 	var perms []domain.Permission
-	for _, pid := range permissionIDs {
+	for _, pid := range input.PermissionIDs {
 		perms = append(perms, domain.Permission{ID: pid, Name: "perm_" + pid})
 	}
 	r.Permissions = perms
@@ -91,17 +98,17 @@ func (m *mockRoleRepo) DeleteRole(_ context.Context, id string) error {
 	return nil
 }
 
-func (m *mockRoleRepo) AssignUserRole(_ context.Context, userID, tenantID, roleID string, assignedBy *string) error {
-	r, ok := m.roles[roleID]
+func (m *mockRoleRepo) AssignUserRole(_ context.Context, input repository.AssignUserRoleInput) error {
+	r, ok := m.roles[input.RoleID]
 	if !ok {
 		return domain.ErrRoleNotFound
 	}
-	key := userID + "_" + tenantID
+	key := input.UserID + "_" + input.TenantID
 	m.userRoles[key] = &domain.UserRole{
-		UserID:     userID,
-		TenantID:   tenantID,
-		RoleID:     roleID,
-		AssignedBy: assignedBy,
+		UserID:     input.UserID,
+		TenantID:   input.TenantID,
+		RoleID:     input.RoleID,
+		AssignedBy: input.AssignedBy,
 		Role:       r,
 	}
 	m.versions[key] = 1

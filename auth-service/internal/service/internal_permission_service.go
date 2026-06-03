@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 
@@ -10,7 +11,7 @@ import (
 )
 
 type PermissionRepository interface {
-	BulkUpsertPermissions(ctx context.Context, serviceName string, items []repository.RegisterPermissionItem) error
+	BulkUpsertPermissions(ctx context.Context, input repository.BulkUpsertPermissionsInput) error
 	ListAllPermissions(ctx context.Context) ([]domain.Permission, error)
 }
 
@@ -28,20 +29,20 @@ type InternalRegisterPermissionsInput struct {
 }
 
 type InternalPermissionService struct {
-	permRepo PermissionRepository
-	roleRepo RoleRepository
+	permissionRepository PermissionRepository
+	roleRepository       RoleRepository
 }
 
-func NewInternalPermissionService(permRepo PermissionRepository, roleRepo RoleRepository) *InternalPermissionService {
+func NewInternalPermissionService(permissionRepository PermissionRepository, roleRepository RoleRepository) *InternalPermissionService {
 	return &InternalPermissionService{
-		permRepo: permRepo,
-		roleRepo: roleRepo,
+		permissionRepository: permissionRepository,
+		roleRepository:       roleRepository,
 	}
 }
 
 func (s *InternalPermissionService) RegisterPermissions(ctx context.Context, input InternalRegisterPermissionsInput) error {
 	if input.Service == "" {
-		return fmt.Errorf("service name is required")
+		return domain.ErrInvalidInput
 	}
 	if len(input.Permissions) == 0 {
 		return nil
@@ -55,7 +56,10 @@ func (s *InternalPermissionService) RegisterPermissions(ctx context.Context, inp
 		}
 	}
 
-	if err := s.permRepo.BulkUpsertPermissions(ctx, input.Service, items); err != nil {
+	if err := s.permissionRepository.BulkUpsertPermissions(ctx, repository.BulkUpsertPermissionsInput{
+		Service: input.Service,
+		Items:   items,
+	}); err != nil {
 		return fmt.Errorf("internal permission service: failed to register permissions: %w", err)
 	}
 
@@ -64,7 +68,7 @@ func (s *InternalPermissionService) RegisterPermissions(ctx context.Context, inp
 }
 
 func (s *InternalPermissionService) ListPermissions(ctx context.Context) ([]domain.Permission, error) {
-	return s.permRepo.ListAllPermissions(ctx)
+	return s.permissionRepository.ListAllPermissions(ctx)
 }
 
 func (s *InternalPermissionService) GetUserPermissionVersion(ctx context.Context, userID, tenantID string) (int64, error) {
@@ -74,7 +78,7 @@ func (s *InternalPermissionService) GetUserPermissionVersion(ctx context.Context
 	if tenantID == "" {
 		return 1, domain.ErrTenantIDRequired
 	}
-	return s.roleRepo.GetUserPermissionVersion(ctx, userID, tenantID)
+	return s.roleRepository.GetUserPermissionVersion(ctx, userID, tenantID)
 }
 
 // SeedDefaultRolesForTenant creates default system roles (admin, editor, viewer) for a tenant
@@ -85,34 +89,37 @@ func (s *InternalPermissionService) SeedDefaultRolesForTenant(ctx context.Contex
 	}
 
 	// 1. Ensure admin role exists for this tenant
-	adminRole, err := s.roleRepo.FindRoleByName(ctx, &tenantID, "admin")
+	adminRole, err := s.roleRepository.FindRoleByName(ctx, &tenantID, "admin")
 	if err != nil {
 		// Create tenant admin role
-		createdAdmin, createErr := s.roleRepo.CreateRole(ctx, domain.Role{
-			TenantID:    &tenantID,
+		createdAdmin, createErr := s.roleRepository.CreateRole(ctx, repository.CreateRoleInput{
+			TenantID:    tenantID,
 			Name:        "admin",
 			Description: "Full tenant administration access",
 			IsSystem:    true,
 		})
-		if createErr != nil && createErr != domain.ErrRoleAlreadyExists {
+		if createErr != nil && !errors.Is(createErr, domain.ErrRoleAlreadyExists) {
 			return fmt.Errorf("internal permission service: failed to seed admin role: %w", createErr)
 		}
 		adminRole = createdAdmin
 	}
 
 	// 2. Attach all existing permissions to tenant admin role
-	allPerms, err := s.permRepo.ListAllPermissions(ctx)
+	allPerms, err := s.permissionRepository.ListAllPermissions(ctx)
 	if err == nil && len(allPerms) > 0 && adminRole != nil {
 		permIDs := make([]string, len(allPerms))
 		for i, p := range allPerms {
 			permIDs[i] = p.ID
 		}
-		_ = s.roleRepo.UpdateRolePermissions(ctx, adminRole.ID, permIDs)
+		_ = s.roleRepository.UpdateRolePermissions(ctx, repository.UpdateRolePermissionsInput{
+			RoleID:        adminRole.ID,
+			PermissionIDs: permIDs,
+		})
 	}
 
 	// 3. Ensure viewer role exists
-	_, _ = s.roleRepo.CreateRole(ctx, domain.Role{
-		TenantID:    &tenantID,
+	_, _ = s.roleRepository.CreateRole(ctx, repository.CreateRoleInput{
+		TenantID:    tenantID,
 		Name:        "viewer",
 		Description: "Read-only tenant access",
 		IsSystem:    true,
@@ -120,7 +127,12 @@ func (s *InternalPermissionService) SeedDefaultRolesForTenant(ctx context.Contex
 
 	// 4. Assign adminUserID to admin role if specified
 	if adminUserID != "" && adminRole != nil {
-		if err := s.roleRepo.AssignUserRole(ctx, adminUserID, tenantID, adminRole.ID, nil); err != nil {
+		if err := s.roleRepository.AssignUserRole(ctx, repository.AssignUserRoleInput{
+			UserID:     adminUserID,
+			TenantID:   tenantID,
+			RoleID:     adminRole.ID,
+			AssignedBy: nil,
+		}); err != nil {
 			return fmt.Errorf("internal permission service: failed to assign admin role to registering user: %w", err)
 		}
 	}

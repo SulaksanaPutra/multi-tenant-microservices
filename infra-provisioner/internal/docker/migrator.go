@@ -112,10 +112,6 @@ func (m *SchemaMigrator) RestoreSchema(ctx context.Context, sharedDSN, lockedSch
 
 // MigrateData pipes pg_dump of lockedSourceSchema from shared DB into psql on target dedicated DB,
 // using sed to rewrite the schema name to public on the fly.
-//
-// The pipeline is intentionally idempotent: pg_dump runs with --clean --if-exists so a re-delivered
-// workspace.initiated event (at-least-once delivery, ack-loss redelivery) can safely resume or
-// re-apply the copy against an already-partially-restored target database.
 func (m *SchemaMigrator) MigrateData(
 	ctx context.Context,
 	sourceHost string, sourcePort int, sourceUser, sourcePass, sourceDB, lockedSourceSchema string,
@@ -140,20 +136,12 @@ func (m *SchemaMigrator) MigrateData(
 		"-n", lockedSourceSchema,
 		"--no-owner",
 		"--no-acl",
-		"--clean",
-		"--if-exists",
 	)
 	dumpCmd.Env = append(os.Environ(), "PGPASSWORD="+sourcePass)
 
-	// sed rewrites every schema-qualified reference from the locked source schema to public:
-	//   CREATE/COPY/ALTER TABLE <locked>.<tbl>, DROP TABLE IF EXISTS <locked>.<tbl>,
-	//   and the SET search_path preamble. The dot-anchored tokens cannot collide with data
-	//   payloads because COPY data is not schema-qualified.
 	sedCmd := exec.CommandContext(ctx, "sed",
-		fmt.Sprintf(
-			"s/ %s\\./ public./g; s/ \"%s\"\\./ \"public\"./g; s/SET search_path = %s;/SET search_path = public;/g; s/SET search_path = \"%s\";/SET search_path = \"public\";/g",
-			lockedSourceSchema, lockedSourceSchema, lockedSourceSchema, lockedSourceSchema,
-		),
+		fmt.Sprintf("s/SCHEMA \"%s\"/SCHEMA \"public\"/g; s/SCHEMA %s/SCHEMA public/g; s/SET search_path = \"%s\"/SET search_path = \"public\"/g; s/SET search_path = %s/SET search_path = public/g",
+			lockedSourceSchema, lockedSourceSchema, lockedSourceSchema, lockedSourceSchema),
 	)
 
 	psqlCmd := exec.CommandContext(ctx, psqlPath,
