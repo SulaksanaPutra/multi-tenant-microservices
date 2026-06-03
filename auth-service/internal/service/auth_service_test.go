@@ -45,7 +45,7 @@ func (m *mockCredentialRepo) AddMembership(_ context.Context, userID, tenantID s
 	return nil
 }
 
-func (m *mockCredentialRepo) GetUserMemberships(_ context.Context, userID string) ([]string, error) {
+func (m *mockCredentialRepo) ListUserMemberships(_ context.Context, userID string) ([]string, error) {
 	if m.memberships == nil {
 		return nil, nil
 	}

@@ -18,6 +18,11 @@ type RegisterPermissionItem struct {
 	Description string
 }
 
+type BulkUpsertPermissionsInput struct {
+	Service string
+	Items   []RegisterPermissionItem
+}
+
 type PermissionRepository struct {
 	dbClient *postgres.Client
 }
@@ -26,8 +31,8 @@ func NewPermissionRepository(dbClient *postgres.Client) *PermissionRepository {
 	return &PermissionRepository{dbClient: dbClient}
 }
 
-func (r *PermissionRepository) BulkUpsertPermissions(ctx context.Context, serviceName string, items []RegisterPermissionItem) error {
-	if len(items) == 0 {
+func (r *PermissionRepository) BulkUpsertPermissions(ctx context.Context, input BulkUpsertPermissionsInput) error {
+	if len(input.Items) == 0 {
 		return nil
 	}
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
@@ -40,8 +45,8 @@ func (r *PermissionRepository) BulkUpsertPermissions(ctx context.Context, servic
 		    service     = EXCLUDED.service,
 		    description = CASE WHEN EXCLUDED.description <> '' THEN EXCLUDED.description ELSE public.permissions.description END;
 	`
-	for _, item := range items {
-		if _, err := exec.ExecContext(ctx, query, item.Name, serviceName, item.Description); err != nil {
+	for _, item := range input.Items {
+		if _, err := exec.ExecContext(ctx, query, item.Name, input.Service, item.Description); err != nil {
 			return fmt.Errorf("permission repository: failed to upsert permission '%s': %w", item.Name, err)
 		}
 	}

@@ -38,11 +38,11 @@ func (r *InboxRepository) TryInsert(ctx context.Context, input CreateInboxMessag
 	}
 	res, err := exec.ExecContext(ctx, query, input.EventID, input.TenantID, input.EventType, payloadStr)
 	if err != nil {
-		return false, fmt.Errorf("failed to insert inbox record: %w", err)
+		return false, fmt.Errorf("inbox repository: failed to insert inbox record: %w", err)
 	}
 	rows, err := res.RowsAffected()
 	if err != nil {
-		return false, fmt.Errorf("failed to check rows affected in inbox insert: %w", err)
+		return false, fmt.Errorf("inbox repository: failed to check rows affected in inbox insert: %w", err)
 	}
 	if rows == 0 {
 		return true, nil // isDuplicate = true

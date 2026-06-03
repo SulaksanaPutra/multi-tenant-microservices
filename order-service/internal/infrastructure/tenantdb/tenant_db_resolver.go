@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"order-service/internal/crypto"
-	"order-service/internal/domain"
 	"order-service/internal/infrastructure/postgres"
 	"order-service/internal/registry"
 )
@@ -98,7 +97,7 @@ func (r *Resolver) GetTenantDB(ctx context.Context, tenantID string) (Config, er
 	}
 
 	if meta.Status == "MIGRATING" {
-		return Config{}, domain.ErrTenantMigrating
+		return Config{}, ErrTenantMigrating
 	}
 
 	// 3. Shared Plan Duality Check:

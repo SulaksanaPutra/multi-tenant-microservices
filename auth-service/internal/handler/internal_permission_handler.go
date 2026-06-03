@@ -2,8 +2,10 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
+	"auth-service/internal/domain"
 	"auth-service/internal/httputil"
 	"auth-service/internal/service"
 
@@ -58,6 +60,10 @@ func (h *InternalPermissionHandler) RegisterPermissions(c *gin.Context) {
 		Service:     req.Service,
 		Permissions: items,
 	}); err != nil {
+		if errors.Is(err, domain.ErrInvalidInput) {
+			httputil.WriteError(c, http.StatusBadRequest, err.Error())
+			return
+		}
 		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return
 	}

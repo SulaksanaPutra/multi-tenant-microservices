@@ -56,19 +56,6 @@ func (r *RoutingRegistry) GetStatus(tenantID string) string {
 	return r.routes[tenantID].Status
 }
 
-// TenantIDs returns a snapshot of all tenant IDs currently materialized in the registry.
-// Used by the outbox worker to enumerate the physical outbox tables that need polling.
-// Thread-safe.
-func (r *RoutingRegistry) TenantIDs() []string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	ids := make([]string, 0, len(r.routes))
-	for id := range r.routes {
-		ids = append(ids, id)
-	}
-	return ids
-}
-
 // SetStatus updates only the Status field for an existing tenant entry.
 // If no entry exists, it creates a minimal one with just the status set.
 // Thread-safe.
@@ -77,11 +64,11 @@ func (r *RoutingRegistry) SetStatus(tenantID, status string) {
 		return
 	}
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	meta := r.routes[tenantID]
 	meta.TenantID = tenantID
 	meta.Status = status
 	r.routes[tenantID] = meta
-	r.mu.Unlock() // Release before logging — no need to hold lock during I/O.
 	log.Printf("RoutingRegistry: Status for tenant='%s' set to '%s'", tenantID, status)
 }
 

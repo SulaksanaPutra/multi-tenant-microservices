@@ -250,8 +250,6 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
     [ Response to Client (201 Created or 200 OK) ]
 ```
 
-* **Outbox & Order Notifications:** every `POST /api/orders` atomically dual-writes the order row and an `order.created` outbox message (same transaction). `order-service`'s outbox worker enumerates the tenants materialized in its local `RoutingRegistry` and polls each tenant's *physical* outbox table (shared per-tenant schema or dedicated container) via the `TenantDBResolver` — skipping tenants whose status is `MIGRATING` — then publishes `order.created` to RabbitMQ. `notification-service` consumes it behind the inbox deduplication guard.
-
 ---
 
 ### 2.7 Advanced Infrastructure Availability & Cache Invalidation (`tenant.infrastructure_changed`)
@@ -285,7 +283,6 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
 
 * **New Tenant Registration:** Every `order-service` replica experiences a natural cache miss on its first request and lazily resolves the routing metadata.
 * **Infrastructure Rebinding & Plan Changes:** If a dedicated DB container dies and is rescheduled on a new IP/port by Docker/K8s, or if a tenant undergoes a plan upgrade/downgrade, `tenant-service` broadcasts `tenant.infrastructure_changed` over the **`company.events` Topic Exchange** to exclusive anonymous queues, forcing all `order-service` replicas to purge their local `RoutingRegistry` and `PoolRegistry` connection caches in real-time.
-* **Plan Upgrades:** during a plan change the tenant is first locked via the `tenant.infrastructure_locking` fanout event (status `MIGRATING`) and all order-service replicas answer **HTTP 423 Locked** until the data migration completes and `tenant.infrastructure_changed` releases the lock (see §2.10).
 
 ---
 
@@ -384,49 +381,6 @@ To let tenant admins pre-assign roles **before** a user ever sets a password, `a
 
 ---
 
-### 2.10 Plan Upgrade & Live Data Migration (`PUT /api/tenants/me/plan`)
-
-Upgrading/downgrading isolation (`shared` ⇄ `dedicated`) is a zero-downtime, event-driven data migration guarded by a **distributed migration lock**. The tenant enters the `MIGRATING` state and `order-service` answers every request for it with **HTTP 423 Locked** until cutover completes. The admin UI short-polls `GET /api/tenants/me` every 4s (max 120 attempts) until `status: active`.
-
-```text
-[ Tenant Admin / Web UI ]
-    │ PUT /api/tenants/me/plan { plan: "dedicated" } → 202 Accepted
-    ▼
-[ tenant-service ]
-    │ 1. Persist new plan + status = MIGRATING
-    │ 2. Stage tenant.infrastructure_locking (outbox)   ← distributed lock broadcast
-    │ 3. Stage workspace.initiated (outbox)             ← kick-off migration
-    ▼
-[ Outbox Worker ] ──► RabbitMQ (company.events)
-    │
-    ├─► tenant.infrastructure_locking ──► [ order-service replicas ]
-    │     (exclusive anonymous fanout queue) │  Set RoutingRegistry.Status = MIGRATING
-    │                                        └─► GET/POST /api/orders → HTTP 423 Locked
-    │
-    └─► workspace.initiated ─────────────► [ infra-provisioner ]
-          │ 4. ALTER SCHEMA "<t>_order_db" RENAME TO "<t>_order_db_locked"
-          │    (SET lock_timeout='15s' — deterministic schema lock)
-          │ 5. pg_dump | sed (schema→public) | psql     ← idempotent (--clean --if-exists)
-          │ 6. Publish: infrastructure.provisioned
-          ▼
-    [ order-service ]
-          │ 7. Apply migrations (001_create_orders.sql, 002_create_outbox.sql)
-          │ 8. Refresh RoutingRegistry + PoolRegistry
-          │ 9. Publish: tenant.order_db.ready
-          ▼
-    [ tenant-service ]
-          │ 10. Inbox-guard → store routing metadata (NO PASSWORDS) → status = ACTIVE
-          │ 11. Stage workspace.ready (SKIPPED on upgrades — welcome already sent)
-          │ 12. Stage tenant.infrastructure_changed (fanout cache purge)
-          ▼
-    [ order-service replicas ]  ← purge stale routes/pools → 423 lifted
-      Web UI polls GET /api/tenants/me until status = "active"
-```
-
-**Failure compensation (`tenant.migration_failed`):** if the schema lock times out or the dump/load fails, `infra-provisioner` restores the original schema name (`RestoreSchema`) and destroys any partially-provisioned container. `tenant-service` resets the tenant to `ACTIVE` and broadcasts `tenant.infrastructure_changed` so every replica releases the lock. Because the dump pipeline is idempotent (`--clean --if-exists`) and a redelivered `workspace.initiated` resumes from an already-locked `_locked` schema, at-least-once delivery cannot double-lock or duplicate rows.
-
----
-
 ## 3. Microservice Layer Hierarchy & Documentation Topology
 
 This workspace enforces strict **Clean Architecture boundaries** across all microservices. The documentation follows a **2-Tier Macro/Micro Model**:
@@ -498,23 +452,17 @@ microservice-api/
 │   ├── cmd/main.go               # Entrypoint & RabbitMQ consumer
 │   ├── internal/
 │   │   ├── crypto/               # HMAC-SHA256 deterministic credential derivation
-│   │   ├── docker/               # Docker SDK client, declarative bootstrap & schema migrator (lock / dump / restore)
-│   │   ├── domain/               # Events & routing constants
-│   │   ├── publisher/            # infrastructure.provisioned & tenant.migration_failed publishers
+│   │   ├── docker/               # Docker SDK client with 512MB RAM / 0.5 CPU limits & pg_isready
 │   │   └── consumer/             # workspace.initiated consumer (QoS prefetch = 1)
 │   └── Dockerfile
 │
 ├── tenant-service/               # Control-Plane Tenant Management & Outbox Service
 │   ├── cmd/main.go               # Port 8082 - Control Plane & Outbox Worker
 │   ├── internal/
-│   │   ├── consumer/             # tenant.order_db.ready & tenant.migration_failed consumers (inbox-guarded)
 │   │   ├── infrastructure/       # AuthClient PermissionRegistrar (tenants:read/update/plan.change)
 │   │   ├── middleware/           # InternalAuthMiddleware & RequirePermission RBAC
 │   │   ├── migration/            # goose library-mode control-plane migrations
-│   │   ├── publisher/            # workspace.*, infrastructure_locking, infra_changed & migration_failed events
-│   │   ├── repository/           # Control plane metadata-only repository (tenants, inbox, outbox)
-│   │   ├── service/              # WorkspaceService (plan change → MIGRATING orchestration)
-│   │   └── worker/               # Outbox worker (event dispatch & Poke)
+│   │   └── repository/           # Control plane metadata-only repository
 │   ├── migrations/               # 00001_init_tenant_manager_schema.sql (embedded)
 │   └── Dockerfile
 │
@@ -529,28 +477,22 @@ microservice-api/
 │   └── Dockerfile
 │
 ├── order-service/                # Dynamic Multi-Tenant Data-Plane Service
-│   ├── cmd/main.go               # Port 8084 - Orders API, Outbox Worker & Migration Consumers
+│   ├── cmd/main.go               # Port 8084 - Orders API & Migration Consumer
 │   ├── internal/
-│   │   ├── consumer/             # infrastructure.provisioned, infrastructure_changed & infrastructure_locking (fanout) consumers
 │   │   ├── crypto/               # HMAC-SHA256 password derivation
 │   │   ├── infrastructure/       # Zero-Trust TenantDB Resolver & AuthClient PermissionRegistrar
-│   │   ├── middleware/           # RequireJWT & RequirePermission RBAC (orders:create/read; 423 Locked while MIGRATING)
-│   │   ├── registry/             # RoutingRegistry & PoolRegistry (in-memory materialized routing view)
-│   │   ├── service/              # MigrationService (intentional per-tenant DDL exception)
-│   │   └── worker/               # Outbox worker (per-tenant polling, MIGRATING-aware)
-│   ├── migrations/               # 001_create_orders.sql, 002_create_outbox.sql ({{SCHEMA_NAME}} placeholders)
+│   │   ├── middleware/           # RequireJWT & RequirePermission RBAC (orders:create/read)
+│   │   ├── registry/             # PoolRegistry with 15-minute TTL eviction
+│   │   └── service/              # MigrationService (intentional per-tenant DDL exception)
+│   ├── migrations/               # 001_create_orders.sql ({{SCHEMA_NAME}} placeholder)
 │   └── Dockerfile
 │
 ├── notification-service/         # Async Notification Worker & Internal Setup Client
 │   ├── cmd/main.go               # Port 8083 - Mailpit Dispatcher & Setup Token Client
 │   ├── internal/
-│   │   ├── consumer/             # workspace.ready + user.created (barrier sync) & order.created consumers
 │   │   ├── infrastructure/       # AuthClient PermissionRegistrar (notifications:read)
 │   │   ├── middleware/           # RequireJWT & RequirePermission RBAC
-│   │   ├── migration/            # goose library-mode control-plane migrations
-│   │   ├── repository/           # Inbox & notification repositories
-│   │   ├── service/              # NotificationService (barrier sync core & outbound SMTP)
-│   │   └── mailer/               # Mailpit SMTP delivery (outside transaction boundaries)
+│   │   └── migration/            # goose library-mode control-plane migrations
 │   ├── migrations/               # 00001_init_notification_schema.sql, 00002_backfill_... (embedded)
 │   └── Dockerfile
 │
@@ -594,7 +536,7 @@ microservice-api/
 | **tenant-service** | `POST /api/tenants/register` | None | Public | Register new workspace & initiate provisioner workflow |
 | **tenant-service** | `GET /api/tenants/me` | Bearer JWT | `tenants:read` | Retrieve authenticated tenant workspace profile metadata |
 | **tenant-service** | `PUT /api/tenants/me` | Bearer JWT | `tenants:write` | Update tenant metadata (name, slug, owner info) |
-| **tenant-service** | `PUT /api/tenants/me/plan` | Bearer JWT | `tenants:write` | Upgrade/downgrade tenant isolation plan (`shared` / `dedicated`); async data migration — tenant briefly locked (**HTTP 423**) until cutover (see §2.10) |
+| **tenant-service** | `PUT /api/tenants/me/plan` | Bearer JWT | `tenants:write` | Upgrade/downgrade tenant isolation plan (`shared` / `dedicated`) |
 | **auth-service** | `GET /.well-known/jwks.json` | None | Public | Public RSA key set for RS256 JWT signature verification |
 | **auth-service** | `POST /api/auth/credentials/setup` | None | Public | Setup user password via setup token |
 | **auth-service** | `POST /api/auth/login` | None | Public | User authentication & RS256 JWT access token issuance |

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 
 	"order-service/internal/domain"
 	"order-service/internal/infrastructure/authclient"
+	"order-service/internal/infrastructure/postgres"
 	"order-service/internal/infrastructure/rabbitmq"
 	"order-service/internal/infrastructure/tenantdb"
 	"order-service/internal/publisher"
@@ -76,25 +78,23 @@ func main() {
 	}
 
 	// 4. Initialize Outbox Worker
-	// The worker polls the per-tenant outbox tables of every tenant materialized in the
-	// RoutingRegistry, resolving each tenant's physical DB (shared schema or dedicated
-	// container) through the tenantDBResolver. Tenants locked as MIGRATING are skipped.
-	orderEventPub, err := publisher.NewOrderEventPublisher(rmqClient)
+	sharedDBHost := getEnv("SHARED_DB_HOST", "postgres")
+	sharedDSN := fmt.Sprintf("host=%s port=5432 user=postgres password=%s dbname=postgres sslmode=disable", sharedDBHost, sharedDBPass)
+	sharedDB, err := postgres.NewClientFromDSN(sharedDSN)
 	if err != nil {
-		log.Fatalf("Failed to initialize OrderEventPublisher: %v", err)
+		log.Printf("Order Service Warning: Failed to connect to shared DB for outbox worker (%v); outbox worker deferred", err)
+	} else {
+		defer sharedDB.Close()
+		outboxRepo := repository.NewOutboxRepository(tenantdb.Config{DB: sharedDB, SchemaName: "public"})
+		orderEventPub, err := publisher.NewOrderEventPublisher(rmqClient)
+		if err != nil {
+			log.Fatalf("Failed to initialize OrderEventPublisher: %v", err)
+		}
+		outboxWorker := worker.NewOutboxWorker(outboxRepo, orderEventPub, routingRegistry)
+		workerCtx, workerCancel := context.WithCancel(context.Background())
+		defer workerCancel()
+		go outboxWorker.Start(workerCtx)
 	}
-	outboxWorker := worker.NewOutboxWorker(
-		tenantDBResolver,
-		routingRegistry,
-		routingRegistry,
-		func(cfg tenantdb.Config) worker.OutboxRepository {
-			return repository.NewOutboxRepository(cfg)
-		},
-		orderEventPub,
-	)
-	workerCtx, workerCancel := context.WithCancel(context.Background())
-	defer workerCancel()
-	go outboxWorker.Start(workerCtx)
 
 	// 5. Register & Start Inbound Consumers
 	cRunner, err := registerConsumers(rmqClient, migrationSvc, poolRegistry, routingRegistry, sharedSecret, sharedDBPass)

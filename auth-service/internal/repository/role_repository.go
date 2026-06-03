@@ -14,6 +14,25 @@ import (
 	"github.com/lib/pq"
 )
 
+type CreateRoleInput struct {
+	TenantID    string
+	Name        string
+	Description string
+	IsSystem    bool
+}
+
+type UpdateRolePermissionsInput struct {
+	RoleID        string
+	PermissionIDs []string
+}
+
+type AssignUserRoleInput struct {
+	UserID     string
+	TenantID   string
+	RoleID     string
+	AssignedBy *string
+}
+
 type RoleRepository struct {
 	dbClient *postgres.Client
 }
@@ -22,7 +41,7 @@ func NewRoleRepository(dbClient *postgres.Client) *RoleRepository {
 	return &RoleRepository{dbClient: dbClient}
 }
 
-func (r *RoleRepository) CreateRole(ctx context.Context, role domain.Role) (*domain.Role, error) {
+func (r *RoleRepository) CreateRole(ctx context.Context, input CreateRoleInput) (*domain.Role, error) {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	query := `
 		INSERT INTO public.roles (tenant_id, name, description, is_system)
@@ -30,18 +49,24 @@ func (r *RoleRepository) CreateRole(ctx context.Context, role domain.Role) (*dom
 		RETURNING id, created_at;
 	`
 	var created domain.Role
-	created = role
-	var tenantIDVal *string
-	if role.TenantID != nil && *role.TenantID != "" {
-		tenantIDVal = role.TenantID
+	created.Name = input.Name
+	created.Description = input.Description
+	created.IsSystem = input.IsSystem
+	if input.TenantID != "" {
+		created.TenantID = &input.TenantID
 	}
 
-	if err := exec.QueryRowContext(ctx, query, tenantIDVal, role.Name, role.Description, role.IsSystem).Scan(&created.ID, &created.CreatedAt); err != nil {
+	var tenantIDVal *string
+	if created.TenantID != nil && *created.TenantID != "" {
+		tenantIDVal = created.TenantID
+	}
+
+	if err := exec.QueryRowContext(ctx, query, tenantIDVal, input.Name, input.Description, input.IsSystem).Scan(&created.ID, &created.CreatedAt); err != nil {
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) && pqErr.Code == "23505" { // unique_violation
 			return nil, domain.ErrRoleAlreadyExists
 		}
-		return nil, fmt.Errorf("role repository: failed to create role '%s': %w", role.Name, err)
+		return nil, fmt.Errorf("role repository: failed to create role '%s': %w", input.Name, err)
 	}
 
 	return &created, nil
@@ -198,15 +223,15 @@ func (r *RoleRepository) GetPermissionsForRole(ctx context.Context, roleID strin
 	return permissions, nil
 }
 
-func (r *RoleRepository) UpdateRolePermissions(ctx context.Context, roleID string, permissionIDs []string) error {
+func (r *RoleRepository) UpdateRolePermissions(ctx context.Context, input UpdateRolePermissionsInput) error {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 
 	// Delete existing permissions for role
-	if _, err := exec.ExecContext(ctx, `DELETE FROM public.role_permissions WHERE role_id = $1;`, roleID); err != nil {
-		return fmt.Errorf("role repository: failed to clear role permissions for role_id '%s': %w", roleID, err)
+	if _, err := exec.ExecContext(ctx, `DELETE FROM public.role_permissions WHERE role_id = $1;`, input.RoleID); err != nil {
+		return fmt.Errorf("role repository: failed to clear role permissions for role_id '%s': %w", input.RoleID, err)
 	}
 
-	if len(permissionIDs) == 0 {
+	if len(input.PermissionIDs) == 0 {
 		return nil
 	}
 
@@ -222,13 +247,13 @@ func (r *RoleRepository) UpdateRolePermissions(ctx context.Context, roleID strin
 		VALUES ($1, $2)
 		ON CONFLICT DO NOTHING;
 	`
-	for _, pid := range permissionIDs {
+	for _, pid := range input.PermissionIDs {
 		if pid == "" {
 			continue
 		}
 		_, _ = exec.ExecContext(ctx, permUpsertQuery, pid)
-		if _, err := exec.ExecContext(ctx, insertQuery, roleID, pid); err != nil {
-			return fmt.Errorf("role repository: failed to attach permission_id '%s' to role_id '%s': %w", pid, roleID, err)
+		if _, err := exec.ExecContext(ctx, insertQuery, input.RoleID, pid); err != nil {
+			return fmt.Errorf("role repository: failed to attach permission_id '%s' to role_id '%s': %w", pid, input.RoleID, err)
 		}
 	}
 	return nil
@@ -256,7 +281,7 @@ func (r *RoleRepository) DeleteRole(ctx context.Context, id string) error {
 	return nil
 }
 
-func (r *RoleRepository) AssignUserRole(ctx context.Context, userID, tenantID, roleID string, assignedBy *string) error {
+func (r *RoleRepository) AssignUserRole(ctx context.Context, input AssignUserRoleInput) error {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	query := `
 		INSERT INTO public.user_roles (user_id, tenant_id, role_id, assigned_by, assigned_at)
@@ -266,8 +291,8 @@ func (r *RoleRepository) AssignUserRole(ctx context.Context, userID, tenantID, r
 		    assigned_by = EXCLUDED.assigned_by,
 		    assigned_at = NOW();
 	`
-	if _, err := exec.ExecContext(ctx, query, userID, tenantID, roleID, assignedBy); err != nil {
-		return fmt.Errorf("role repository: failed to assign role_id '%s' to user_id '%s': %w", roleID, userID, err)
+	if _, err := exec.ExecContext(ctx, query, input.UserID, input.TenantID, input.RoleID, input.AssignedBy); err != nil {
+		return fmt.Errorf("role repository: failed to assign role_id '%s' to user_id '%s': %w", input.RoleID, input.UserID, err)
 	}
 
 	// Also ensure user_permission_versions row exists
@@ -278,8 +303,8 @@ func (r *RoleRepository) AssignUserRole(ctx context.Context, userID, tenantID, r
 		SET version    = public.user_permission_versions.version + 1,
 		    updated_at = NOW();
 	`
-	if _, err := exec.ExecContext(ctx, vQuery, userID, tenantID); err != nil {
-		return fmt.Errorf("role repository: failed to bump user_permission_versions for user_id '%s': %w", userID, err)
+	if _, err := exec.ExecContext(ctx, vQuery, input.UserID, input.TenantID); err != nil {
+		return fmt.Errorf("role repository: failed to bump user_permission_versions for user_id '%s': %w", input.UserID, err)
 	}
 
 	return nil
