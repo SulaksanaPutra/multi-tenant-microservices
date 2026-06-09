@@ -35,7 +35,7 @@ type ListUsersResponse struct {
 }
 
 type UpdateUserRequest struct {
-	Name string `json:"name" binding:"required"`
+	Name string `json:"name" binding:"required,max=255"`
 }
 
 // UpdateMeResponse is the transport DTO returned after a profile mutation.

@@ -18,12 +18,12 @@ type InternalPermissionService interface {
 }
 
 type InternalPermissionItemRequest struct {
-	Name        string `json:"name"        binding:"required"`
+	Name        string `json:"name"        binding:"required,max=255"`
 	Description string `json:"description"`
 }
 
 type InternalRegisterPermissionsRequest struct {
-	Service     string                          `json:"service"     binding:"required"`
+	Service     string                          `json:"service"     binding:"required,max=255"`
 	Permissions []InternalPermissionItemRequest `json:"permissions" binding:"required,gt=0"`
 }
 

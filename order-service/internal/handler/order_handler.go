@@ -16,9 +16,9 @@ import (
 )
 
 type CreateOrderRequest struct {
-	CustomerID string  `json:"customer_id" binding:"required"`
-	Amount     float64 `json:"amount" binding:"required,gt=0"`
-	Status     string  `json:"status"`
+	CustomerID string  `json:"customer_id" binding:"required,max=36"`
+	Amount     float64 `json:"amount" binding:"required,gt=0,lte=9999999999.99"`
+	Status     string  `json:"status" binding:"omitempty,max=50"`
 }
 
 type OrderResponse struct {
