@@ -31,14 +31,14 @@ func NewTenantHandler(workspaceService TenantServiceInterface) *TenantHandler {
 }
 
 type UpdateTenantRequest struct {
-	Name       string  `json:"name" binding:"required"`
-	Slug       string  `json:"slug"`
-	OwnerEmail *string `json:"owner_email"`
-	OwnerName  *string `json:"owner_name"`
+	Name       string  `json:"name" binding:"required,max=255"`
+	Slug       string  `json:"slug" binding:"max=255"`
+	OwnerEmail *string `json:"owner_email" binding:"omitempty,max=255"`
+	OwnerName  *string `json:"owner_name" binding:"omitempty,max=255"`
 }
 
 type ChangePlanRequest struct {
-	Plan string `json:"plan" binding:"required"`
+	Plan string `json:"plan" binding:"required,oneof=shared dedicated"`
 }
 
 // TenantResponse is the transport DTO for a tenant profile returned to API consumers.

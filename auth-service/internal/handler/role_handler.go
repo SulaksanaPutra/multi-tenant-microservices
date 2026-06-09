@@ -28,7 +28,7 @@ type RoleService interface {
 
 type CreateRoleRequest struct {
 	TenantID      string   `json:"tenant_id"`
-	Name          string   `json:"name"           binding:"required"`
+	Name          string   `json:"name"           binding:"required,max=255"`
 	Description   string   `json:"description"`
 	Permissions   []string `json:"permissions"`
 	PermissionIDs []string `json:"permission_ids"`
