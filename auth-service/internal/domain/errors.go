@@ -13,8 +13,6 @@ var (
 	ErrPasswordRequired   = errors.New("auth service: password is required")
 	ErrUserIDRequired     = errors.New("auth service: user_id is required")
 
-	ErrInvalidInput = errors.New("auth service: invalid input payload")
-
 	ErrPermissionNotFound  = errors.New("auth service: permission not found")
 	ErrRoleNotFound        = errors.New("auth service: role not found")
 	ErrRoleAlreadyExists   = errors.New("auth service: role already exists for tenant")

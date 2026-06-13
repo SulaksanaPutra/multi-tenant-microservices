@@ -25,7 +25,7 @@ func (m *mockTxManager) WithTransaction(ctx context.Context, fn func(txCtx conte
 
 type mockNotificationService struct {
 	processEventAndTrySendWelcomeFunc func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error)
-	updateNotificationStatusFunc      func(ctx context.Context, logID int, status string) error
+	updateNotificationStatusFunc      func(ctx context.Context, logID string, status string) error
 }
 
 func (m *mockNotificationService) ProcessEventAndTrySendWelcome(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
@@ -35,7 +35,7 @@ func (m *mockNotificationService) ProcessEventAndTrySendWelcome(ctx context.Cont
 	return nil, nil
 }
 
-func (m *mockNotificationService) UpdateNotificationStatus(ctx context.Context, logID int, status string) error {
+func (m *mockNotificationService) UpdateNotificationStatus(ctx context.Context, logID string, status string) error {
 	if m.updateNotificationStatusFunc != nil {
 		return m.updateNotificationStatusFunc(ctx, logID, status)
 	}
@@ -140,10 +140,10 @@ func TestUserCreatedConsumer_HandleDelivery_Success(t *testing.T) {
 	notifSvc := &mockNotificationService{
 		processEventAndTrySendWelcomeFunc: func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
 			capturedInput = input
-			return &service.ProcessEventOutput{LogID: 1, UserID: "usr_100", RecipientEmail: "john@example.com", TenantID: "tenant-99"}, nil
+			return &service.ProcessEventOutput{LogID: "ntf_1", UserID: "usr_100", RecipientEmail: "john@example.com", TenantID: "tenant-99"}, nil
 		},
-		updateNotificationStatusFunc: func(ctx context.Context, logID int, status string) error {
-			if logID == 1 && status == "sent" {
+		updateNotificationStatusFunc: func(ctx context.Context, logID string, status string) error {
+			if logID == "ntf_1" && status == "sent" {
 				statusUpdated = true
 			}
 			return nil
@@ -245,7 +245,7 @@ func TestUserCreatedConsumer_HandleDelivery_SMTPError_Nacks(t *testing.T) {
 
 	notifSvc := &mockNotificationService{
 		processEventAndTrySendWelcomeFunc: func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
-			return &service.ProcessEventOutput{LogID: 1, UserID: "usr_100", RecipientEmail: "john@example.com", TenantID: "tenant-99"}, nil
+			return &service.ProcessEventOutput{LogID: "ntf_1", UserID: "usr_100", RecipientEmail: "john@example.com", TenantID: "tenant-99"}, nil
 		},
 	}
 	mailer := &mockMailer{

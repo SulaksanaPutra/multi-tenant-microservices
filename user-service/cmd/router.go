@@ -31,16 +31,7 @@ func newRouter(userHandler *handler.UserHandler) http.Handler {
 		api.Use(middleware.RequireJWT(publicKeyPEM, versionCache))
 
 		api.GET("/users", middleware.RequirePermission("users:read"), userHandler.ListUsers)
-		api.GET("/users/me", middleware.RequirePermission("users:read"), func(c *gin.Context) {
-			userID := c.GetString(middleware.ContextKeyUserID)
-			tenantID := c.GetString(middleware.ContextKeyTenantID)
-			email := c.GetString(middleware.ContextKeyEmail)
-			httputil.WriteSuccess[any](c, http.StatusOK, "User Profile Fetched", gin.H{
-				"user_id":   userID,
-				"tenant_id": tenantID,
-				"email":     email,
-			})
-		})
+		api.GET("/users/me", middleware.RequirePermission("users:read"), userHandler.GetMe)
 		api.PUT("/users/me", middleware.RequirePermission("users:write"), userHandler.UpdateMe)
 	}
 

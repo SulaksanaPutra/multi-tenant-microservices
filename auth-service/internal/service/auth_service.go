@@ -20,7 +20,7 @@ type CredentialRepository interface {
 	UpsertCredential(ctx context.Context, input repository.UpsertCredentialInput) error
 	FindByEmail(ctx context.Context, email string) (*domain.Credential, error)
 	FindByUserID(ctx context.Context, userID string) (*domain.Credential, error)
-	ListUserMemberships(ctx context.Context, userID string) ([]string, error)
+	GetUserMemberships(ctx context.Context, userID string) ([]string, error)
 }
 
 // TokenRepository is the consumer-side interface expected by AuthService.
@@ -139,7 +139,7 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginOutput
 		return nil, domain.ErrInvalidCredentials
 	}
 
-	memberships, err := s.credentialRepository.ListUserMemberships(ctx, cred.UserID)
+	memberships, err := s.credentialRepository.GetUserMemberships(ctx, cred.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("auth service: failed to fetch user memberships: %w", err)
 	}
@@ -197,7 +197,7 @@ func (s *AuthService) SelectWorkspace(ctx context.Context, input SelectWorkspace
 		return nil, domain.ErrTokenExpired
 	}
 
-	memberships, err := s.credentialRepository.ListUserMemberships(ctx, st.UserID)
+	memberships, err := s.credentialRepository.GetUserMemberships(ctx, st.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("auth service: failed to fetch user memberships for exchange: %w", err)
 	}

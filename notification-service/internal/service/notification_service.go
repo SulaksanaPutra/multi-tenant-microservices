@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -21,7 +22,7 @@ type ProcessEventInput struct {
 }
 
 type ProcessEventOutput struct {
-	LogID          int
+	LogID          string
 	UserID         string
 	RecipientEmail string
 	TenantID       string
@@ -32,8 +33,8 @@ type ProcessEventOutput struct {
 
 // NotificationRepository is the consumer-side interface expected by NotificationService.
 type NotificationRepository interface {
-	CreateNotificationLog(ctx context.Context, input repository.CreateNotificationLogInput) (int, error)
-	UpdateNotificationStatus(ctx context.Context, id int, status string) error
+	CreateNotificationLog(ctx context.Context, input repository.CreateNotificationLogInput) (string, error)
+	UpdateNotificationStatus(ctx context.Context, id string, status string) error
 	HasSentNotification(ctx context.Context, tenantID string) (bool, error)
 	ListNotifications(ctx context.Context, tenantID string) ([]domain.NotificationLog, error)
 }
@@ -50,12 +51,12 @@ func NewNotificationService(
 	}
 }
 
-func (s *NotificationService) UpdateNotificationStatus(ctx context.Context, logID int, status string) error {
-	if logID <= 0 {
-		return fmt.Errorf("invalid notification log id: %d", logID)
+func (s *NotificationService) UpdateNotificationStatus(ctx context.Context, logID string, status string) error {
+	if strings.TrimSpace(logID) == "" {
+		return fmt.Errorf("invalid notification log id: %s", logID)
 	}
 	if strings.TrimSpace(status) == "" {
-		return fmt.Errorf("status cannot be empty")
+		return errors.New("status cannot be empty")
 	}
 	return s.notificationRepository.UpdateNotificationStatus(ctx, logID, status)
 }
@@ -85,10 +86,7 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(
 	for _, evt := range events {
 		if evt.EventType == "user.created" {
 			hasUserCreated = true
-			var userEvt struct {
-				UserID string `json:"user_id"`
-				Email  string `json:"email"`
-			}
+			var userEvt domain.UserCreatedEvent
 			if err := json.Unmarshal(evt.Payload, &userEvt); err == nil {
 				if userEvt.UserID != "" {
 					userID = userEvt.UserID
@@ -99,12 +97,7 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(
 			}
 		} else if evt.EventType == "workspace.ready" {
 			hasWorkspaceReady = true
-			var wsEvt struct {
-				OwnerEmail string `json:"owner_email"`
-				TenantName string `json:"tenant_name"`
-				TenantSlug string `json:"tenant_slug"`
-				OwnerName  string `json:"owner_name"`
-			}
+			var wsEvt domain.WorkspaceReadyEvent
 			if err := json.Unmarshal(evt.Payload, &wsEvt); err == nil {
 				if recipientEmail == "" {
 					recipientEmail = wsEvt.OwnerEmail
@@ -179,7 +172,7 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(
 		return nil, fmt.Errorf("failed to persist notification audit log: %w", dbErr)
 	}
 
-	log.Printf("NotificationService: Barrier metdomain — persisted pending notification log id=%d for event_id='%s'", logID, input.EventID)
+	log.Printf("NotificationService: Barrier metdomain — persisted pending notification log id=%s for event_id='%s'", logID, input.EventID)
 
 	return &ProcessEventOutput{
 		LogID:          logID,

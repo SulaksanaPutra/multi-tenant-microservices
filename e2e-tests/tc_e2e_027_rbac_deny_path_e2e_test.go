@@ -14,7 +14,7 @@
  *   3. Reassign the owner user to that role (auth-service batch-increments user_permission_versions).
  *   4. Login again to obtain a fresh token reflecting the read-only permission set.
  *   5. Assert DENY on every gated write/manage endpoint:
- *        - POST /api/orders                         -> 403 (missing orders:create)
+ *        - POST /api/orders                         -> 403 (missing orders:write)
  *        - PUT /api/tenants/me/plan                 -> 403 (missing tenants:write)
  *        - POST /api/auth/roles                     -> 403 (missing auth:roles:manage)
  *        - GET /api/auth/permissions                -> 403 (missing auth:roles:read)
@@ -122,7 +122,7 @@ func TestE2E_TC_E2E_027_RBACDenyPathEnforcement(t *testing.T) {
 	// =========================================================================
 	// Step 5: Deny-Path Assertions (every gated write/manage endpoint -> 403)
 	// =========================================================================
-	// 5a. POST /api/orders -> 403 (missing orders:create)
+	// 5a. POST /api/orders -> 403 (missing orders:write)
 	orderBody, _ := json.Marshal(OrderRequest{CustomerID: "cust_deny_test", Amount: 42.00})
 	denyOrderReq, _ := http.NewRequest(http.MethodPost, gatewayOrdersURL, bytes.NewBuffer(orderBody))
 	denyOrderReq.Header.Set("Content-Type", "application/json")

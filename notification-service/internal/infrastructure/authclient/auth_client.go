@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -80,7 +81,7 @@ func (c *AuthClient) FetchSetupToken(ctx context.Context, userID, tenantID, emai
 	}
 
 	if res.Data.Token == "" {
-		return "", fmt.Errorf("auth client: empty setup token returned from auth-service")
+		return "", errors.New("auth client: empty setup token returned from auth-service")
 	}
 
 	return res.Data.Token, nil

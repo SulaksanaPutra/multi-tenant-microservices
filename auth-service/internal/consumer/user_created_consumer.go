@@ -23,36 +23,35 @@ type InboxService interface {
 	ClaimEvent(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error)
 }
 
-// MembershipService upserts the local user_tenant_memberships copy. The DB
-// write stays inside the service/transaction boundary; the consumer only
-// orchestrates the inbox guard, barrier read, and delegation.
-type MembershipService interface {
+// MembershipRepository mirrors CredentialRepository.AddMembership so the
+// event-fed copy writes the same table as the password-setup write-through.
+type MembershipRepository interface {
 	AddMembership(ctx context.Context, userID, tenantID string) error
 }
 
 type UserCreatedConsumerParams struct {
-	TxManager          TxManager
-	Client             *rabbitmq.Client
-	InboxService       InboxService
-	MembershipService  MembershipService
+	TxManager            TxManager
+	Client               *rabbitmq.Client
+	InboxService         InboxService
+	MembershipRepository MembershipRepository
 	// MaxDeliveries caps poison-pill requeues before routing to the DLQ.
 	MaxDeliveries int
 }
 
 type UserCreatedConsumer struct {
-	txManager         TxManager
-	client            *rabbitmq.Client
-	inboxService      InboxService
-	membershipService MembershipService
-	maxDeliveries     int
+	txManager            TxManager
+	client               *rabbitmq.Client
+	inboxService         InboxService
+	membershipRepository MembershipRepository
+	maxDeliveries        int
 }
 
 func NewUserCreatedConsumer(params UserCreatedConsumerParams) (*UserCreatedConsumer, error) {
 	if params.InboxService == nil {
 		return nil, errors.New("inboxService is required")
 	}
-	if params.MembershipService == nil {
-		return nil, errors.New("membershipService is required")
+	if params.MembershipRepository == nil {
+		return nil, errors.New("membershipRepository is required")
 	}
 
 	maxDeliveries := params.MaxDeliveries
@@ -61,11 +60,11 @@ func NewUserCreatedConsumer(params UserCreatedConsumerParams) (*UserCreatedConsu
 	}
 
 	consumer := &UserCreatedConsumer{
-		txManager:         params.TxManager,
-		client:            params.Client,
-		inboxService:      params.InboxService,
-		membershipService: params.MembershipService,
-		maxDeliveries:     maxDeliveries,
+		txManager:            params.TxManager,
+		client:               params.Client,
+		inboxService:         params.InboxService,
+		membershipRepository: params.MembershipRepository,
+		maxDeliveries:        maxDeliveries,
 	}
 
 	if err := consumer.setupTopology(); err != nil {
@@ -199,7 +198,7 @@ func (c *UserCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Del
 		log.Printf("[DLQ] UserCreatedConsumer: Max deliveries (%d) reached for event_id='%s' user_id='%s' (delivery_count=%d). Routing to DLQ.",
 			c.maxDeliveries, evt.EventID, evt.UserID, deliveryCount)
 		_ = d.Nack(false, false)
-		return fmt.Errorf("max delivery count reached")
+		return errors.New("max delivery count reached")
 	}
 
 	log.Printf("UserCreatedConsumer processing event_id='%s' for user_id='%s' tenant_id='%s'", evt.EventID, evt.UserID, evt.TenantID)
@@ -222,9 +221,8 @@ func (c *UserCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Del
 			return nil
 		}
 
-		// Step 2: upsert the local user_tenant_memberships copy via the
-		// application service (DB mutation stays inside the service boundary).
-		if err := c.membershipService.AddMembership(txCtx, evt.UserID, evt.TenantID); err != nil {
+		// Step 2: upsert the local user_tenant_memberships copy.
+		if err := c.membershipRepository.AddMembership(txCtx, evt.UserID, evt.TenantID); err != nil {
 			return fmt.Errorf("failed to upsert membership copy: %w", err)
 		}
 

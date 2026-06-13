@@ -47,10 +47,6 @@ const (
 	// user_id when the registration response does not include it.
 	userDBDSN         = "host=localhost port=5432 user=postgres password=postgres dbname=user_db sslmode=disable"
 	notificationDBDSN = "host=localhost port=5432 user=postgres password=postgres dbname=notification_db sslmode=disable"
-
-	// handlerLoginStatusSelectWorkspace mirrors domain.LoginStatusSelectWorkspace
-	// in auth-service so helpers can branch on the SELECT_WORKSPACE flow.
-	handlerLoginStatusSelectWorkspace = "SELECT_WORKSPACE"
 )
 
 // internalServiceToken resolves the inter-service bearer token (X-Internal-Service-Token)
@@ -196,7 +192,7 @@ func loginAndGetTokenWithTenant(t *testing.T, tenantID, email, password string) 
 		t.Fatalf("[Auth] failed to decode login response: %v", err)
 	}
 
-	if raw.Data.Status == handlerLoginStatusSelectWorkspace {
+	if raw.Data.RequiresWorkspace {
 		targetTenantID := tenantID
 		if targetTenantID == "" && len(raw.Data.Workspaces) > 0 {
 			targetTenantID = raw.Data.Workspaces[0].TenantID

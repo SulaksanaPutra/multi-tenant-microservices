@@ -40,13 +40,16 @@ type WorkspaceInfo struct {
 	TenantID string `json:"tenant_id"`
 }
 
+// LoginResponse is the transport DTO for authentication responses. For the
+// multi-workspace flow it carries RequiresWorkspace instead of a nested status
+// value so it cannot collide with the envelope's status field.
 type LoginResponse struct {
-	Status        string          `json:"status,omitempty"`
-	AccessToken   string          `json:"access_token,omitempty"`
-	RefreshToken  string          `json:"refresh_token,omitempty"`
-	ExpiresIn     int             `json:"expires_in,omitempty"`
-	ExchangeToken string          `json:"exchange_token,omitempty"`
-	Workspaces    []WorkspaceInfo `json:"workspaces,omitempty"`
+	RequiresWorkspace bool            `json:"requires_workspace,omitempty"`
+	ExchangeToken     string          `json:"exchange_token,omitempty"`
+	Workspaces        []WorkspaceInfo `json:"workspaces,omitempty"`
+	AccessToken       string          `json:"access_token,omitempty"`
+	RefreshToken      string          `json:"refresh_token,omitempty"`
+	ExpiresIn         int             `json:"expires_in,omitempty"`
 }
 
 type RefreshTokenRequest struct {
@@ -132,9 +135,9 @@ workspaceResponses = append(workspaceResponses, WorkspaceInfo{
 		})
 		}
 		httputil.WriteSuccess(c, http.StatusOK, "Multiple workspace accounts found. Please select a workspace.", LoginResponse{
-			Status:        res.Status,
-			ExchangeToken: res.ExchangeToken,
-			Workspaces:    workspaceResponses,
+			RequiresWorkspace: true,
+			ExchangeToken:     res.ExchangeToken,
+			Workspaces:        workspaceResponses,
 		})
 		return
 	}

@@ -36,12 +36,15 @@ func TestRoleRepository_CreateRole(t *testing.T) {
 		repo := NewRoleRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-		created, err := repo.CreateRole(ctxWithExec, CreateRoleInput{
-			TenantID:    "tnt_123",
+		tenantID := "tnt_123"
+		input := CreateRoleInput{
+			TenantID:    &tenantID,
 			Name:        "TenantAdmin",
 			Description: "Admin role",
 			IsSystem:    false,
-		})
+		}
+
+		created, err := repo.CreateRole(ctxWithExec, input)
 		if created != nil {
 			t.Errorf("expected nil role on scan error, got %+v", created)
 		}
@@ -66,7 +69,8 @@ func TestRoleRepository_CreateRole(t *testing.T) {
 		repo := NewRoleRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-		_, err := repo.CreateRole(ctxWithExec, CreateRoleInput{Name: "CustomRole"})
+		input := CreateRoleInput{Name: "CustomRole"}
+		_, err := repo.CreateRole(ctxWithExec, input)
 		if err == nil {
 			t.Fatal("expected scan error, got nil")
 		}
@@ -240,9 +244,7 @@ func TestRoleRepository_UpdateRolePermissions(t *testing.T) {
 		repo := NewRoleRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-		err := repo.UpdateRolePermissions(ctxWithExec, UpdateRolePermissionsInput{
-			RoleID: "role_123",
-		})
+		err := repo.UpdateRolePermissions(ctxWithExec, "role_123", []string{})
 		if err != nil {
 			t.Fatalf("expected nil error, got %v", err)
 		}
@@ -265,10 +267,7 @@ func TestRoleRepository_UpdateRolePermissions(t *testing.T) {
 		repo := NewRoleRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-		err := repo.UpdateRolePermissions(ctxWithExec, UpdateRolePermissionsInput{
-			RoleID:        "role_123",
-			PermissionIDs: []string{"perm_1", "perm_2"},
-		})
+		err := repo.UpdateRolePermissions(ctxWithExec, "role_123", []string{"perm_1", "perm_2"})
 		if err != nil {
 			t.Fatalf("expected nil error, got %v", err)
 		}
@@ -312,12 +311,7 @@ func TestRoleRepository_AssignUserRole(t *testing.T) {
 	ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
 	assignedBy := "admin_1"
-	err := repo.AssignUserRole(ctxWithExec, AssignUserRoleInput{
-		UserID:     "usr_100",
-		TenantID:   "tnt_123",
-		RoleID:     "role_admin",
-		AssignedBy: &assignedBy,
-	})
+	err := repo.AssignUserRole(ctxWithExec, "usr_100", "tnt_123", "role_admin", &assignedBy)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}

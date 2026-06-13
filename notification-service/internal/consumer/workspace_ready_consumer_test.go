@@ -43,10 +43,10 @@ func TestWorkspaceReadyConsumer_HandleDelivery_Success(t *testing.T) {
 	notifSvc := &mockNotificationService{
 		processEventAndTrySendWelcomeFunc: func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
 			capturedInput = input
-			return &service.ProcessEventOutput{LogID: 1, RecipientEmail: "owner@company.com", TenantID: "tenant-88"}, nil
+			return &service.ProcessEventOutput{LogID: "ntf_1", RecipientEmail: "owner@company.com", TenantID: "tenant-88"}, nil
 		},
-		updateNotificationStatusFunc: func(ctx context.Context, logID int, status string) error {
-			if logID == 1 && status == "sent" {
+		updateNotificationStatusFunc: func(ctx context.Context, logID string, status string) error {
+			if logID == "ntf_1" && status == "sent" {
 				statusUpdated = true
 			}
 			return nil
@@ -126,7 +126,7 @@ func TestWorkspaceReadyConsumer_HandleDelivery_SMTPError_Nacks(t *testing.T) {
 
 	notifSvc := &mockNotificationService{
 		processEventAndTrySendWelcomeFunc: func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
-			return &service.ProcessEventOutput{LogID: 2, UserID: "usr_200", RecipientEmail: "owner@company.com", TenantID: "tenant-88"}, nil
+			return &service.ProcessEventOutput{LogID: "ntf_2", UserID: "usr_200", RecipientEmail: "owner@company.com", TenantID: "tenant-88"}, nil
 		},
 	}
 	mailer := &mockMailer{

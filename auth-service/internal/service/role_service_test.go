@@ -35,12 +35,10 @@ func (m *mockRoleRepo) UserHasMembership(_ context.Context, userID, tenantID str
 
 func (m *mockRoleRepo) CreateRole(_ context.Context, input repository.CreateRoleInput) (*domain.Role, error) {
 	r := domain.Role{
+		TenantID:    input.TenantID,
 		Name:        input.Name,
 		Description: input.Description,
 		IsSystem:    input.IsSystem,
-	}
-	if input.TenantID != "" {
-		r.TenantID = &input.TenantID
 	}
 	r.ID = "role_" + input.Name
 	m.roles[r.ID] = &r
@@ -73,13 +71,13 @@ func (m *mockRoleRepo) FindRolesByTenantID(_ context.Context, tenantID string) (
 	return res, nil
 }
 
-func (m *mockRoleRepo) UpdateRolePermissions(_ context.Context, input repository.UpdateRolePermissionsInput) error {
-	r, ok := m.roles[input.RoleID]
+func (m *mockRoleRepo) UpdateRolePermissions(_ context.Context, roleID string, permissionIDs []string) error {
+	r, ok := m.roles[roleID]
 	if !ok {
 		return domain.ErrRoleNotFound
 	}
 	var perms []domain.Permission
-	for _, pid := range input.PermissionIDs {
+	for _, pid := range permissionIDs {
 		perms = append(perms, domain.Permission{ID: pid, Name: "perm_" + pid})
 	}
 	r.Permissions = perms
@@ -98,17 +96,17 @@ func (m *mockRoleRepo) DeleteRole(_ context.Context, id string) error {
 	return nil
 }
 
-func (m *mockRoleRepo) AssignUserRole(_ context.Context, input repository.AssignUserRoleInput) error {
-	r, ok := m.roles[input.RoleID]
+func (m *mockRoleRepo) AssignUserRole(_ context.Context, userID, tenantID, roleID string, assignedBy *string) error {
+	r, ok := m.roles[roleID]
 	if !ok {
 		return domain.ErrRoleNotFound
 	}
-	key := input.UserID + "_" + input.TenantID
+	key := userID + "_" + tenantID
 	m.userRoles[key] = &domain.UserRole{
-		UserID:     input.UserID,
-		TenantID:   input.TenantID,
-		RoleID:     input.RoleID,
-		AssignedBy: input.AssignedBy,
+		UserID:     userID,
+		TenantID:   tenantID,
+		RoleID:     roleID,
+		AssignedBy: assignedBy,
 		Role:       r,
 	}
 	m.versions[key] = 1

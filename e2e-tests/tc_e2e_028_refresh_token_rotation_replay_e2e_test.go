@@ -232,8 +232,8 @@ func loginForWorkspaceSelection(t *testing.T, email, password string) (exchangeT
 		t.Fatalf("Failed to decode login response: %v", err)
 	}
 
-	if raw.Data.Status != handlerLoginStatusSelectWorkspace {
-		t.Fatalf("Expected SELECT_WORKSPACE status, got '%s'", raw.Data.Status)
+	if !raw.Data.RequiresWorkspace {
+		t.Fatalf("Expected SELECT_WORKSPACE flow (requires_workspace=true), got false")
 	}
 
 	exchangeToken = raw.Data.ExchangeToken

@@ -3,6 +3,7 @@ package rabbitmq
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -165,7 +166,7 @@ func (c *Client) DeclareExchange(name, kind string) error {
 	c.mu.RUnlock()
 
 	if ch == nil {
-		return fmt.Errorf("channel is nil")
+		return errors.New("channel is nil")
 	}
 
 	err := ch.ExchangeDeclare(
@@ -189,7 +190,7 @@ func (c *Client) DeclareAndBindQueue(queueName, exchangeName, routingKey string)
 	c.mu.RUnlock()
 
 	if ch == nil {
-		return fmt.Errorf("channel is nil")
+		return errors.New("channel is nil")
 	}
 
 	q, err := ch.QueueDeclare(queueName, true, false, false, false, nil)
@@ -219,7 +220,7 @@ func (c *Client) PublishEventWithConfirm(ctx context.Context, exchangeName, rout
 	c.mu.RUnlock()
 
 	if ch == nil {
-		return fmt.Errorf("channel is nil")
+		return errors.New("channel is nil")
 	}
 
 	deferred, err := ch.PublishWithDeferredConfirmWithContext(

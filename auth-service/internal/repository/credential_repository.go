@@ -61,7 +61,7 @@ func (r *CredentialRepository) AddMembership(ctx context.Context, userID, tenant
 	return nil
 }
 
-func (r *CredentialRepository) ListUserMemberships(ctx context.Context, userID string) ([]string, error) {
+func (r *CredentialRepository) GetUserMemberships(ctx context.Context, userID string) ([]string, error) {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	query := `
 		SELECT tenant_id

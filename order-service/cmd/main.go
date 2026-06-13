@@ -72,7 +72,7 @@ func main() {
 	})
 
 	// 3. Initialize Migration Service (loads all SQL migrations from migrations/ directory)
-	migrationSvc, err := service.NewMigrationServiceFromDir("migrations")
+	migrationService, err := service.NewMigrationServiceFromDir("migrations")
 	if err != nil {
 		log.Fatalf("Failed to initialize MigrationService: %v", err)
 	}
@@ -85,19 +85,19 @@ func main() {
 		log.Printf("Order Service Warning: Failed to connect to shared DB for outbox worker (%v); outbox worker deferred", err)
 	} else {
 		defer sharedDB.Close()
-		outboxRepo := repository.NewOutboxRepository(tenantdb.Config{DB: sharedDB, SchemaName: "public"})
+		outboxRepository := repository.NewOutboxRepository(tenantdb.Config{DB: sharedDB, SchemaName: "public"})
 		orderEventPub, err := publisher.NewOrderEventPublisher(rmqClient)
 		if err != nil {
 			log.Fatalf("Failed to initialize OrderEventPublisher: %v", err)
 		}
-		outboxWorker := worker.NewOutboxWorker(outboxRepo, orderEventPub, routingRegistry)
+		outboxWorker := worker.NewOutboxWorker(outboxRepository, orderEventPub, routingRegistry)
 		workerCtx, workerCancel := context.WithCancel(context.Background())
 		defer workerCancel()
 		go outboxWorker.Start(workerCtx)
 	}
 
 	// 5. Register & Start Inbound Consumers
-	cRunner, err := registerConsumers(rmqClient, migrationSvc, poolRegistry, routingRegistry, sharedSecret, sharedDBPass)
+	cRunner, err := registerConsumers(rmqClient, migrationService, poolRegistry, routingRegistry, sharedSecret, sharedDBPass)
 	if err != nil {
 		log.Fatalf("Failed to register consumers: %v", err)
 	}

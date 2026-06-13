@@ -69,9 +69,9 @@ func (r *TenantInfrastructureRepository) GetPendingServiceCount(ctx context.Cont
 	placeholders := make([]string, len(requiredServices))
 	args := make([]interface{}, len(requiredServices)+1)
 	args[0] = tenantID
-	for i, svc := range requiredServices {
+	for i, serviceName := range requiredServices {
 		placeholders[i] = fmt.Sprintf("($%d)", i+2)
-		args[i+1] = svc
+		args[i+1] = serviceName
 	}
 
 	query := fmt.Sprintf(`

@@ -51,6 +51,7 @@ type RoleResponse struct {
 	Description string               `json:"description,omitempty"`
 	IsSystem    bool                 `json:"is_system"`
 	CreatedAt   time.Time            `json:"created_at"`
+	UpdatedAt   time.Time            `json:"updated_at"`
 	Permissions []PermissionResponse `json:"permissions"`
 }
 
@@ -90,6 +91,7 @@ func toRoleResponse(role domain.Role) RoleResponse {
 		Description: role.Description,
 		IsSystem:    role.IsSystem,
 		CreatedAt:   role.CreatedAt,
+		UpdatedAt:   role.UpdatedAt,
 		Permissions: permissions,
 	}
 }
@@ -246,7 +248,15 @@ func (h *RoleHandler) UpdateRolePermissions(c *gin.Context) {
 		return
 	}
 
-	httputil.WriteSuccess[any](c, http.StatusOK, "Role permissions updated successfully", nil)
+	// Return the full, updated role so clients can reset local role state from
+	// the authoritative record.
+	updatedRole, err := h.roleService.GetRole(c.Request.Context(), roleID)
+	if err != nil {
+		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	httputil.WriteSuccess(c, http.StatusOK, "Role permissions updated successfully", toRoleResponse(*updatedRole))
 }
 
 func (h *RoleHandler) DeleteRole(c *gin.Context) {
@@ -273,9 +283,9 @@ func (h *RoleHandler) DeleteRole(c *gin.Context) {
 }
 
 func (h *RoleHandler) AssignUserRole(c *gin.Context) {
-	userID := c.Param("userID")
+	userID := c.Param("user_id")
 	if userID == "" {
-		httputil.WriteError(c, http.StatusBadRequest, "user id parameter is required")
+		httputil.WriteError(c, http.StatusBadRequest, "user_id path parameter is required")
 		return
 	}
 
@@ -311,13 +321,13 @@ func (h *RoleHandler) AssignUserRole(c *gin.Context) {
 }
 
 func (h *RoleHandler) GetUserRole(c *gin.Context) {
-	userID := c.Param("userID")
+	userID := c.Param("user_id")
 	tenantID := c.GetString(middleware.ContextKeyTenantID)
 	if tenantID == "" {
 		tenantID = c.Query("tenant_id")
 	}
 	if userID == "" || tenantID == "" {
-		httputil.WriteError(c, http.StatusBadRequest, "userID path param and tenant_id are required")
+		httputil.WriteError(c, http.StatusBadRequest, "user_id path param and tenant_id are required")
 		return
 	}
 

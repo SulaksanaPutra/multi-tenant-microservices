@@ -72,13 +72,13 @@ func (tenantRepository *TenantRepository) ActivateTenant(ctx context.Context, te
 func (tenantRepository *TenantRepository) GetTenantByID(ctx context.Context, tenantID string) (*domain.Tenant, error) {
 	exec := txcontext.GetExecutor(ctx, tenantRepository.dbClient)
 	const query = `
-		SELECT id, name, slug, owner_email, owner_name, plan, status, created_at
+		SELECT id, name, slug, owner_email, owner_name, plan, status, created_at, updated_at
 		FROM public.tenants
 		WHERE id = $1;
 	`
 	var t domain.Tenant
 	err := exec.QueryRowContext(ctx, query, tenantID).Scan(
-		&t.ID, &t.Name, &t.Slug, &t.OwnerEmail, &t.OwnerName, &t.Plan, &t.Status, &t.CreatedAt,
+		&t.ID, &t.Name, &t.Slug, &t.OwnerEmail, &t.OwnerName, &t.Plan, &t.Status, &t.CreatedAt, &t.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -107,7 +107,7 @@ func (tenantRepository *TenantRepository) UpdateTenant(ctx context.Context, inpu
 		args = append(args, *input.OwnerName)
 	}
 
-	query := fmt.Sprintf("UPDATE public.tenants SET %s WHERE id = $1;", strings.Join(setClauses, ", "))
+	query := fmt.Sprintf("UPDATE public.tenants SET updated_at = NOW(), %s WHERE id = $1;", strings.Join(setClauses, ", "))
 	res, err := exec.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("tenant repository: failed to update tenant '%s': %w", input.ID, err)
@@ -126,7 +126,7 @@ func (tenantRepository *TenantRepository) UpdateTenantPlan(ctx context.Context, 
 	exec := txcontext.GetExecutor(ctx, tenantRepository.dbClient)
 	const query = `
 		UPDATE public.tenants
-		SET plan = $2
+		SET plan = $2, updated_at = NOW()
 		WHERE id = $1;
 	`
 	res, err := exec.ExecContext(ctx, query, input.ID, input.Plan)

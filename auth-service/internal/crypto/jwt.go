@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -73,7 +74,7 @@ type jwtClaims struct {
 // SignAccessToken issues a signed RS256 JWT access token with a 15-minute TTL.
 func (m *JWTManager) SignAccessToken(userID, tenantID, email, jti string, permissions []string, permVersion int64) (string, error) {
 	if m.privateKey == nil {
-		return "", fmt.Errorf("JWTManager is in verify-only mode (no private key loaded)")
+		return "", errors.New("JWTManager is in verify-only mode (no private key loaded)")
 	}
 	now := time.Now().UTC()
 	claims := jwtClaims{

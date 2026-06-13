@@ -11,10 +11,10 @@ import (
 )
 
 type RegisterWorkspaceRequest struct {
-	OwnerEmail string `json:"owner_email" binding:"required,email,max=255"`
-	OwnerName  string `json:"owner_name"  binding:"required,max=255"`
+	OwnerEmail string `json:"owner_email" binding:"required,email"`
+	OwnerName  string `json:"owner_name"  binding:"required"`
 	Plan       string `json:"plan"        binding:"required,oneof=shared dedicated"`
-	TenantName string `json:"tenant_name" binding:"required,max=255"`
+	TenantName string `json:"tenant_name" binding:"required"`
 }
 
 type RegisterWorkspaceResponse struct {

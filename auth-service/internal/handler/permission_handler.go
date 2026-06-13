@@ -22,6 +22,7 @@ type PermissionResponse struct {
 	Service     string    `json:"service"`
 	Description string    `json:"description,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type PermissionHandler struct {
@@ -39,6 +40,7 @@ func toPermissionResponse(permission domain.Permission) PermissionResponse {
 		Service:     permission.Service,
 		Description: permission.Description,
 		CreatedAt:   permission.CreatedAt,
+		UpdatedAt:   permission.UpdatedAt,
 	}
 }
 

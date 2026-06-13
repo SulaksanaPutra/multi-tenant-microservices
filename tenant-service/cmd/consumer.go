@@ -18,16 +18,16 @@ type consumerRunner struct {
 func registerConsumers(
 	txManager *txcontext.SQLTxManager,
 	rmqClient *rabbitmq.Client,
-	tenantInfrastructureSvc *service.TenantInfrastructureService,
-	inboxSvc *service.InboxService,
-	tenantRepo consumer.TenantRepository,
-	outboxRepo consumer.OutboxRepository,
+	tenantInfrastructureService *service.TenantInfrastructureService,
+	inboxService *service.InboxService,
+	tenantRepository consumer.TenantRepository,
+	outboxRepository consumer.OutboxRepository,
 ) (*consumerRunner, error) {
 	c, err := consumer.NewTenantOrderDBReadyConsumer(consumer.TenantOrderDBReadyConsumerParams{
 		TxManager:                   txManager,
 		Client:                      rmqClient,
-		TenantInfrastructureService: tenantInfrastructureSvc,
-		InboxService:                inboxSvc,
+		TenantInfrastructureService: tenantInfrastructureService,
+		InboxService:                inboxService,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to register TenantOrderDBReadyConsumer: %w", err)
@@ -36,9 +36,9 @@ func registerConsumers(
 	mfConsumer, err := consumer.NewMigrationFailedConsumer(consumer.MigrationFailedConsumerParams{
 		TxManager:        txManager,
 		Client:           rmqClient,
-		InboxService:     inboxSvc,
-		TenantRepository: tenantRepo,
-		OutboxRepository: outboxRepo,
+		InboxService:     inboxService,
+		TenantRepository: tenantRepository,
+		OutboxRepository: outboxRepository,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to register MigrationFailedConsumer: %w", err)

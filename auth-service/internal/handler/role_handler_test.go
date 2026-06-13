@@ -299,7 +299,7 @@ func TestRoleHandler_AssignUserRole(t *testing.T) {
 			},
 		}
 		h := NewRoleHandler(mockSvc)
-		r.POST("/users/:userID/role", func(c *gin.Context) {
+		r.POST("/users/:user_id/role", func(c *gin.Context) {
 			c.Set(middleware.ContextKeyTenantID, "tnt_001")
 			h.AssignUserRole(c)
 		})
@@ -320,7 +320,7 @@ func TestRoleHandler_AssignUserRole(t *testing.T) {
 		_, r := gin.CreateTestContext(w)
 
 		h := NewRoleHandler(&mockRoleService{})
-		r.POST("/users/:userID/role", func(c *gin.Context) {
+		r.POST("/users/:user_id/role", func(c *gin.Context) {
 			c.Set(middleware.ContextKeyTenantID, "tnt_001")
 			h.AssignUserRole(c)
 		})

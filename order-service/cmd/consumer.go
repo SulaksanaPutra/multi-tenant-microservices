@@ -20,7 +20,7 @@ type consumerRunner struct {
 
 func registerConsumers(
 	rmqClient *rabbitmq.Client,
-	migrationSvc *service.MigrationService,
+	migrationService *service.MigrationService,
 	poolReg *registry.PoolRegistry,
 	routingReg *registry.RoutingRegistry,
 	sharedSecret string,
@@ -34,7 +34,7 @@ func registerConsumers(
 	ipConsumer, err := consumer.NewInfrastructureProvisionedConsumer(consumer.InfrastructureProvisionedConsumerParams{
 		Client:           rmqClient,
 		Publisher:        orderDBReadyPub,
-		MigrationService: migrationSvc,
+		MigrationService: migrationService,
 		PoolRegistry:     poolReg,
 		RoutingRegistry:  routingReg,
 		SharedSecret:     sharedSecret,

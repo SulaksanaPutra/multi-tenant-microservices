@@ -58,17 +58,38 @@ func (userRepository *UserRepository) AddUserTenantMembership(ctx context.Contex
 func (userRepository *UserRepository) GetUserByEmail(ctx context.Context, email string) (*domain.User, error) {
 	exec := txcontext.GetExecutor(ctx, userRepository.dbClient)
 	const query = `
-		SELECT id, email, name
+		SELECT id, email, name, created_at, updated_at
 		FROM public.users
 		WHERE email = $1;
 	`
 	var user domain.User
-	err := exec.QueryRowContext(ctx, query, email).Scan(&user.ID, &user.Email, &user.Name)
+	err := exec.QueryRowContext(ctx, query, email).Scan(&user.ID, &user.Email, &user.Name, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("user email '%s': %w", email, domain.ErrNotFound)
 		}
 		return nil, fmt.Errorf("user repository: failed to query user by email: %w", err)
+	}
+	return &user, nil
+}
+
+func (userRepository *UserRepository) GetUserByID(ctx context.Context, userID string) (*domain.User, error) {
+	if userID == "" {
+		return nil, fmt.Errorf("user repository: user_id is required to fetch user")
+	}
+	exec := txcontext.GetExecutor(ctx, userRepository.dbClient)
+	const query = `
+		SELECT id, email, name, created_at, updated_at
+		FROM public.users
+		WHERE id = $1;
+	`
+	var user domain.User
+	err := exec.QueryRowContext(ctx, query, userID).Scan(&user.ID, &user.Email, &user.Name, &user.CreatedAt, &user.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("user '%s': %w", userID, domain.ErrNotFound)
+		}
+		return nil, fmt.Errorf("user repository: failed to query user by id '%s': %w", userID, err)
 	}
 	return &user, nil
 }
@@ -96,11 +117,11 @@ func (userRepository *UserRepository) UpdateUser(ctx context.Context, input Upda
 
 func (userRepository *UserRepository) ListUsers(ctx context.Context, tenantID string) ([]domain.User, error) {
 	if tenantID == "" {
-		return nil, fmt.Errorf("user repository: tenant_id is required to list users")
+		return nil, errors.New("user repository: tenant_id is required to list users")
 	}
 	exec := txcontext.GetExecutor(ctx, userRepository.dbClient)
 	const query = `
-		SELECT u.id, u.email, u.name
+		SELECT u.id, u.email, u.name, u.created_at, u.updated_at
 		FROM public.users u
 		JOIN public.user_tenant_memberships m ON m.user_id = u.id
 		WHERE m.tenant_id = $1
@@ -115,7 +136,7 @@ func (userRepository *UserRepository) ListUsers(ctx context.Context, tenantID st
 	var users []domain.User
 	for rows.Next() {
 		var user domain.User
-		if err := rows.Scan(&user.ID, &user.Email, &user.Name); err != nil {
+		if err := rows.Scan(&user.ID, &user.Email, &user.Name, &user.CreatedAt, &user.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("user repository: failed to scan user row: %w", err)
 		}
 		users = append(users, user)

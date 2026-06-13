@@ -2,10 +2,8 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"net/http"
 
-	"auth-service/internal/domain"
 	"auth-service/internal/httputil"
 	"auth-service/internal/service"
 
@@ -18,12 +16,12 @@ type InternalPermissionService interface {
 }
 
 type InternalPermissionItemRequest struct {
-	Name        string `json:"name"        binding:"required,max=255"`
+	Name        string `json:"name"        binding:"required"`
 	Description string `json:"description"`
 }
 
 type InternalRegisterPermissionsRequest struct {
-	Service     string                          `json:"service"     binding:"required,max=255"`
+	Service     string                          `json:"service"     binding:"required"`
 	Permissions []InternalPermissionItemRequest `json:"permissions" binding:"required,gt=0"`
 }
 
@@ -60,10 +58,6 @@ func (h *InternalPermissionHandler) RegisterPermissions(c *gin.Context) {
 		Service:     req.Service,
 		Permissions: items,
 	}); err != nil {
-		if errors.Is(err, domain.ErrInvalidInput) {
-			httputil.WriteError(c, http.StatusBadRequest, err.Error())
-			return
-		}
 		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -72,7 +66,7 @@ func (h *InternalPermissionHandler) RegisterPermissions(c *gin.Context) {
 }
 
 func (h *InternalPermissionHandler) GetUserPermissionVersion(c *gin.Context) {
-	userID := c.Param("userID")
+	userID := c.Param("user_id")
 	tenantID := c.Query("tenant_id")
 
 	if userID == "" || tenantID == "" {
