@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
+	"time"
+
 	"order-service/internal/middleware"
 
 	"order-service/internal/domain"
@@ -16,17 +19,19 @@ import (
 )
 
 type CreateOrderRequest struct {
-	CustomerID string  `json:"customer_id" binding:"required,max=36"`
-	Amount     float64 `json:"amount" binding:"required,gt=0,lte=9999999999.99"`
-	Status     string  `json:"status" binding:"omitempty,max=50"`
+	CustomerID string  `json:"customer_id" binding:"required"`
+	Amount     float64 `json:"amount" binding:"required,gt=0"`
+	Status     string  `json:"status"`
 }
 
 type OrderResponse struct {
-	ID         string  `json:"id"`
-	TenantID   string  `json:"tenant_id"`
-	CustomerID string  `json:"customer_id"`
-	Status     string  `json:"status"`
-	Amount     float64 `json:"amount"`
+	ID         string    `json:"id"`
+	TenantID   string    `json:"tenant_id"`
+	CustomerID string    `json:"customer_id"`
+	Status     string    `json:"status"`
+	Amount     string    `json:"amount"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 func toOrderResponse(o domain.Order) OrderResponse {
@@ -35,7 +40,9 @@ func toOrderResponse(o domain.Order) OrderResponse {
 		TenantID:   o.TenantID,
 		CustomerID: o.CustomerID,
 		Status:     o.Status,
-		Amount:     o.Amount,
+		Amount:     strconv.FormatFloat(o.Amount, 'f', 2, 64),
+		CreatedAt:  o.CreatedAt,
+		UpdatedAt:  o.UpdatedAt,
 	}
 }
 
@@ -55,8 +62,8 @@ type OrderHandler struct {
 func NewOrderHandler(factory OrderServiceFactory) *OrderHandler {
 	if factory == nil {
 		factory = func(cfg tenantdb.Config) OrderService {
-			repo := repository.NewOrderRepository(cfg)
-			return service.NewOrderService(repo)
+			orderRepository := repository.NewOrderRepository(cfg)
+			return service.NewOrderService(orderRepository)
 		}
 	}
 	return &OrderHandler{
@@ -95,7 +102,7 @@ func (h *OrderHandler) ListOrders(c *gin.Context) {
 		resp[i] = toOrderResponse(o)
 	}
 
-	httputil.WriteSuccess(c, http.StatusOK, "", resp)
+	httputil.WriteSuccess(c, http.StatusOK, "Orders retrieved successfully", resp)
 }
 
 func (h *OrderHandler) CreateOrder(c *gin.Context) {

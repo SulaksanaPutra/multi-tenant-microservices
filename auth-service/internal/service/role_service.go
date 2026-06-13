@@ -15,9 +15,9 @@ type RoleRepository interface {
 	FindRoleByID(ctx context.Context, id string) (*domain.Role, error)
 	FindRoleByName(ctx context.Context, tenantID *string, name string) (*domain.Role, error)
 	FindRolesByTenantID(ctx context.Context, tenantID string) ([]domain.Role, error)
-	UpdateRolePermissions(ctx context.Context, input repository.UpdateRolePermissionsInput) error
+	UpdateRolePermissions(ctx context.Context, roleID string, permissionIDs []string) error
 	DeleteRole(ctx context.Context, id string) error
-	AssignUserRole(ctx context.Context, input repository.AssignUserRoleInput) error
+	AssignUserRole(ctx context.Context, userID, tenantID, roleID string, assignedBy *string) error
 	FindUserRole(ctx context.Context, userID, tenantID string) (*domain.UserRole, error)
 	UserHasMembership(ctx context.Context, userID, tenantID string) (bool, error)
 	GetUserPermissionVersion(ctx context.Context, userID, tenantID string) (int64, error)
@@ -69,11 +69,14 @@ func (s *RoleService) CreateRole(ctx context.Context, input CreateRoleInput) (*d
 		return nil, domain.ErrRoleNameRequired
 	}
 
-	created, err := s.roleRepository.CreateRole(ctx, repository.CreateRoleInput{
-		TenantID:    input.TenantID,
+	roleInput := repository.CreateRoleInput{
+		TenantID:    &input.TenantID,
 		Name:        input.Name,
 		Description: input.Description,
-	})
+		IsSystem:    false,
+	}
+
+	created, err := s.roleRepository.CreateRole(ctx, roleInput)
 	if err != nil {
 		if errors.Is(err, domain.ErrRoleAlreadyExists) {
 			return s.roleRepository.FindRoleByName(ctx, &input.TenantID, input.Name)
@@ -113,10 +116,7 @@ func (s *RoleService) UpdateRolePermissions(ctx context.Context, input UpdateRol
 		return domain.ErrSystemRoleProtected
 	}
 
-	if err := s.roleRepository.UpdateRolePermissions(ctx, repository.UpdateRolePermissionsInput{
-		RoleID:        input.RoleID,
-		PermissionIDs: input.PermissionIDs,
-	}); err != nil {
+	if err := s.roleRepository.UpdateRolePermissions(ctx, input.RoleID, input.PermissionIDs); err != nil {
 		return fmt.Errorf("role service: failed to update role permissions: %w", err)
 	}
 
@@ -161,12 +161,7 @@ func (s *RoleService) AssignUserRole(ctx context.Context, input AssignUserRoleIn
 		return domain.ErrTenantMembershipNotFound
 	}
 
-	if err := s.roleRepository.AssignUserRole(ctx, repository.AssignUserRoleInput{
-		UserID:     input.UserID,
-		TenantID:   input.TenantID,
-		RoleID:     input.RoleID,
-		AssignedBy: input.AssignedBy,
-	}); err != nil {
+	if err := s.roleRepository.AssignUserRole(ctx, input.UserID, input.TenantID, input.RoleID, input.AssignedBy); err != nil {
 		return fmt.Errorf("role service: failed to assign user role: %w", err)
 	}
 

@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -107,7 +108,7 @@ func TestRequireJWT(t *testing.T) {
 	t.Run("resolver error returns 500", func(t *testing.T) {
 		resolver := &mockResolver{
 			GetTenantDBFn: func(_ context.Context, _ string) (tenantdb.Config, error) {
-				return tenantdb.Config{}, fmt.Errorf("db resolution failed")
+				return tenantdb.Config{}, errors.New("db resolution failed")
 			},
 		}
 		r := gin.New()
@@ -174,7 +175,7 @@ func TestRequirePermission(t *testing.T) {
 
 	t.Run("missing permissions claim returns 403", func(t *testing.T) {
 		r := gin.New()
-		r.Use(RequirePermission("orders:create"))
+		r.Use(RequirePermission("orders:write"))
 		r.GET("/test", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 		w := httptest.NewRecorder()
@@ -192,7 +193,7 @@ func TestRequirePermission(t *testing.T) {
 			c.Set(ContextKeyPermissions, []string{"orders:read"})
 			c.Next()
 		})
-		r.Use(RequirePermission("orders:create"))
+		r.Use(RequirePermission("orders:write"))
 		r.GET("/test", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 		w := httptest.NewRecorder()
@@ -207,10 +208,10 @@ func TestRequirePermission(t *testing.T) {
 	t.Run("matching permission in claims returns 200", func(t *testing.T) {
 		r := gin.New()
 		r.Use(func(c *gin.Context) {
-			c.Set(ContextKeyPermissions, []string{"orders:read", "orders:create"})
+			c.Set(ContextKeyPermissions, []string{"orders:read", "orders:write"})
 			c.Next()
 		})
-		r.Use(RequirePermission("orders:create"))
+		r.Use(RequirePermission("orders:write"))
 		r.GET("/test", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 		w := httptest.NewRecorder()

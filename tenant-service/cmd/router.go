@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"tenant-service/internal/handler"
+	"tenant-service/internal/httputil"
 	"tenant-service/internal/middleware"
 	"tenant-service/internal/service"
 	"tenant-service/internal/txcontext"
@@ -47,7 +48,7 @@ func newRouter(txManager *txcontext.SQLTxManager, workspaceService *service.Work
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
-		c.String(http.StatusOK, "OK")
+		httputil.WriteSuccess[any](c, http.StatusOK, "OK", nil)
 	})
 
 	return r

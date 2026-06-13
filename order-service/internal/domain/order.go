@@ -3,6 +3,7 @@ package domain
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -13,6 +14,8 @@ type Order struct {
 	CustomerID string
 	Status     string
 	Amount     float64
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 const (

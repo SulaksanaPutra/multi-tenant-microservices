@@ -3,14 +3,17 @@ package domain
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
 
 type User struct {
-	ID    string
-	Email string
-	Name  string
+	ID        string
+	Email     string
+	Name      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 const (

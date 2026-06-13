@@ -57,13 +57,13 @@ func newRouter(
 		// Static bulk assignment lookup — registered before the parameterized
 		// :userID route; Gin radix tree gives static segments precedence.
 		api.GET("/users/roles", middleware.RequirePermission("auth:roles:read"), roleHandler.ListUserRoles)
-		api.GET("/users/:userID/role", middleware.RequirePermission("auth:roles:read"), roleHandler.GetUserRole)
+		api.GET("/users/:user_id/role", middleware.RequirePermission("auth:roles:read"), roleHandler.GetUserRole)
 
 		// Write endpoints (auth:roles:manage)
 		api.POST("/roles", middleware.RequirePermission("auth:roles:manage"), roleHandler.CreateRole)
 		api.PUT("/roles/:id/permissions", middleware.RequirePermission("auth:roles:manage"), roleHandler.UpdateRolePermissions)
 		api.DELETE("/roles/:id", middleware.RequirePermission("auth:roles:manage"), roleHandler.DeleteRole)
-		api.PUT("/users/:userID/role", middleware.RequirePermission("auth:roles:manage"), roleHandler.AssignUserRole)
+		api.PUT("/users/:user_id/role", middleware.RequirePermission("auth:roles:manage"), roleHandler.AssignUserRole)
 	}
 
 	// Internal endpoints (authenticated via X-Internal-Service-Token)
@@ -72,7 +72,7 @@ func newRouter(
 	{
 		internalGroup.POST("/setup-token", internalAuthHandler.CreateSetupToken)
 		internalGroup.POST("/permissions/register", internalPermissionHandler.RegisterPermissions)
-		internalGroup.GET("/users/:userID/perm-version", internalPermissionHandler.GetUserPermissionVersion)
+		internalGroup.GET("/users/:user_id/perm-version", internalPermissionHandler.GetUserPermissionVersion)
 	}
 
 	return r

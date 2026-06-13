@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"user-service/internal/domain"
 	"user-service/internal/httputil"
@@ -15,6 +16,7 @@ import (
 
 type UserService interface {
 	ListUsers(ctx context.Context, tenantID string) ([]domain.User, error)
+	GetUserByID(ctx context.Context, userID string) (*domain.User, error)
 	UpdateUser(ctx context.Context, input service.UpdateUserInput) error
 }
 
@@ -29,19 +31,25 @@ func NewUserHandler(userService UserService) *UserHandler {
 }
 
 type ListUsersResponse struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-	Name  string `json:"name"`
+	ID        string    `json:"id"`
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type UpdateUserRequest struct {
-	Name string `json:"name" binding:"required,max=255"`
+	Name string `json:"name" binding:"required"`
 }
 
-// UpdateMeResponse is the transport DTO returned after a profile mutation.
-type UpdateMeResponse struct {
-	UserID string `json:"user_id"`
-	Name   string `json:"name"`
+func toUserResponse(u domain.User) ListUsersResponse {
+	return ListUsersResponse{
+		ID:        u.ID,
+		Email:     u.Email,
+		Name:      u.Name,
+		CreatedAt: u.CreatedAt,
+		UpdatedAt: u.UpdatedAt,
+	}
 }
 
 func (userHandler *UserHandler) ListUsers(c *gin.Context) {
@@ -59,17 +67,34 @@ func (userHandler *UserHandler) ListUsers(c *gin.Context) {
 
 	userResponses := make([]ListUsersResponse, 0, len(users))
 	for _, u := range users {
-		userResponses = append(userResponses, ListUsersResponse{
-			ID:    u.ID,
-			Email: u.Email,
-			Name:  u.Name,
-		})
+		userResponses = append(userResponses, toUserResponse(u))
 	}
 	httputil.WriteSuccess(c, http.StatusOK, "Users retrieved successfully", userResponses)
 }
 
+// GetMe returns the caller's full user profile keyed by the JWT subject claim.
+func (userHandler *UserHandler) GetMe(c *gin.Context) {
+	userID := c.GetString(middleware.ContextKeyUserID)
+	if userID == "" {
+		httputil.WriteError(c, http.StatusUnauthorized, "user handler: missing user_id in token claims")
+		return
+	}
+
+	user, err := userHandler.userService.GetUserByID(c.Request.Context(), userID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			httputil.WriteError(c, http.StatusNotFound, "user handler: user not found")
+			return
+		}
+		httputil.WriteError(c, http.StatusInternalServerError, "user handler: failed to fetch user profile: "+err.Error())
+		return
+	}
+
+	httputil.WriteSuccess(c, http.StatusOK, "User Profile Fetched", toUserResponse(*user))
+}
+
 func (userHandler *UserHandler) UpdateMe(c *gin.Context) {
-	userID := c.GetString("userID")
+	userID := c.GetString(middleware.ContextKeyUserID)
 	if userID == "" {
 		httputil.WriteError(c, http.StatusUnauthorized, "user handler: missing user_id in token claims")
 		return
@@ -100,8 +125,13 @@ func (userHandler *UserHandler) UpdateMe(c *gin.Context) {
 		return
 	}
 
-	httputil.WriteSuccess(c, http.StatusOK, "User profile updated successfully", UpdateMeResponse{
-		UserID: userID,
-		Name:   req.Name,
-	})
+	// Return the full, updated profile so clients can reset local state from
+	// the authoritative record.
+	user, err := userHandler.userService.GetUserByID(c.Request.Context(), userID)
+	if err != nil {
+		httputil.WriteError(c, http.StatusInternalServerError, "failed to reload user profile after update: "+err.Error())
+		return
+	}
+
+	httputil.WriteSuccess(c, http.StatusOK, "User profile updated successfully", toUserResponse(*user))
 }

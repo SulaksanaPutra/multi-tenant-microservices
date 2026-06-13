@@ -16,6 +16,7 @@ import (
 type mockUserRepository struct {
 	createUserFunc     func(ctx context.Context, input repository.CreateUserInput) error
 	getUserByEmailFunc func(ctx context.Context, email string) (*domain.User, error)
+	getUserByIDFunc    func(ctx context.Context, userID string) (*domain.User, error)
 	updateUserFunc     func(ctx context.Context, input repository.UpdateUserInput) error
 	listUsersFunc      func(ctx context.Context, tenantID string) ([]domain.User, error)
 	addMembershipFunc  func(ctx context.Context, userID, tenantID string) error
@@ -33,6 +34,13 @@ func (m *mockUserRepository) GetUserByEmail(ctx context.Context, email string) (
 		return m.getUserByEmailFunc(ctx, email)
 	}
 	return nil, domain.ErrNotFound
+}
+
+func (m *mockUserRepository) GetUserByID(ctx context.Context, userID string) (*domain.User, error) {
+	if m.getUserByIDFunc != nil {
+		return m.getUserByIDFunc(ctx, userID)
+	}
+	return &domain.User{ID: userID}, nil
 }
 
 func (m *mockUserRepository) UpdateUser(ctx context.Context, input repository.UpdateUserInput) error {

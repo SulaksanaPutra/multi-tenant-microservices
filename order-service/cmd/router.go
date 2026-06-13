@@ -36,7 +36,7 @@ func newRouter(tenantDBResolver *tenantdb.Resolver) http.Handler {
 	api.Use(middleware.RequireJWT(publicKeyPEM, tenantDBResolver, versionCache))
 
 	api.GET("/orders", middleware.RequirePermission("orders:read"), orderHandler.ListOrders)
-	api.POST("/orders", middleware.RequirePermission("orders:create"), orderHandler.CreateOrder)
+	api.POST("/orders", middleware.RequirePermission("orders:write"), orderHandler.CreateOrder)
 
 	return r
 }

@@ -11,6 +11,7 @@ type Tenant struct {
 	Plan       string
 	Status     string
 	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 type TenantInfra struct {

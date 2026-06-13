@@ -220,7 +220,7 @@ func (c *WorkspaceReadyConsumer) handleDelivery(ctx context.Context, d rabbitmq.
 		log.Printf("WorkspaceReadyConsumer: Welcome email dispatched to '%s' for tenant='%s'", sendDetails.RecipientEmail, sendDetails.TenantID)
 
 		if updateErr := c.notificationService.UpdateNotificationStatus(ctx, sendDetails.LogID, "sent"); updateErr != nil {
-			log.Printf("WorkspaceReadyConsumer: Failed updating status to 'sent' for log id=%d: %v", sendDetails.LogID, updateErr)
+			log.Printf("WorkspaceReadyConsumer: Failed updating status to 'sent' for log id=%s: %v", sendDetails.LogID, updateErr)
 		}
 	}
 

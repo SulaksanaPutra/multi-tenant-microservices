@@ -47,7 +47,7 @@ func TestInternalPermissionHandler_RegisterPermissions(t *testing.T) {
 		reqBody := map[string]any{
 			"service": "",
 			"permissions": []map[string]string{
-				{"name": "orders:create"},
+				{"name": "orders:write"},
 			},
 		}
 		jsonBytes, _ := json.Marshal(reqBody)
@@ -75,7 +75,7 @@ func TestInternalPermissionHandler_RegisterPermissions(t *testing.T) {
 		reqBody := InternalRegisterPermissionsRequest{
 			Service: "order-service",
 			Permissions: []InternalPermissionItemRequest{
-				{Name: "orders:create", Description: "Create order"},
+				{Name: "orders:write", Description: "Create order"},
 			},
 		}
 		jsonBytes, _ := json.Marshal(reqBody)
@@ -106,7 +106,7 @@ func TestInternalPermissionHandler_RegisterPermissions(t *testing.T) {
 		reqBody := InternalRegisterPermissionsRequest{
 			Service: "order-service",
 			Permissions: []InternalPermissionItemRequest{
-				{Name: "orders:create", Description: "Create order"},
+				{Name: "orders:write", Description: "Create order"},
 			},
 		}
 		jsonBytes, _ := json.Marshal(reqBody)
@@ -128,7 +128,7 @@ func TestInternalPermissionHandler_GetUserPermissionVersion(t *testing.T) {
 		_, r := gin.CreateTestContext(w)
 
 		h := NewInternalPermissionHandler(&mockInternalPermissionService{})
-		r.GET("/internal/permissions/users/:userID/version", h.GetUserPermissionVersion)
+		r.GET("/internal/permissions/users/:user_id/version", h.GetUserPermissionVersion)
 
 		req := httptest.NewRequest(http.MethodGet, "/internal/permissions/users/usr_123/version", nil)
 		r.ServeHTTP(w, req)
@@ -150,7 +150,7 @@ func TestInternalPermissionHandler_GetUserPermissionVersion(t *testing.T) {
 			},
 		}
 		h := NewInternalPermissionHandler(mockSvc)
-		r.GET("/internal/permissions/users/:userID/version", h.GetUserPermissionVersion)
+		r.GET("/internal/permissions/users/:user_id/version", h.GetUserPermissionVersion)
 
 		req := httptest.NewRequest(http.MethodGet, "/internal/permissions/users/usr_123/version?tenant_id=tnt_001", nil)
 		r.ServeHTTP(w, req)

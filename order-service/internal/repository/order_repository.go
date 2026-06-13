@@ -41,7 +41,7 @@ func (r *OrderRepository) ListOrders(ctx context.Context) ([]domain.Order, error
 	exec := txcontext.GetExecutor(ctx, r.config.DB)
 
 	query := fmt.Sprintf(`
-		SELECT id, tenant_id, customer_id, status, amount
+		SELECT id, tenant_id, customer_id, status, amount, created_at, updated_at
 		FROM %s.orders
 		ORDER BY created_at DESC
 		LIMIT 100;
@@ -56,7 +56,7 @@ func (r *OrderRepository) ListOrders(ctx context.Context) ([]domain.Order, error
 	var orders []domain.Order
 	for rows.Next() {
 		var o domain.Order
-		if err := rows.Scan(&o.ID, &o.TenantID, &o.CustomerID, &o.Status, &o.Amount); err != nil {
+		if err := rows.Scan(&o.ID, &o.TenantID, &o.CustomerID, &o.Status, &o.Amount, &o.CreatedAt, &o.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan order row: %w", err)
 		}
 		orders = append(orders, o)

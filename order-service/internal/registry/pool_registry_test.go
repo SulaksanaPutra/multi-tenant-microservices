@@ -197,7 +197,7 @@ func TestPoolRegistry_SingleflightTimeout_HangingLeader(t *testing.T) {
 
 	hangingFetch := func() (*sql.DB, string, error) {
 		time.Sleep(1 * time.Second)
-		return nil, "", fmt.Errorf("should have timed out")
+		return nil, "", errors.New("should have timed out")
 	}
 
 	done := make(chan error, 1)

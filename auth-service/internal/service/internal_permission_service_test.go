@@ -13,12 +13,12 @@ type mockPermRepo struct {
 	permissions []domain.Permission
 }
 
-func (m *mockPermRepo) BulkUpsertPermissions(_ context.Context, input repository.BulkUpsertPermissionsInput) error {
-	for _, item := range input.Items {
+func (m *mockPermRepo) BulkUpsertPermissions(_ context.Context, serviceName string, items []repository.RegisterPermissionItem) error {
+	for _, item := range items {
 		m.permissions = append(m.permissions, domain.Permission{
 			ID:          "perm_" + item.Name,
 			Name:        item.Name,
-			Service:     input.Service,
+			Service:     serviceName,
 			Description: item.Description,
 		})
 	}
@@ -38,7 +38,7 @@ func TestInternalPermissionService_RegisterAndList(t *testing.T) {
 	err := svc.RegisterPermissions(ctx, service.InternalRegisterPermissionsInput{
 		Service: "order-service",
 		Permissions: []service.InternalRegisterPermissionItem{
-			{Name: "orders:create", Description: "Create order"},
+			{Name: "orders:write", Description: "Create order"},
 			{Name: "orders:read", Description: "Read order"},
 		},
 	})
@@ -61,11 +61,8 @@ func TestInternalPermissionService_SeedDefaultRoles(t *testing.T) {
 	svc := service.NewInternalPermissionService(pRepo, rRepo)
 	ctx := context.Background()
 
-	_ = pRepo.BulkUpsertPermissions(ctx, repository.BulkUpsertPermissionsInput{
-		Service: "order-service",
-		Items: []repository.RegisterPermissionItem{
-			{Name: "orders:create"},
-		},
+	_ = pRepo.BulkUpsertPermissions(ctx, "order-service", []repository.RegisterPermissionItem{
+		{Name: "orders:write"},
 	})
 
 	err := svc.SeedDefaultRolesForTenant(ctx, "tnt_seed", "usr_admin")

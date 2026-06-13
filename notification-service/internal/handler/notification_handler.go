@@ -14,7 +14,7 @@ import (
 )
 
 type NotificationLogResponse struct {
-	ID             int       `json:"id"`
+	ID             string    `json:"id"`
 	UserID         string    `json:"user_id"`
 	TenantID       string    `json:"tenant_id"`
 	RecipientEmail string    `json:"recipient_email"`
@@ -22,6 +22,7 @@ type NotificationLogResponse struct {
 	Body           string    `json:"body"`
 	Status         string    `json:"status"`
 	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // NotificationService is the consumer-side interface expected by NotificationHandler.
@@ -65,6 +66,7 @@ func (h *NotificationHandler) ListNotifications(c *gin.Context) {
 			Body:           l.Body,
 			Status:         l.Status,
 			CreatedAt:      l.CreatedAt,
+			UpdatedAt:      l.UpdatedAt,
 		}
 	}
 

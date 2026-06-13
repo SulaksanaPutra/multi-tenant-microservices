@@ -6,7 +6,7 @@ import "time"
 // It is intentionally separate from the user profile (user-service domain).
 // It is a global identity row (one per email): tenant context is NOT stored
 // here. Tenants are resolved at token issuance time from
-// user_tenant_memberships via ListUserMemberships.
+// user_tenant_memberships via GetUserMemberships.
 type Credential struct {
 	UserID       string
 	Email        string

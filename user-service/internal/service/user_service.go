@@ -30,6 +30,7 @@ type UpdateUserInput struct {
 type UserRepository interface {
 	CreateUser(ctx context.Context, input repository.CreateUserInput) error
 	GetUserByEmail(ctx context.Context, email string) (*domain.User, error)
+	GetUserByID(ctx context.Context, userID string) (*domain.User, error)
 	UpdateUser(ctx context.Context, input repository.UpdateUserInput) error
 	ListUsers(ctx context.Context, tenantID string) ([]domain.User, error)
 	AddUserTenantMembership(ctx context.Context, userID, tenantID string) error
@@ -140,4 +141,11 @@ func (userService *UserService) ListUsers(ctx context.Context, tenantID string) 
 		return nil, domain.ErrTenantIDRequired
 	}
 	return userService.userRepository.ListUsers(ctx, tenantID)
+}
+
+func (userService *UserService) GetUserByID(ctx context.Context, userID string) (*domain.User, error) {
+	if userID == "" {
+		return nil, domain.ErrUserIDRequired
+	}
+	return userService.userRepository.GetUserByID(ctx, userID)
 }

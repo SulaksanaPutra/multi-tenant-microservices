@@ -46,7 +46,7 @@ func TestPermissionRegistrar_Register_SuccessAndIdempotency(t *testing.T) {
 
 	perms := []PermissionItem{
 		{Name: "orders:read", Description: "Read orders"},
-		{Name: "orders:create", Description: "Create orders"},
+		{Name: "orders:write", Description: "Create orders"},
 	}
 
 	err := registrar.Register(ctx, "order-service", perms)

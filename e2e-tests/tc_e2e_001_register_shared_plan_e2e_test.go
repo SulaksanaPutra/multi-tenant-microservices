@@ -41,11 +41,13 @@ type OrderRequest struct {
 }
 
 type OrderResponseData struct {
-	ID         string  `json:"id"`
-	TenantID   string  `json:"tenant_id"`
-	CustomerID string  `json:"customer_id"`
-	Status     string  `json:"status"`
-	Amount     float64 `json:"amount"`
+	ID         string    `json:"id"`
+	TenantID   string    `json:"tenant_id"`
+	CustomerID string    `json:"customer_id"`
+	Status     string    `json:"status"`
+	Amount     string    `json:"amount"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 type OrderResponse struct {

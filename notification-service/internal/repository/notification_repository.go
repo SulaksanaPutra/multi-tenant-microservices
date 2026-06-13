@@ -26,38 +26,39 @@ func NewNotificationRepository(dbClient *postgres.Client) *NotificationRepositor
 	return &NotificationRepository{dbClient: dbClient}
 }
 
-func (r *NotificationRepository) CreateNotificationLog(ctx context.Context, input CreateNotificationLogInput) (int, error) {
+func (r *NotificationRepository) CreateNotificationLog(ctx context.Context, input CreateNotificationLogInput) (string, error) {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
+	id := domain.GenerateNotificationID()
 	query := `
-		INSERT INTO public.notifications (user_id, tenant_id, recipient_email, subject, body, status)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO public.notifications (id, user_id, tenant_id, recipient_email, subject, body, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id;
 	`
-	var id int
-	err := exec.QueryRowContext(ctx, query, input.UserID, input.TenantID, input.RecipientEmail, input.Subject, input.Body, input.Status).Scan(&id)
+	var insertedID string
+	err := exec.QueryRowContext(ctx, query, id, input.UserID, input.TenantID, input.RecipientEmail, input.Subject, input.Body, input.Status).Scan(&insertedID)
 	if err != nil {
-		return 0, fmt.Errorf("failed to insert notification log: %w", err)
+		return "", fmt.Errorf("failed to insert notification log: %w", err)
 	}
-	return id, nil
+	return insertedID, nil
 }
 
-func (r *NotificationRepository) UpdateNotificationStatus(ctx context.Context, id int, status string) error {
+func (r *NotificationRepository) UpdateNotificationStatus(ctx context.Context, id string, status string) error {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	const query = `
 		UPDATE public.notifications
-		SET status = $1
+		SET status = $1, updated_at = NOW()
 		WHERE id = $2;
 	`
 	res, err := exec.ExecContext(ctx, query, status, id)
 	if err != nil {
-		return fmt.Errorf("failed to update notification status for id=%d: %w", id, err)
+		return fmt.Errorf("failed to update notification status for id=%s: %w", id, err)
 	}
 	rows, err := res.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("failed to get rows affected for notification status update id=%d: %w", id, err)
+		return fmt.Errorf("failed to get rows affected for notification status update id=%s: %w", id, err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("notification log with id=%d not found for status update", id)
+		return fmt.Errorf("notification log with id=%s not found for status update", id)
 	}
 	return nil
 }
@@ -83,7 +84,7 @@ func (r *NotificationRepository) ListNotifications(ctx context.Context, tenantID
 
 	if tenantID != "" {
 		query = `
-			SELECT id, user_id, tenant_id, recipient_email, subject, body, status, created_at
+			SELECT id, user_id, tenant_id, recipient_email, subject, body, status, created_at, updated_at
 			FROM public.notifications
 			WHERE tenant_id = $1
 			ORDER BY created_at DESC;
@@ -91,7 +92,7 @@ func (r *NotificationRepository) ListNotifications(ctx context.Context, tenantID
 		args = append(args, tenantID)
 	} else {
 		query = `
-			SELECT id, user_id, tenant_id, recipient_email, subject, body, status, created_at
+			SELECT id, user_id, tenant_id, recipient_email, subject, body, status, created_at, updated_at
 			FROM public.notifications
 			ORDER BY created_at DESC
 			LIMIT 50;
@@ -107,7 +108,7 @@ func (r *NotificationRepository) ListNotifications(ctx context.Context, tenantID
 	var logs []domain.NotificationLog
 	for rows.Next() {
 		var l domain.NotificationLog
-		if err := rows.Scan(&l.ID, &l.UserID, &l.TenantID, &l.RecipientEmail, &l.Subject, &l.Body, &l.Status, &l.CreatedAt); err != nil {
+		if err := rows.Scan(&l.ID, &l.UserID, &l.TenantID, &l.RecipientEmail, &l.Subject, &l.Body, &l.Status, &l.CreatedAt, &l.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan notification row: %w", err)
 		}
 		logs = append(logs, l)

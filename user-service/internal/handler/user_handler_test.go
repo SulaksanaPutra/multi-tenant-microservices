@@ -16,6 +16,7 @@ import (
 
 type mockUserService struct {
 	listUsersFn  func(ctx context.Context, tenantID string) ([]domain.User, error)
+	getUserByIDFn func(ctx context.Context, userID string) (*domain.User, error)
 	updateUserFn func(ctx context.Context, input service.UpdateUserInput) error
 }
 
@@ -24,6 +25,13 @@ func (m *mockUserService) ListUsers(ctx context.Context, tenantID string) ([]dom
 		return m.listUsersFn(ctx, tenantID)
 	}
 	return nil, nil
+}
+
+func (m *mockUserService) GetUserByID(ctx context.Context, userID string) (*domain.User, error) {
+	if m.getUserByIDFn != nil {
+		return m.getUserByIDFn(ctx, userID)
+	}
+	return &domain.User{ID: userID, Email: "owner@example.com", Name: "Test User"}, nil
 }
 
 func (m *mockUserService) UpdateUser(ctx context.Context, input service.UpdateUserInput) error {
@@ -42,6 +50,7 @@ func setupTestRouter(userHandler *UserHandler) *gin.Engine {
 		c.Next()
 	})
 	r.GET("/api/users", userHandler.ListUsers)
+	r.GET("/api/users/me", userHandler.GetMe)
 	r.PUT("/api/users/me", userHandler.UpdateMe)
 	return r
 }

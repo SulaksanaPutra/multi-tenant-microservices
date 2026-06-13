@@ -14,27 +14,16 @@ import (
 	"github.com/lib/pq"
 )
 
+type RoleRepository struct {
+	dbClient *postgres.Client
+}
+
+// CreateRoleInput is the operation-specific write DTO for role creation.
 type CreateRoleInput struct {
-	TenantID    string
+	TenantID    *string
 	Name        string
 	Description string
 	IsSystem    bool
-}
-
-type UpdateRolePermissionsInput struct {
-	RoleID        string
-	PermissionIDs []string
-}
-
-type AssignUserRoleInput struct {
-	UserID     string
-	TenantID   string
-	RoleID     string
-	AssignedBy *string
-}
-
-type RoleRepository struct {
-	dbClient *postgres.Client
 }
 
 func NewRoleRepository(dbClient *postgres.Client) *RoleRepository {
@@ -46,22 +35,20 @@ func (r *RoleRepository) CreateRole(ctx context.Context, input CreateRoleInput) 
 	query := `
 		INSERT INTO public.roles (tenant_id, name, description, is_system)
 		VALUES ($1, $2, $3, $4)
-		RETURNING id, created_at;
+		RETURNING id, created_at, updated_at;
 	`
-	var created domain.Role
-	created.Name = input.Name
-	created.Description = input.Description
-	created.IsSystem = input.IsSystem
-	if input.TenantID != "" {
-		created.TenantID = &input.TenantID
+	created := domain.Role{
+		TenantID:    input.TenantID,
+		Name:        input.Name,
+		Description: input.Description,
+		IsSystem:    input.IsSystem,
 	}
-
 	var tenantIDVal *string
-	if created.TenantID != nil && *created.TenantID != "" {
-		tenantIDVal = created.TenantID
+	if input.TenantID != nil && *input.TenantID != "" {
+		tenantIDVal = input.TenantID
 	}
 
-	if err := exec.QueryRowContext(ctx, query, tenantIDVal, input.Name, input.Description, input.IsSystem).Scan(&created.ID, &created.CreatedAt); err != nil {
+	if err := exec.QueryRowContext(ctx, query, tenantIDVal, input.Name, input.Description, input.IsSystem).Scan(&created.ID, &created.CreatedAt, &created.UpdatedAt); err != nil {
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) && pqErr.Code == "23505" { // unique_violation
 			return nil, domain.ErrRoleAlreadyExists
@@ -75,13 +62,13 @@ func (r *RoleRepository) CreateRole(ctx context.Context, input CreateRoleInput) 
 func (r *RoleRepository) FindRoleByID(ctx context.Context, id string) (*domain.Role, error) {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	query := `
-		SELECT id, tenant_id, name, COALESCE(description, ''), is_system, created_at
+		SELECT id, tenant_id, name, COALESCE(description, ''), is_system, created_at, updated_at
 		FROM public.roles
 		WHERE id = $1;
 	`
 	var role domain.Role
 	var tenantID sql.NullString
-	if err := exec.QueryRowContext(ctx, query, id).Scan(&role.ID, &tenantID, &role.Name, &role.Description, &role.IsSystem, &role.CreatedAt); err != nil {
+	if err := exec.QueryRowContext(ctx, query, id).Scan(&role.ID, &tenantID, &role.Name, &role.Description, &role.IsSystem, &role.CreatedAt, &role.UpdatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, domain.ErrRoleNotFound
 		}
@@ -108,14 +95,14 @@ func (r *RoleRepository) FindRoleByName(ctx context.Context, tenantID *string, n
 
 	if tenantID == nil || *tenantID == "" {
 		query = `
-			SELECT id, tenant_id, name, COALESCE(description, ''), is_system, created_at
+			SELECT id, tenant_id, name, COALESCE(description, ''), is_system, created_at, updated_at
 			FROM public.roles
 			WHERE tenant_id IS NULL AND name = $1;
 		`
 		args = []any{name}
 	} else {
 		query = `
-			SELECT id, tenant_id, name, COALESCE(description, ''), is_system, created_at
+			SELECT id, tenant_id, name, COALESCE(description, ''), is_system, created_at, updated_at
 			FROM public.roles
 			WHERE (tenant_id = $1 OR tenant_id IS NULL) AND name = $2
 			ORDER BY tenant_id NULLS LAST
@@ -126,7 +113,7 @@ func (r *RoleRepository) FindRoleByName(ctx context.Context, tenantID *string, n
 
 	var role domain.Role
 	var tenantIDVal sql.NullString
-	if err := exec.QueryRowContext(ctx, query, args...).Scan(&role.ID, &tenantIDVal, &role.Name, &role.Description, &role.IsSystem, &role.CreatedAt); err != nil {
+	if err := exec.QueryRowContext(ctx, query, args...).Scan(&role.ID, &tenantIDVal, &role.Name, &role.Description, &role.IsSystem, &role.CreatedAt, &role.UpdatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, domain.ErrRoleNotFound
 		}
@@ -148,7 +135,7 @@ func (r *RoleRepository) FindRoleByName(ctx context.Context, tenantID *string, n
 func (r *RoleRepository) FindRolesByTenantID(ctx context.Context, tenantID string) ([]domain.Role, error) {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	query := `
-		SELECT r.id, r.tenant_id, r.name, COALESCE(r.description, ''), r.is_system, r.created_at,
+		SELECT r.id, r.tenant_id, r.name, COALESCE(r.description, ''), r.is_system, r.created_at, r.updated_at,
 		       COALESCE(
 		           json_agg(
 		               json_build_object(
@@ -156,7 +143,8 @@ func (r *RoleRepository) FindRolesByTenantID(ctx context.Context, tenantID strin
 		                   'name', p.name,
 		                   'service', p.service,
 		                   'description', COALESCE(p.description, ''),
-		                   'created_at', p.created_at
+		                   'created_at', p.created_at,
+		                   'updated_at', p.updated_at
 		               )
 		               ORDER BY p.service, p.name
 		           ) FILTER (WHERE p.id IS NOT NULL),
@@ -166,7 +154,7 @@ func (r *RoleRepository) FindRolesByTenantID(ctx context.Context, tenantID strin
 		LEFT JOIN public.role_permissions rp ON rp.role_id = r.id
 		LEFT JOIN public.permissions p ON p.id = rp.permission_id
 		WHERE r.tenant_id = $1 OR r.tenant_id IS NULL
-		GROUP BY r.id, r.tenant_id, r.name, r.description, r.is_system, r.created_at
+		GROUP BY r.id, r.tenant_id, r.name, r.description, r.is_system, r.created_at, r.updated_at
 		ORDER BY r.is_system DESC, r.name ASC;
 	`
 	rows, err := exec.QueryContext(ctx, query, tenantID)
@@ -180,7 +168,7 @@ func (r *RoleRepository) FindRolesByTenantID(ctx context.Context, tenantID strin
 		var role domain.Role
 		var tenantIDVal sql.NullString
 		var permissionsJSON []byte
-		if err := rows.Scan(&role.ID, &tenantIDVal, &role.Name, &role.Description, &role.IsSystem, &role.CreatedAt, &permissionsJSON); err != nil {
+		if err := rows.Scan(&role.ID, &tenantIDVal, &role.Name, &role.Description, &role.IsSystem, &role.CreatedAt, &role.UpdatedAt, &permissionsJSON); err != nil {
 			return nil, fmt.Errorf("role repository: failed to scan role: %w", err)
 		}
 		if tenantIDVal.Valid {
@@ -200,7 +188,7 @@ func (r *RoleRepository) FindRolesByTenantID(ctx context.Context, tenantID strin
 func (r *RoleRepository) GetPermissionsForRole(ctx context.Context, roleID string) ([]domain.Permission, error) {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	query := `
-		SELECT p.id, p.name, p.service, COALESCE(p.description, ''), p.created_at
+		SELECT p.id, p.name, p.service, COALESCE(p.description, ''), p.created_at, p.updated_at
 		FROM public.permissions p
 		JOIN public.role_permissions rp ON rp.permission_id = p.id
 		WHERE rp.role_id = $1
@@ -215,7 +203,7 @@ func (r *RoleRepository) GetPermissionsForRole(ctx context.Context, roleID strin
 	var permissions []domain.Permission
 	for rows.Next() {
 		var p domain.Permission
-		if err := rows.Scan(&p.ID, &p.Name, &p.Service, &p.Description, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Service, &p.Description, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("role repository: failed to scan role permission: %w", err)
 		}
 		permissions = append(permissions, p)
@@ -223,15 +211,15 @@ func (r *RoleRepository) GetPermissionsForRole(ctx context.Context, roleID strin
 	return permissions, nil
 }
 
-func (r *RoleRepository) UpdateRolePermissions(ctx context.Context, input UpdateRolePermissionsInput) error {
+func (r *RoleRepository) UpdateRolePermissions(ctx context.Context, roleID string, permissionIDs []string) error {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 
 	// Delete existing permissions for role
-	if _, err := exec.ExecContext(ctx, `DELETE FROM public.role_permissions WHERE role_id = $1;`, input.RoleID); err != nil {
-		return fmt.Errorf("role repository: failed to clear role permissions for role_id '%s': %w", input.RoleID, err)
+	if _, err := exec.ExecContext(ctx, `DELETE FROM public.role_permissions WHERE role_id = $1;`, roleID); err != nil {
+		return fmt.Errorf("role repository: failed to clear role permissions for role_id '%s': %w", roleID, err)
 	}
 
-	if len(input.PermissionIDs) == 0 {
+	if len(permissionIDs) == 0 {
 		return nil
 	}
 
@@ -247,14 +235,19 @@ func (r *RoleRepository) UpdateRolePermissions(ctx context.Context, input Update
 		VALUES ($1, $2)
 		ON CONFLICT DO NOTHING;
 	`
-	for _, pid := range input.PermissionIDs {
+	for _, pid := range permissionIDs {
 		if pid == "" {
 			continue
 		}
 		_, _ = exec.ExecContext(ctx, permUpsertQuery, pid)
-		if _, err := exec.ExecContext(ctx, insertQuery, input.RoleID, pid); err != nil {
-			return fmt.Errorf("role repository: failed to attach permission_id '%s' to role_id '%s': %w", pid, input.RoleID, err)
+		if _, err := exec.ExecContext(ctx, insertQuery, roleID, pid); err != nil {
+			return fmt.Errorf("role repository: failed to attach permission_id '%s' to role_id '%s': %w", pid, roleID, err)
 		}
+	}
+
+	// Reflect the mutation in the tenant-scoped resource's updated_at.
+	if _, err := exec.ExecContext(ctx, `UPDATE public.roles SET updated_at = NOW() WHERE id = $1;`, roleID); err != nil {
+		return fmt.Errorf("role repository: failed to stamp updated_at on role_id '%s': %w", roleID, err)
 	}
 	return nil
 }
@@ -281,7 +274,7 @@ func (r *RoleRepository) DeleteRole(ctx context.Context, id string) error {
 	return nil
 }
 
-func (r *RoleRepository) AssignUserRole(ctx context.Context, input AssignUserRoleInput) error {
+func (r *RoleRepository) AssignUserRole(ctx context.Context, userID, tenantID, roleID string, assignedBy *string) error {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	query := `
 		INSERT INTO public.user_roles (user_id, tenant_id, role_id, assigned_by, assigned_at)
@@ -291,8 +284,8 @@ func (r *RoleRepository) AssignUserRole(ctx context.Context, input AssignUserRol
 		    assigned_by = EXCLUDED.assigned_by,
 		    assigned_at = NOW();
 	`
-	if _, err := exec.ExecContext(ctx, query, input.UserID, input.TenantID, input.RoleID, input.AssignedBy); err != nil {
-		return fmt.Errorf("role repository: failed to assign role_id '%s' to user_id '%s': %w", input.RoleID, input.UserID, err)
+	if _, err := exec.ExecContext(ctx, query, userID, tenantID, roleID, assignedBy); err != nil {
+		return fmt.Errorf("role repository: failed to assign role_id '%s' to user_id '%s': %w", roleID, userID, err)
 	}
 
 	// Also ensure user_permission_versions row exists
@@ -303,8 +296,8 @@ func (r *RoleRepository) AssignUserRole(ctx context.Context, input AssignUserRol
 		SET version    = public.user_permission_versions.version + 1,
 		    updated_at = NOW();
 	`
-	if _, err := exec.ExecContext(ctx, vQuery, input.UserID, input.TenantID); err != nil {
-		return fmt.Errorf("role repository: failed to bump user_permission_versions for user_id '%s': %w", input.UserID, err)
+	if _, err := exec.ExecContext(ctx, vQuery, userID, tenantID); err != nil {
+		return fmt.Errorf("role repository: failed to bump user_permission_versions for user_id '%s': %w", userID, err)
 	}
 
 	return nil
@@ -330,7 +323,7 @@ func (r *RoleRepository) FindUserRole(ctx context.Context, userID, tenantID stri
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	query := `
 		SELECT ur.user_id, ur.tenant_id, ur.role_id, ur.assigned_at, ur.assigned_by,
-		       r.id, r.tenant_id, r.name, COALESCE(r.description, ''), r.is_system, r.created_at
+		       r.id, r.tenant_id, r.name, COALESCE(r.description, ''), r.is_system, r.created_at, r.updated_at
 		FROM public.user_roles ur
 		JOIN public.roles r ON r.id = ur.role_id
 		WHERE ur.user_id = $1 AND ur.tenant_id = $2;
@@ -343,7 +336,7 @@ func (r *RoleRepository) FindUserRole(ctx context.Context, userID, tenantID stri
 	row := exec.QueryRowContext(ctx, query, userID, tenantID)
 	if err := row.Scan(
 		&ur.UserID, &ur.TenantID, &ur.RoleID, &ur.AssignedAt, &assignedBy,
-		&role.ID, &roleTenantID, &role.Name, &role.Description, &role.IsSystem, &role.CreatedAt,
+		&role.ID, &roleTenantID, &role.Name, &role.Description, &role.IsSystem, &role.CreatedAt, &role.UpdatedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, domain.ErrRoleNotFound

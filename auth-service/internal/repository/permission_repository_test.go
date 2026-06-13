@@ -23,7 +23,7 @@ func TestPermissionRepository_Constructor(t *testing.T) {
 func TestPermissionRepository_BulkUpsertPermissions(t *testing.T) {
 	t.Run("empty items slice", func(t *testing.T) {
 		repo := NewPermissionRepository(&postgres.Client{})
-		err := repo.BulkUpsertPermissions(context.Background(), BulkUpsertPermissionsInput{})
+		err := repo.BulkUpsertPermissions(context.Background(), "auth-service", nil)
 		if err != nil {
 			t.Errorf("expected nil error for empty items slice, got %v", err)
 		}
@@ -49,10 +49,7 @@ func TestPermissionRepository_BulkUpsertPermissions(t *testing.T) {
 			{Name: "auth:write", Description: "Write auth data"},
 		}
 
-		err := repo.BulkUpsertPermissions(ctxWithExec, BulkUpsertPermissionsInput{
-			Service: "auth-service",
-			Items:   items,
-		})
+		err := repo.BulkUpsertPermissions(ctxWithExec, "auth-service", items)
 		if err != nil {
 			t.Fatalf("expected nil error, got %v", err)
 		}
@@ -84,10 +81,7 @@ func TestPermissionRepository_BulkUpsertPermissions(t *testing.T) {
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
 		items := []RegisterPermissionItem{{Name: "auth:read", Description: "Read auth"}}
-		err := repo.BulkUpsertPermissions(ctxWithExec, BulkUpsertPermissionsInput{
-			Service: "auth-service",
-			Items:   items,
-		})
+		err := repo.BulkUpsertPermissions(ctxWithExec, "auth-service", items)
 		if err == nil || !errors.Is(err, dbErr) {
 			t.Errorf("expected wrapped db error, got %v", err)
 		}
