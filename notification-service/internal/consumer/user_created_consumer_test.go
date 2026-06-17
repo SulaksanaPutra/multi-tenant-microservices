@@ -8,7 +8,6 @@ import (
 
 	"notification-service/internal/domain"
 	"notification-service/internal/infrastructure/rabbitmq"
-	"notification-service/internal/repository"
 	"notification-service/internal/service"
 )
 
@@ -43,11 +42,11 @@ func (m *mockNotificationService) UpdateNotificationStatus(ctx context.Context, 
 }
 
 type mockInboxService struct {
-	claimEventFunc       func(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error)
+	claimEventFunc       func(txCtx context.Context, input service.ClaimInboxInput) (bool, error)
 	getBarrierEventsFunc func(txCtx context.Context, tenantID string) ([]domain.InboxMessage, error)
 }
 
-func (m *mockInboxService) ClaimEvent(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
+func (m *mockInboxService) ClaimEvent(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 	if m.claimEventFunc != nil {
 		return m.claimEventFunc(txCtx, input)
 	}
@@ -198,8 +197,8 @@ func TestUserCreatedConsumer_HandleDelivery_DuplicateInbox_Acks(t *testing.T) {
 	body := makeUserCreatedBody(t)
 
 	inbox := &mockInboxService{
-		claimEventFunc: func(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
-			return true, nil // duplicate — skip cleanly
+		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
+			return true, nil // duplicate  Eskip cleanly
 		},
 	}
 
@@ -221,7 +220,7 @@ func TestUserCreatedConsumer_HandleDelivery_InboxClaimError_Nacks(t *testing.T) 
 	inboxErr := errors.New("db connection lost")
 
 	inbox := &mockInboxService{
-		claimEventFunc: func(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
+		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 			return false, inboxErr
 		},
 	}
@@ -295,7 +294,7 @@ func TestUserCreatedConsumer_HandleDelivery_NoEmailWhenBarrierNotMet(t *testing.
 
 	notifSvc := &mockNotificationService{
 		processEventAndTrySendWelcomeFunc: func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
-			return nil, nil // barrier not met — no email needed
+			return nil, nil // barrier not met  Eno email needed
 		},
 	}
 
@@ -326,7 +325,7 @@ func TestUserCreatedConsumer_HandleDelivery_NoEmailWhenBarrierNotMet(t *testing.
 func TestUserCreatedConsumer_HandleDelivery_MisroutedRoutingKey_AcksAndDiscards(t *testing.T) {
 	// Simulates a ghost AMQP binding delivering a workspace.ready message to
 	// the notification_service_user_created queue. The routing key guard must
-	// discard silently with Ack — no inbox write, no notification service call.
+	// discard silently with Ack  Eno inbox write, no notification service call.
 	body, _ := json.Marshal(domain.WorkspaceReadyEvent{
 		EventID:    "evt-misrouted-1",
 		TenantID:   "tenant-99",
@@ -335,7 +334,7 @@ func TestUserCreatedConsumer_HandleDelivery_MisroutedRoutingKey_AcksAndDiscards(
 
 	inboxCalled := false
 	inbox := &mockInboxService{
-		claimEventFunc: func(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
+		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 			inboxCalled = true
 			return false, nil
 		},

@@ -9,7 +9,6 @@ import (
 
 	"notification-service/internal/domain"
 	"notification-service/internal/infrastructure/rabbitmq"
-	"notification-service/internal/repository"
 	"notification-service/internal/service"
 )
 
@@ -26,7 +25,7 @@ type NotificationService interface {
 
 // InboxService is the consumer-side interface expected by UserCreatedConsumer.
 type InboxService interface {
-	ClaimEvent(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error)
+	ClaimEvent(txCtx context.Context, input service.ClaimInboxInput) (bool, error)
 	GetBarrierEvents(txCtx context.Context, tenantID string) ([]domain.InboxMessage, error)
 }
 
@@ -178,19 +177,19 @@ func (c *UserCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Del
 	log.Printf("UserCreatedConsumer processing event_id='%s' for user_id='%s' email='%s'", evt.EventID, evt.UserID, evt.Email)
 
 	// Phase 1: DB-only work inside the transaction boundary.
-	// — Inbox guard (ClaimEvent) and barrier read (GetBarrierEvents) are Layer 1 responsibilities.
-	// — NotificationService writes the pending audit log and returns dispatch details.
-	// — No external I/O (SMTP, HTTP) is allowed inside this closure.
+	//  EInbox guard (ClaimEvent) and barrier read (GetBarrierEvents) are Layer 1 responsibilities.
+	//  ENotificationService writes the pending audit log and returns dispatch details.
+	//  ENo external I/O (SMTP, HTTP) is allowed inside this closure.
 	var sendDetails *service.ProcessEventOutput
 	err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-		inboxInput := repository.CreateInboxMessageInput{
+		inboxInput := service.ClaimInboxInput{
 			EventID:   evt.EventID,
 			TenantID:  evt.TenantID,
 			EventType: domain.RoutingKeyUserCreated,
 			Payload:   d.Body,
 		}
 
-		// Step 1: Transactional inbox guard — deduplicates the event atomically.
+		// Step 1: Transactional inbox guard  Ededuplicates the event atomically.
 		isDup, err := c.inboxService.ClaimEvent(txCtx, inboxInput)
 		if err != nil {
 			return fmt.Errorf("inbox guard failed: %w", err)
@@ -234,15 +233,15 @@ func (c *UserCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Del
 	if sendDetails != nil {
 		setupToken, fetchErr := c.authClient.FetchSetupToken(ctx, sendDetails.UserID, sendDetails.TenantID, sendDetails.RecipientEmail)
 		if fetchErr != nil {
-			log.Printf("UserCreatedConsumer: Failed to fetch setup token from auth-service for tenant='%s': %v — NACKing for retry.", sendDetails.TenantID, fetchErr)
+			log.Printf("UserCreatedConsumer: Failed to fetch setup token from auth-service for tenant='%s': %v  ENACKing for retry.", sendDetails.TenantID, fetchErr)
 			_ = d.Nack(false, true)
 			return fetchErr
 		}
 
 		if _, _, mailErr := c.mailer.SendWelcomeEmail(sendDetails.RecipientEmail, sendDetails.TenantID, sendDetails.TenantName, sendDetails.TenantSlug, sendDetails.OwnerName, setupToken); mailErr != nil {
-			log.Printf("UserCreatedConsumer: SMTP dispatch failed for event_id='%s' recipient='%s': %v — NACKing for retry.",
+			log.Printf("UserCreatedConsumer: SMTP dispatch failed for event_id='%s' recipient='%s': %v  ENACKing for retry.",
 				evt.EventID, sendDetails.RecipientEmail, mailErr)
-			_ = d.Nack(false, true) // Requeue — inbox ON CONFLICT ensures idempotent retry
+			_ = d.Nack(false, true) // Requeue  Einbox ON CONFLICT ensures idempotent retry
 			return mailErr
 		}
 		log.Printf("UserCreatedConsumer: Welcome email dispatched to '%s' for tenant='%s'", sendDetails.RecipientEmail, sendDetails.TenantID)

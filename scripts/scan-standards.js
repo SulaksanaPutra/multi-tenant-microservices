@@ -19,10 +19,12 @@
  *
  * Scope / limitations (see CODING_STANDARDS.md):
  *   These checks cover the written-style and structural rules that are
- *   robustly expressible as regular expressions. The following CANNOT be
- *   detected by a regex tool and are intentionally out of scope (they require
- *   Go AST / import / nesting analysis):
- *     - Rule 2.2 consumer-side interface OWNERSHIP / dependency direction
+ *   robustly expressible as regular expressions. Dependency direction (Rule 2.2)
+ *   is approximated at the import/interface boundary for Layer 1 files
+ *   (consumer/handler): they must not import Layer 3 (repository/publisher) or
+ *   declare repository-named interfaces. The following CANNOT be detected by a
+ *   regex tool and are intentionally out of scope (they require Go AST /
+ *   nesting analysis):
  *     - Rule 5.4 external I/O inside transaction closures (nesting analysis)
  *     - Rule 4.3 exact "<package>: <action>" prefix per call site
  *     - bare single-letter identifiers `r` / `h` (too many false positives:
@@ -275,6 +277,38 @@ addRegexCheck({
   regex: /"database\/sql"|\bsql\.(ErrNoRows|DB|Tx|Open|Query|Exec|Stmt|Std|Scan)\b/,
   message: () =>
     '`database/sql`/`sql.*` used in the service layer — repositories must translate driver errors to domain sentinels',
+});
+
+// Rule 2.2 — Layer 1 (consumer/handler) must depend on Layer 2 (service), not Layer 3.
+// An import-graph approximation: a Layer 1 file that imports its own service's
+// internal/repository or internal/publisher skips the service layer. Worker outbox
+// polling is a documented exemption (Flow C), so scope is consumer/ and handler/ only.
+addRegexCheck({
+  id: 'layer-imports-repository',
+  rule: '2.2',
+  name: 'Layer 1 (consumer/handler) must not import Layer 3 (repository/publisher)',
+  scope: (rel) => /\/(consumer|handler)\//.test(rel),
+  exclude: (rel) => /_test\.go$/.test(rel),
+  regex: /internal\/(repository|publisher)"\s*$/m,
+  flags: 'm',
+  message: () =>
+    'imports the service\'s own `internal/repository`/`internal/publisher` from Layer 1 — depend on Layer 2 (service) via a consumer-side interface instead',
+});
+
+// Rule 2.2 — Layer 1 consumer-side interfaces are service-shaped, never repository-named.
+// Catches the pattern where a consumer declares an abstraction over a concrete
+// repository (e.g. `type MembershipRepository interface`) even when the file does
+// not literally import the repository package.
+addRegexCheck({
+  id: 'layer-interface-repository-name',
+  rule: '2.2',
+  name: 'Layer 1 consumer-side interfaces must not be repository-named',
+  scope: (rel) => /\/(consumer|handler)\//.test(rel),
+  exclude: (rel) => /_test\.go$/.test(rel),
+  regex: /^\s*type\s+(\w*Repository)\s+interface\b/m,
+  flags: 'm',
+  message: (m) =>
+    `Layer 1 declares an interface named \`${m[1]}\` — consumer-side interfaces should be service-shaped (e.g. MembershipService), exposing business operations not repository methods`,
 });
 
 // Rule 5.1 — AMQP topology constants must live in domain/events.go.

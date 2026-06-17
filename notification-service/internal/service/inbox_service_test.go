@@ -38,7 +38,7 @@ func (m *mockInboxRepo) AcquireTenantLock(ctx context.Context, tenantID string) 
 
 func TestInboxService_ClaimEvent_EmptyEventID(t *testing.T) {
 	svc := NewInboxService(&mockInboxRepo{})
-	isDup, err := svc.ClaimEvent(context.Background(), repository.CreateInboxMessageInput{EventID: ""})
+	isDup, err := svc.ClaimEvent(context.Background(), ClaimInboxInput{EventID: ""})
 	if err != nil {
 		t.Fatalf("expected no error for empty event_id, got %v", err)
 	}
@@ -53,7 +53,7 @@ func TestInboxService_ClaimEvent_NewEvent(t *testing.T) {
 			return false, nil // not a duplicate
 		},
 	})
-	isDup, err := svc.ClaimEvent(context.Background(), repository.CreateInboxMessageInput{
+	isDup, err := svc.ClaimEvent(context.Background(), ClaimInboxInput{
 		EventID:   "evt-new",
 		TenantID:  "tenant-1",
 		EventType: "user.created",
@@ -72,7 +72,7 @@ func TestInboxService_ClaimEvent_DuplicateEvent(t *testing.T) {
 			return true, nil // duplicate
 		},
 	})
-	isDup, err := svc.ClaimEvent(context.Background(), repository.CreateInboxMessageInput{
+	isDup, err := svc.ClaimEvent(context.Background(), ClaimInboxInput{
 		EventID:   "evt-dup",
 		TenantID:  "tenant-1",
 		EventType: "user.created",
@@ -92,7 +92,7 @@ func TestInboxService_ClaimEvent_TryInsertError(t *testing.T) {
 			return false, expectedErr
 		},
 	})
-	_, err := svc.ClaimEvent(context.Background(), repository.CreateInboxMessageInput{
+	_, err := svc.ClaimEvent(context.Background(), ClaimInboxInput{
 		EventID:  "evt-fail",
 		TenantID: "tenant-1",
 	})

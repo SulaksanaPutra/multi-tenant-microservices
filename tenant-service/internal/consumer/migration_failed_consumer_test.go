@@ -7,39 +7,19 @@ import (
 
 	"tenant-service/internal/domain"
 	"tenant-service/internal/infrastructure/rabbitmq"
-	"tenant-service/internal/repository"
 )
 
-type mockTenantRepository struct {
-	setTenantStatusFunc func(ctx context.Context, tenantID, status string) error
-	setTenantStatusCall struct {
-		tenantID string
-		status   string
-	}
-	setCalled bool
+type mockMigrationRollbackService struct {
+	rollbackFunc func(ctx context.Context, tenantID string) error
+	called       bool
+	tenantID     string
 }
 
-func (m *mockTenantRepository) SetTenantStatus(ctx context.Context, tenantID, status string) error {
-	m.setTenantStatusCall = struct {
-		tenantID string
-		status   string
-	}{tenantID: tenantID, status: status}
-	m.setCalled = true
-	if m.setTenantStatusFunc != nil {
-		return m.setTenantStatusFunc(ctx, tenantID, status)
-	}
-	return nil
-}
-
-type mockOutboxRepository struct {
-	createOutboxMessageFunc func(ctx context.Context, input repository.CreateOutboxMessageInput) error
-	createdInputs           []repository.CreateOutboxMessageInput
-}
-
-func (m *mockOutboxRepository) CreateOutboxMessage(ctx context.Context, input repository.CreateOutboxMessageInput) error {
-	m.createdInputs = append(m.createdInputs, input)
-	if m.createOutboxMessageFunc != nil {
-		return m.createOutboxMessageFunc(ctx, input)
+func (m *mockMigrationRollbackService) RollbackFailedMigration(ctx context.Context, tenantID string) error {
+	m.called = true
+	m.tenantID = tenantID
+	if m.rollbackFunc != nil {
+		return m.rollbackFunc(ctx, tenantID)
 	}
 	return nil
 }
@@ -52,17 +32,15 @@ func TestMigrationFailedConsumer_HandleDelivery(t *testing.T) {
 	}
 	validBody, _ := json.Marshal(validEvt)
 
-	t.Run("success_resets_status_and_stages_infrachanged", func(t *testing.T) {
+	t.Run("success_invokes_rollback_service", func(t *testing.T) {
 		txManager := &mockTxManager{}
-		inboxSvc := &mockInboxService{}
-		tenantRepo := &mockTenantRepository{}
-		outboxRepo := &mockOutboxRepository{}
+		inboxService := &mockInboxService{}
+		rollbackService := &mockMigrationRollbackService{}
 
 		c := &MigrationFailedConsumer{
-			txManager:        txManager,
-			inboxService:     inboxSvc,
-			tenantRepository: tenantRepo,
-			outboxRepository: outboxRepo,
+			txManager:    txManager,
+			inboxService: inboxService,
+			rollbackService:  rollbackService,
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -77,36 +55,27 @@ func TestMigrationFailedConsumer_HandleDelivery(t *testing.T) {
 		if !mockAck.ackCalled {
 			t.Error("expected message to be ACKed")
 		}
-		if !tenantRepo.setCalled {
-			t.Fatal("expected SetTenantStatus to be called")
+		if !rollbackService.called {
+			t.Fatal("expected RollbackFailedMigration to be called")
 		}
-		if tenantRepo.setTenantStatusCall.tenantID != "tenant-99" || tenantRepo.setTenantStatusCall.status != domain.StatusActive {
-			t.Errorf("expected status reset to '%s', got tenant='%s' status='%s'",
-				domain.StatusActive, tenantRepo.setTenantStatusCall.tenantID, tenantRepo.setTenantStatusCall.status)
-		}
-		if len(outboxRepo.createdInputs) != 1 {
-			t.Fatalf("expected 1 InfraChanged outbox message, got %d", len(outboxRepo.createdInputs))
-		}
-		if outboxRepo.createdInputs[0].EventType != domain.RoutingKeyInfraChanged {
-			t.Errorf("expected InfraChanged outbox message, got event_type='%s'", outboxRepo.createdInputs[0].EventType)
+		if rollbackService.tenantID != "tenant-99" {
+			t.Errorf("expected rollback for tenant 'tenant-99', got '%s'", rollbackService.tenantID)
 		}
 	})
 
 	t.Run("duplicate_event_skips_side_effects", func(t *testing.T) {
 		txManager := &mockTxManager{}
-		inboxSvc := &mockInboxService{
+		inboxService := &mockInboxService{
 			claimEventFunc: func(txCtx context.Context, eventID string) (bool, error) {
 				return true, nil // duplicate
 			},
 		}
-		tenantRepo := &mockTenantRepository{}
-		outboxRepo := &mockOutboxRepository{}
+		rollbackService := &mockMigrationRollbackService{}
 
 		c := &MigrationFailedConsumer{
-			txManager:        txManager,
-			inboxService:     inboxSvc,
-			tenantRepository: tenantRepo,
-			outboxRepository: outboxRepo,
+			txManager:    txManager,
+			inboxService: inboxService,
+			rollbackService:  rollbackService,
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -121,11 +90,8 @@ func TestMigrationFailedConsumer_HandleDelivery(t *testing.T) {
 		if !mockAck.ackCalled {
 			t.Error("expected duplicate message to be ACKed")
 		}
-		if tenantRepo.setCalled {
-			t.Error("expected no SetTenantStatus on duplicate")
-		}
-		if len(outboxRepo.createdInputs) != 0 {
-			t.Error("expected no outbox message staged on duplicate")
+		if rollbackService.called {
+			t.Error("expected no RollbackFailedMigration on duplicate")
 		}
 	})
 
@@ -163,8 +129,7 @@ func TestMigrationFailedConsumer_HandleDelivery(t *testing.T) {
 					return false, nil
 				},
 			},
-			tenantRepository: &mockTenantRepository{},
-			outboxRepository: &mockOutboxRepository{},
+			rollbackService: &mockMigrationRollbackService{},
 		}
 
 		mockAck := &mockAcknowledger{}

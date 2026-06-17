@@ -20,8 +20,7 @@ func registerConsumers(
 	rmqClient *rabbitmq.Client,
 	tenantInfrastructureService *service.TenantInfrastructureService,
 	inboxService *service.InboxService,
-	tenantRepository consumer.TenantRepository,
-	outboxRepository consumer.OutboxRepository,
+	workspaceService *service.WorkspaceService,
 ) (*consumerRunner, error) {
 	c, err := consumer.NewTenantOrderDBReadyConsumer(consumer.TenantOrderDBReadyConsumerParams{
 		TxManager:                   txManager,
@@ -34,11 +33,10 @@ func registerConsumers(
 	}
 
 	mfConsumer, err := consumer.NewMigrationFailedConsumer(consumer.MigrationFailedConsumerParams{
-		TxManager:        txManager,
-		Client:           rmqClient,
-		InboxService:     inboxService,
-		TenantRepository: tenantRepository,
-		OutboxRepository: outboxRepository,
+		TxManager:            txManager,
+		Client:               rmqClient,
+		InboxService:         inboxService,
+		MigrationRollbackService: workspaceService,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to register MigrationFailedConsumer: %w", err)

@@ -87,6 +87,7 @@ func main() {
 	internalAuthService := service.NewInternalAuthService(setupTokenRepository, credentialRepository, internalPermissionService)
 	authService := service.NewAuthService(credentialRepository, tokenRepository, setupTokenRepository, jwtManager, roleRepository, internalPermissionService)
 	inboxService := service.NewInboxService(inboxRepository)
+	membershipService := service.NewMembershipService(credentialRepository)
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authService, jwtManager)
@@ -116,10 +117,10 @@ func main() {
 	} else {
 		defer rmqClient.Close()
 		userCreatedConsumer, consumerErr := consumer.NewUserCreatedConsumer(consumer.UserCreatedConsumerParams{
-			TxManager:            txManager,
-			Client:               rmqClient,
-			InboxService:         inboxService,
-			MembershipRepository: credentialRepository,
+			TxManager:         txManager,
+			Client:            rmqClient,
+			InboxService:      inboxService,
+			MembershipService: membershipService,
 		})
 		if consumerErr != nil {
 			log.Printf("Auth Service: Warning — failed to initialize UserCreatedConsumer (%v); membership copy consumer disabled.", consumerErr)

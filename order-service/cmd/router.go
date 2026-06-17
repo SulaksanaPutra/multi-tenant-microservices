@@ -8,6 +8,8 @@ import (
 	"order-service/internal/httputil"
 	"order-service/internal/infrastructure/tenantdb"
 	"order-service/internal/middleware"
+	"order-service/internal/repository"
+	"order-service/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -30,7 +32,9 @@ func newRouter(tenantDBResolver *tenantdb.Resolver) http.Handler {
 	internalToken := os.Getenv("INTERNAL_SERVICE_TOKEN")
 	versionCache := middleware.NewVersionCache(authServiceURL, internalToken)
 
-	orderHandler := handler.NewOrderHandler(nil)
+	orderHandler := handler.NewOrderHandler(func(cfg tenantdb.Config) handler.OrderService {
+		return service.NewOrderService(repository.NewOrderRepository(cfg))
+	})
 
 	api := r.Group("/api")
 	api.Use(middleware.RequireJWT(publicKeyPEM, tenantDBResolver, versionCache))

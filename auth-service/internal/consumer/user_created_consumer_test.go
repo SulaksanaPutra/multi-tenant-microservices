@@ -8,7 +8,7 @@ import (
 
 	"auth-service/internal/domain"
 	"auth-service/internal/infrastructure/rabbitmq"
-	"auth-service/internal/repository"
+	"auth-service/internal/service"
 )
 
 type mockTxManager struct {
@@ -23,22 +23,22 @@ func (m *mockTxManager) WithTransaction(ctx context.Context, fn func(txCtx conte
 }
 
 type mockInboxService struct {
-	claimEventFunc func(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error)
+	claimEventFunc func(txCtx context.Context, input service.ClaimInboxInput) (bool, error)
 }
 
-func (m *mockInboxService) ClaimEvent(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
+func (m *mockInboxService) ClaimEvent(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 	if m.claimEventFunc != nil {
 		return m.claimEventFunc(txCtx, input)
 	}
 	return false, nil
 }
 
-type mockMembershipRepository struct {
+type mockMembershipService struct {
 	addMembershipFunc func(ctx context.Context, userID, tenantID string) error
 	calls             int
 }
 
-func (m *mockMembershipRepository) AddMembership(ctx context.Context, userID, tenantID string) error {
+func (m *mockMembershipService) AddMembership(ctx context.Context, userID, tenantID string) error {
 	m.calls++
 	if m.addMembershipFunc != nil {
 		return m.addMembershipFunc(ctx, userID, tenantID)
@@ -70,17 +70,17 @@ func (m *mockAcknowledger) Reject(tag uint64, requeue bool) error {
 	return nil
 }
 
-func newUserCreatedConsumer(txm TxManager, inbox InboxService, membership MembershipRepository, maxDeliveries int) *UserCreatedConsumer {
+func newUserCreatedConsumer(txm TxManager, inbox InboxService, membership MembershipService, maxDeliveries int) *UserCreatedConsumer {
 	// 0 means "no cap interference" for tests; real cap logic is exercised
 	// explicitly in the max-deliveries tests.
 	if maxDeliveries <= 0 {
 		maxDeliveries = 1000
 	}
 	return &UserCreatedConsumer{
-		txManager:            txm,
-		inboxService:         inbox,
-		membershipRepository: membership,
-		maxDeliveries:        maxDeliveries,
+		txManager:         txm,
+		inboxService:      inbox,
+		membershipService: membership,
+		maxDeliveries:     maxDeliveries,
 	}
 }
 
@@ -99,15 +99,15 @@ func makeUserCreatedBody(t *testing.T) []byte {
 func TestUserCreatedConsumer_HandleDelivery_Success(t *testing.T) {
 	body := makeUserCreatedBody(t)
 
-	var capturedInput repository.CreateInboxMessageInput
+	var capturedInput service.ClaimInboxInput
 	inbox := &mockInboxService{
-		claimEventFunc: func(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
+		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 			capturedInput = input
 			return false, nil
 		},
 	}
 
-	membership := &mockMembershipRepository{}
+	membership := &mockMembershipService{}
 
 	c := newUserCreatedConsumer(&mockTxManager{}, inbox, membership, 0)
 	mockAck := &mockAcknowledger{}
@@ -146,12 +146,12 @@ func TestUserCreatedConsumer_HandleDelivery_DuplicateInbox_Acks(t *testing.T) {
 	body := makeUserCreatedBody(t)
 
 	inbox := &mockInboxService{
-		claimEventFunc: func(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
+		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 			return true, nil // duplicate — skip cleanly
 		},
 	}
 
-	membership := &mockMembershipRepository{}
+	membership := &mockMembershipService{}
 
 	c := newUserCreatedConsumer(&mockTxManager{}, inbox, membership, 0)
 	mockAck := &mockAcknowledger{}
@@ -174,12 +174,12 @@ func TestUserCreatedConsumer_HandleDelivery_InboxClaimError_Nacks(t *testing.T) 
 	inboxErr := errors.New("db connection lost")
 
 	inbox := &mockInboxService{
-		claimEventFunc: func(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
+		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 			return false, inboxErr
 		},
 	}
 
-	c := newUserCreatedConsumer(&mockTxManager{}, inbox, &mockMembershipRepository{}, 0)
+	c := newUserCreatedConsumer(&mockTxManager{}, inbox, &mockMembershipService{}, 0)
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 
@@ -197,11 +197,11 @@ func TestUserCreatedConsumer_HandleDelivery_MembershipError_Nacks(t *testing.T) 
 	svcErr := errors.New("membership upsert failed")
 
 	inbox := &mockInboxService{
-		claimEventFunc: func(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
+		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 			return false, nil
 		},
 	}
-	membership := &mockMembershipRepository{
+	membership := &mockMembershipService{
 		addMembershipFunc: func(ctx context.Context, userID, tenantID string) error {
 			return svcErr
 		},
@@ -224,11 +224,11 @@ func TestUserCreatedConsumer_HandleDelivery_MaxDeliveries_RoutesToDLQ(t *testing
 	body := makeUserCreatedBody(t)
 
 	inbox := &mockInboxService{
-		claimEventFunc: func(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
+		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 			return false, nil
 		},
 	}
-	membership := &mockMembershipRepository{
+	membership := &mockMembershipService{
 		addMembershipFunc: func(ctx context.Context, userID, tenantID string) error {
 			return errors.New("persistent failure")
 		},
@@ -258,11 +258,11 @@ func TestUserCreatedConsumer_HandleDelivery_BelowMaxDeliveries_Requeues(t *testi
 	body := makeUserCreatedBody(t)
 
 	inbox := &mockInboxService{
-		claimEventFunc: func(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
+		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 			return false, nil
 		},
 	}
-	membership := &mockMembershipRepository{
+	membership := &mockMembershipService{
 		addMembershipFunc: func(ctx context.Context, userID, tenantID string) error {
 			return errors.New("transient failure")
 		},
@@ -296,13 +296,13 @@ func TestUserCreatedConsumer_HandleDelivery_MisroutedRoutingKey_AcksAndDiscards(
 
 	inboxCalled := false
 	inbox := &mockInboxService{
-		claimEventFunc: func(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
+		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 			inboxCalled = true
 			return false, nil
 		},
 	}
 
-	membership := &mockMembershipRepository{}
+	membership := &mockMembershipService{}
 
 	c := newUserCreatedConsumer(&mockTxManager{}, inbox, membership, 0)
 	mockAck := &mockAcknowledger{}

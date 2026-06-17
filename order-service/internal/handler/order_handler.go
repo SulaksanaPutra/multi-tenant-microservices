@@ -12,7 +12,6 @@ import (
 	"order-service/internal/domain"
 	"order-service/internal/httputil"
 	"order-service/internal/infrastructure/tenantdb"
-	"order-service/internal/repository"
 	"order-service/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -53,6 +52,7 @@ type OrderService interface {
 }
 
 // OrderServiceFactory constructs an OrderService for a given tenant configuration.
+// It is supplied by the composition root so Layer 1 never constructs repositories.
 type OrderServiceFactory func(cfg tenantdb.Config) OrderService
 
 type OrderHandler struct {
@@ -61,10 +61,7 @@ type OrderHandler struct {
 
 func NewOrderHandler(factory OrderServiceFactory) *OrderHandler {
 	if factory == nil {
-		factory = func(cfg tenantdb.Config) OrderService {
-			orderRepository := repository.NewOrderRepository(cfg)
-			return service.NewOrderService(orderRepository)
-		}
+		panic("order handler: OrderServiceFactory is required — wire it in the composition root")
 	}
 	return &OrderHandler{
 		factory: factory,

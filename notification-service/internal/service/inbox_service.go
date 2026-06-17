@@ -8,6 +8,16 @@ import (
 	"notification-service/internal/repository"
 )
 
+// ClaimInboxInput is the Layer-2 service DTO used by Layer-1 consumers when
+// claiming an inbound event through the transactional inbox guard. It keeps
+// repository DTOs out of the consumer/handler layer.
+type ClaimInboxInput struct {
+	EventID   string
+	TenantID  string
+	EventType string
+	Payload   []byte
+}
+
 // InboxServiceRepository is the consumer-side interface expected by InboxService.
 type InboxServiceRepository interface {
 	TryInsert(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error)
@@ -31,7 +41,7 @@ func NewInboxService(inboxRepository InboxServiceRepository) *InboxService {
 // Returns (isDuplicate=true, nil) if the event_id was already processed — caller should skip cleanly.
 // Returns (false, nil) if the event is new and safe to process.
 // Returns (false, err) on infrastructure failure — caller should NACK for retry.
-func (s *InboxService) ClaimEvent(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
+func (s *InboxService) ClaimEvent(txCtx context.Context, input ClaimInboxInput) (bool, error) {
 	if input.EventID == "" {
 		return false, nil
 	}
@@ -40,7 +50,12 @@ func (s *InboxService) ClaimEvent(txCtx context.Context, input repository.Create
 			return false, fmt.Errorf("inbox service: failed to acquire tenant lock for tenant_id='%s': %w", input.TenantID, err)
 		}
 	}
-	isDuplicate, err := s.inboxRepository.TryInsert(txCtx, input)
+	isDuplicate, err := s.inboxRepository.TryInsert(txCtx, repository.CreateInboxMessageInput{
+		EventID:   input.EventID,
+		TenantID:  input.TenantID,
+		EventType: input.EventType,
+		Payload:   input.Payload,
+	})
 	if err != nil {
 		return false, fmt.Errorf("inbox service: failed to claim event_id='%s': %w", input.EventID, err)
 	}

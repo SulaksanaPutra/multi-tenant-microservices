@@ -7,7 +7,7 @@ import (
 
 	"notification-service/internal/domain"
 	"notification-service/internal/infrastructure/rabbitmq"
-	"notification-service/internal/repository"
+	"notification-service/internal/service"
 )
 
 func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
@@ -23,9 +23,9 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("success_claims_inbox_and_acks", func(t *testing.T) {
 		txManager := &mockTxManager{}
-		var claimedInput repository.CreateInboxMessageInput
+		var claimedInput service.ClaimInboxInput
 		inboxSvc := &mockInboxService{
-			claimEventFunc: func(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
+			claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 				claimedInput = input
 				return false, nil
 			},
@@ -57,7 +57,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 	t.Run("duplicate_event_is_skipped_and_acked", func(t *testing.T) {
 		txManager := &mockTxManager{}
 		inboxSvc := &mockInboxService{
-			claimEventFunc: func(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
+			claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 				return true, nil // duplicate
 			},
 		}
