@@ -9,7 +9,7 @@ import (
 
 	"notification-service/internal/domain"
 	"notification-service/internal/infrastructure/rabbitmq"
-	"notification-service/internal/repository"
+	"notification-service/internal/service"
 )
 
 type OrderCreatedConsumerParams struct {
@@ -138,7 +138,7 @@ func (c *OrderCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.De
 	log.Printf("OrderCreatedConsumer processing event_id='%s' for order_id='%s' tenant_id='%s'", evt.EventID, evt.OrderID, evt.TenantID)
 
 	err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-		inboxInput := repository.CreateInboxMessageInput{
+		inboxInput := service.ClaimInboxInput{
 			EventID:   evt.EventID,
 			TenantID:  evt.TenantID,
 			EventType: domain.RoutingKeyOrderCreated,

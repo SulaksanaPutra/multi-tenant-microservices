@@ -9,19 +9,36 @@ import (
 	"database/sql"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	_ "github.com/lib/pq"
+	"order-service/internal/domain"
 	"order-service/internal/handler"
 	"order-service/internal/infrastructure/tenantdb"
 	"order-service/internal/middleware"
+	"order-service/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
+
+// stubOrderService reproduces handler-observable service behaviour without a DB.
+type stubOrderService struct{}
+
+func (s *stubOrderService) ListOrders(ctx context.Context) ([]domain.Order, error) {
+	return nil, nil
+}
+
+func (s *stubOrderService) CreateOrder(ctx context.Context, input service.CreateOrderInput) (*domain.Order, error) {
+	if input.Amount <= 0 {
+		return nil, domain.ErrInvalidAmount
+	}
+	return nil, errors.New("no database in unit test")
+}
 
 // mockResolver implements middleware.Resolver for test use.
 type mockResolver struct {
@@ -90,7 +107,12 @@ func setupTestRouter(pubKeyPEM string, resolver middleware.Resolver) *gin.Engine
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 
-	orderHandler := handler.NewOrderHandler(nil)
+	// Stub factory avoids DB coupling in unit tests; CreateOrder's amount
+	// validation lives in the service, so a fake that rejects negative amounts
+	// reproduces the 400 path while the success path fails non-auth (no real DB).
+	orderHandler := handler.NewOrderHandler(func(cfg tenantdb.Config) handler.OrderService {
+		return &stubOrderService{}
+	})
 
 	api := r.Group("/api")
 	api.Use(middleware.RequireJWT(pubKeyPEM, resolver))

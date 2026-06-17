@@ -217,6 +217,45 @@ func (workspaceService *WorkspaceService) GetTenantByID(ctx context.Context, ten
 	return workspaceService.tenantRepository.GetTenantByID(ctx, tenantID)
 }
 
+// RollbackFailedMigration resets a tenant to ACTIVE after its infrastructure
+// migration failed and stages the tenant.infrastructure_changed broadcast to
+// unfreeze order-service replicas. It participates in the outer Unit-of-Work
+// passed via txCtx when invoked from a consumer transaction.
+func (workspaceService *WorkspaceService) RollbackFailedMigration(ctx context.Context, tenantID string) error {
+	if strings.TrimSpace(tenantID) == "" {
+		return domain.ErrTenantIDRequired
+	}
+
+	// 1. Reset tenant status back to ACTIVE
+	if err := workspaceService.tenantRepository.SetTenantStatus(ctx, tenantID, domain.StatusActive); err != nil {
+		return fmt.Errorf("workspace service: failed to set tenant status to active: %w", err)
+	}
+
+	// 2. Stage tenant.infrastructure_changed broadcast outbox message to unfreeze order-service replicas
+	infraChangedID := domain.GenerateOutboxID()
+	infraChangedEvt := domain.InfraChangedEvent{
+		EventID:  infraChangedID,
+		TenantID: tenantID,
+	}
+	icPayload, err := json.Marshal(infraChangedEvt)
+	if err != nil {
+		return fmt.Errorf("workspace service: failed to marshal InfraChanged payload: %w", err)
+	}
+
+	if err := workspaceService.outboxRepository.CreateOutboxMessage(ctx, repository.CreateOutboxMessageInput{
+		ID:            infraChangedID,
+		TenantID:      tenantID,
+		AggregateType: "WORKSPACE",
+		AggregateID:   tenantID,
+		EventType:     domain.RoutingKeyInfraChanged,
+		Payload:       icPayload,
+	}); err != nil {
+		return fmt.Errorf("workspace service: failed to stage InfraChanged event: %w", err)
+	}
+
+	return nil
+}
+
 func (workspaceService *WorkspaceService) UpdateTenant(ctx context.Context, input UpdateTenantServiceInput) error {
 	if strings.TrimSpace(input.TenantID) == "" {
 		return domain.ErrTenantIDRequired

@@ -99,7 +99,7 @@ func main() {
 	})
 
 	// 6. Register & Start Inbound Queue Consumers
-	cRunner, err := registerConsumers(txManager, rmqClient, tenantInfrastructureService, inboxService)
+	cRunner, err := registerConsumers(txManager, rmqClient, tenantInfrastructureService, inboxService, workspaceService)
 	if err != nil {
 		log.Fatalf("Failed to register consumers: %v", err)
 	}

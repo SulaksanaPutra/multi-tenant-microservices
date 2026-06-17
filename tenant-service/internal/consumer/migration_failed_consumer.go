@@ -9,44 +9,43 @@ import (
 
 	"tenant-service/internal/domain"
 	"tenant-service/internal/infrastructure/rabbitmq"
-	"tenant-service/internal/repository"
 )
 
 type MigrationFailedConsumerParams struct {
-	TxManager        TxManager
-	Client           *rabbitmq.Client
-	InboxService     InboxService
-	TenantRepository TenantRepository
-	OutboxRepository OutboxRepository
+	TxManager                TxManager
+	Client                   *rabbitmq.Client
+	InboxService             InboxService
+	MigrationRollbackService MigrationRollbackService
 }
 
-type TenantRepository interface {
-	SetTenantStatus(ctx context.Context, tenantID, status string) error
-}
-
-type OutboxRepository interface {
-	CreateOutboxMessage(ctx context.Context, input repository.CreateOutboxMessageInput) error
+// MigrationRollbackService is the consumer-side interface expected by
+// MigrationFailedConsumer. It exposes the business operation that resets a
+// tenant to ACTIVE and stages the unfreeze broadcast; the repository work is
+// owned by the Layer-2 service.
+type MigrationRollbackService interface {
+	RollbackFailedMigration(ctx context.Context, tenantID string) error
 }
 
 type MigrationFailedConsumer struct {
-	txManager        TxManager
-	client           *rabbitmq.Client
-	inboxService     InboxService
-	tenantRepository TenantRepository
-	outboxRepository OutboxRepository
+	txManager       TxManager
+	client          *rabbitmq.Client
+	inboxService    InboxService
+	rollbackService MigrationRollbackService
 }
 
 func NewMigrationFailedConsumer(params MigrationFailedConsumerParams) (*MigrationFailedConsumer, error) {
 	if params.InboxService == nil {
 		return nil, errors.New("inboxService is required")
 	}
+	if params.MigrationRollbackService == nil {
+		return nil, errors.New("migrationRollbackService is required")
+	}
 
 	consumer := &MigrationFailedConsumer{
-		txManager:        params.TxManager,
-		client:           params.Client,
-		inboxService:     params.InboxService,
-		tenantRepository: params.TenantRepository,
-		outboxRepository: params.OutboxRepository,
+		txManager:       params.TxManager,
+		client:          params.Client,
+		inboxService:    params.InboxService,
+		rollbackService: params.MigrationRollbackService,
 	}
 
 	if err := consumer.setupTopology(); err != nil {
@@ -152,31 +151,10 @@ func (c *MigrationFailedConsumer) handleDelivery(ctx context.Context, d rabbitmq
 			return nil
 		}
 
-		// 1. Reset tenant status back to ACTIVE
-		if err := c.tenantRepository.SetTenantStatus(txCtx, evt.TenantID, domain.StatusActive); err != nil {
-			return fmt.Errorf("failed to set tenant status to active: %w", err)
-		}
-
-		// 2. Stage tenant.infrastructure_changed broadcast outbox message to unfreeze order-service replicas
-		infraChangedID := domain.GenerateOutboxID()
-		infraChangedEvt := domain.InfraChangedEvent{
-			EventID:  infraChangedID,
-			TenantID: evt.TenantID,
-		}
-		icPayload, err := json.Marshal(infraChangedEvt)
-		if err != nil {
-			return fmt.Errorf("failed to marshal InfraChanged payload: %w", err)
-		}
-
-		if err := c.outboxRepository.CreateOutboxMessage(txCtx, repository.CreateOutboxMessageInput{
-			ID:            infraChangedID,
-			TenantID:      evt.TenantID,
-			AggregateType: "WORKSPACE",
-			AggregateID:   evt.TenantID,
-			EventType:     domain.RoutingKeyInfraChanged,
-			Payload:       icPayload,
-		}); err != nil {
-			return fmt.Errorf("failed to stage InfraChanged event: %w", err)
+		// Reset tenant status back to ACTIVE and stage the unfreeze broadcast
+		// (both owned by the Layer-2 service within the outer Unit-of-Work).
+		if err := c.rollbackService.RollbackFailedMigration(txCtx, evt.TenantID); err != nil {
+			return err
 		}
 
 		log.Printf("MigrationFailedConsumer: Successfully reset status to ACTIVE & staged InfraChanged for tenant='%s'", evt.TenantID)

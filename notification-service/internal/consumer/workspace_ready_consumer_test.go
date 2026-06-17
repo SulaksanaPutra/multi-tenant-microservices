@@ -8,7 +8,6 @@ import (
 
 	"notification-service/internal/domain"
 	"notification-service/internal/infrastructure/rabbitmq"
-	"notification-service/internal/repository"
 	"notification-service/internal/service"
 )
 
@@ -184,7 +183,7 @@ func TestWorkspaceReadyConsumer_HandleDelivery_NoEmailWhenBarrierNotMet(t *testi
 func TestWorkspaceReadyConsumer_HandleDelivery_MisroutedRoutingKey_AcksAndDiscards(t *testing.T) {
 	// Simulates a ghost AMQP binding delivering a user.created message to
 	// the notification_service_workspace_ready queue. The routing key guard must
-	// discard silently with Ack — no inbox write, no notification service call.
+	// discard silently with Ack  Eno inbox write, no notification service call.
 	body, _ := json.Marshal(domain.UserCreatedEvent{
 		EventID:  "evt-misrouted-2",
 		UserID:   "usr_999",
@@ -194,7 +193,7 @@ func TestWorkspaceReadyConsumer_HandleDelivery_MisroutedRoutingKey_AcksAndDiscar
 
 	inboxCalled := false
 	inbox := &mockInboxService{
-		claimEventFunc: func(txCtx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
+		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 			inboxCalled = true
 			return false, nil
 		},
