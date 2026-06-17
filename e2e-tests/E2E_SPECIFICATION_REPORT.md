@@ -2,7 +2,7 @@
 
 ## 1. Executive Summary
 
-This document serves as the authoritative technical test specification and architectural verification report for the multi-tenant microservices platform. The automated E2E test suite contained within this directory ([`e2e-tests`](./)) validates system-wide guarantees, including asynchronous control plane tenant registration, dynamic isolated database container orchestration, at-least-once message delivery idempotency, fanout cache invalidation, container crash resilience, horizontal scaling concurrency, outbox broker retry survival, sender-side outbox crash-window deduplication, singleflight cache stampede prevention, stateful session revocation, zero-trust internal endpoint boundaries, RBAC deny-path enforcement, token rotation/replay rejection, zero-trust token forgery rejection, and transactional database DDL rollbacks.
+This document serves as the authoritative technical test specification and architectural verification report for the multi-tenant microservices platform. The automated E2E test suite contained within this directory ([`e2e-tests`](./)) validates system-wide guarantees, including asynchronous control plane tenant registration, dynamic isolated database container orchestration, at-least-once message delivery idempotency, fanout cache invalidation, container crash resilience, horizontal scaling concurrency, outbox broker retry survival, sender-side outbox crash-window deduplication, singleflight cache stampede prevention, stateful session revocation, zero-trust internal endpoint boundaries, RBAC deny-path enforcement, token rotation/replay rejection, zero-trust token forgery rejection, transactional database DDL rollbacks, and — since the migrations-plan pipeline landed — the real plan-upgrade migration contract (distributed migration lock, HTTP 423 API shield, dedicated-container provisioning, cutover unfreeze), migration failure rollback saga compensation, and the order-created outbox dual-write plus consumer-side idempotency barrier.
 
 ---
 
@@ -414,6 +414,80 @@ This document serves as the authoritative technical test specification and archi
 
 ---
 
+### 3.30 Test Case TC-E2E-030: Real Plan Upgrade — Distributed Lock, Data Migration & Cutover Contract
+* **Test File**: [`./tc_e2e_030_plan_upgrade_migration_contract_e2e_test.go`](./tc_e2e_030_plan_upgrade_migration_contract_e2e_test.go)
+* **Objective**: Validate the REAL plan-upgrade migration contract (previously proposed, unimplemented, in old §5.1). `PUT /api/tenants/me/plan` (shared → dedicated) flips the tenant to `MIGRATING`, broadcasts `tenant.infrastructure_locking` to freeze all `order-service` replicas with HTTP 423 Locked, drives `infra-provisioner` to provision a dedicated container, and completes the cutover through `infrastructure.provisioned` → `tenant.order_db.ready` → ACTIVE + `tenant.infrastructure_changed` unfreeze with traffic routed to the dedicated container.
+* **Architectural Scope**: `tenant-service` (`ChangeTenantPlanMe`), `order-service` (`InfrastructureLockingConsumer`, `InfrastructureProvisionedConsumer`, `InfrastructureChangedConsumer`, `TenantDBResolver` 423 shield), `infra-provisioner` (`DockerProvisioner`, `SchemaMigrator`), Traefik Gateway.
+* **Failure Modes Guarded**: Schema-lock "lost write" window (data plane serving requests after the shared schema rename), zombie MIGRATING tenants after cutover, stale `shared_db` routing post-migration, false-pass rollback (migration failures must not masquerade as a successful cutover).
+* **Test Procedure**:
+  1. Register a shared tenant, await activation, provision credentials, login, seed one order.
+  2. Bind an exclusive anonymous queue to `tenant.infrastructure_locking`, `infrastructure.provisioned`, and `tenant.infrastructure_changed`.
+  3. Issue `PUT /api/tenants/me/plan` `{"plan":"dedicated"}`; assert HTTP 200 and poll `tenants.status` = `MIGRATING`.
+  4. Assert the `tenant.infrastructure_locking` broadcast is received.
+  5. During the MIGRATING window issue `POST /api/orders`: every in-window failure must be HTTP 423 Locked, and at least one 423 must be observed before cutover (bounded retry loop); any 5xx violates the no-lost-writes invariant.
+  6. Poll `tenant_manager_db` until `tenants.status` = `active`; assert the `infrastructure.provisioned` broadcast (success-path discriminator); assert the dedicated container `postgres-tenant-<id>` is running via `docker inspect`.
+  7. Assert the `tenant.infrastructure_changed` unfreeze broadcast is received.
+  8. Issue `GET /api/tenants/me` and assert `status: active` + `plan: dedicated` (frontend short-poll contract).
+  9. Assert `POST /api/orders` → HTTP 201 and `GET /api/orders` → HTTP 200 against the post-cutover dedicated routing.
+* **Expected Guarantee**: The full lock → migrate → cutover pipeline completes: data plane is frozen with 423 during MIGRATING, the migration succeeds (not rolled back), the tenant reactivates, unfreeze broadcasts propagate, and orders are served against the dedicated container.
+* **Operational Preconditions**:
+  - Requires `infra-provisioner` Docker socket access and a pullable `postgres:16-alpine` image (same requirement as TC-E2E-002).
+  - The 423 pick-up in step 5 is timing-dependent on the provisioning pipeline; a healthy environment yields a multi-second MIGRATING window.
+  - Must run serially (`-p 1`); the upgrade provisions a container and mutates shared broker/DB state.
+  - **Known environment caveat**: the `infra-provisioner` runtime image is distroless (no `pg_dump`/`psql`/`sed`), so `MigrateData` silently no-ops; this test asserts the migration contract, not pre-upgrade data survival (see §5.1).
+
+---
+
+### 3.31 Test Case TC-E2E-031: Order-Created Outbox Dual-Write & Consumer Idempotency Barrier (Phase 1)
+* **Test File**: [`./tc_e2e_031_order_created_outbox_idempotency_e2e_test.go`](./tc_e2e_031_order_created_outbox_idempotency_e2e_test.go)
+* **Objective**: Validate the Phase-1 outbox contract of the migration plan: (A) every order creation atomically stages an `order.created` outbox row inside the same transaction (as required by the injected `txcontext.DBExecutor` dual-write), and (B) the `notification-service` `OrderCreatedConsumer` enforces the mandatory `InboxRepository` idempotency barrier so duplicate at-least-once deliveries produce exactly one inbox record — the same guard required for every new consumer in the plan.
+* **Architectural Scope**: `order-service` (`OrderRepository.CreateOrder`, `{{SCHEMA_NAME}}.outbox`), `notification-service` (`OrderCreatedConsumer`, `notification_db.public.inbox`), RabbitMQ `company.events`.
+* **Failure Modes Guarded**: Partial dual-writes (order persisted without an outbox event), duplicate order-created side effects under RabbitMQ redelivery, phantom duplicate inbox records.
+* **Test Procedure**:
+  1. Register a shared tenant, activate, provision credentials, login.
+  2. Issue `POST /api/orders` and assert HTTP 201 Created.
+  3. Part A — read the `order.created` row from `shared_db.tenant_<id>_order_db.outbox` and assert it exists; poll up to 20s for the worker to drain it to `PUBLISHED` (conditional observation — see §5.6), and if published assert the downstream inbox claimed exactly one record.
+  4. Part B — publish the identical synthetic `order.created` event twice over `company.events` using the outbox row id as `event_id`.
+  5. Poll `notification_db.public.inbox` and assert exactly one record for that `event_id` with `event_type = 'order.created'`.
+* **Expected Guarantee**: The outbox dual-write is transactional and the consumer-side idempotency barrier (`ON CONFLICT (event_id) DO NOTHING`) traps duplicate `order.created` deliveries.
+* **Known environment caveat**: the sender-side `PUBLISHED` transition is conditional because the deployed `order-service` OutboxWorker currently polls a mismatched table (see §5.6). Parts A and B are asserted unconditionally.
+
+---
+
+### 3.32 Test Case TC-E2E-032: Distributed Migration Lock API Shield (HTTP 423) & Unfreeze
+* **Test File**: [`./tc_e2e_032_migration_lock_api_shield_e2e_test.go`](./tc_e2e_032_migration_lock_api_shield_e2e_test.go)
+* **Objective**: Deterministically validate Phase-2 of the migration plan: once `tenant.infrastructure_locking` marks a tenant MIGRATING in the in-memory `RoutingRegistry`, the data plane must refuse every request with HTTP 423 Locked (no traffic can touch the DB while the schema is being renamed/dumped), and the `tenant.infrastructure_changed` broadcast must unfreeze replicas so traffic resumes with freshly re-resolved routing metadata.
+* **Architectural Scope**: `order-service` (`InfrastructureLockingConsumer`, `RoutingRegistry`, `TenantDBResolver` → `jwt_middleware` 423 mapping), RabbitMQ fanout, Traefik Gateway.
+* **Failure Modes Guarded**: Requests leaking into the data plane during the schema-lock window (lost writes), replicas frozen forever after the lock clears (zombie locks).
+* **Test Procedure**:
+  1. Register a shared tenant, activate, provision credentials, login; assert a baseline `POST /api/orders` → HTTP 201.
+  2. Acquire the lock deterministically: set `tenants.status='MIGRATING'` and publish the real `tenant.infrastructure_locking` broadcast.
+  3. Poll until `POST /api/orders` returns HTTP 423 Locked; assert `GET /api/orders` also returns HTTP 423 (read + write shielded).
+  4. Publish the `tenant.infrastructure_changed` unfreeze broadcast.
+  5. Poll until `POST /api/orders` returns HTTP 201; assert `GET /api/orders` returns HTTP 200.
+  6. Restore `tenants.status='active'` (cleanup; the real cutover does this).
+* **Expected Guarantee**: The distributed lock shield deterministically rejects order traffic with 423 while MIGRATING, and the unfreeze broadcast deterministically restores traffic with re-resolved routing.
+* **Operational Preconditions**: Must run serially (`-p 1`); no Docker operations required (direct DB write + AMQP broadcast).
+
+---
+
+### 3.33 Test Case TC-E2E-033: Migration Failure Rollback Saga (`tenant.migration_failed`)
+* **Test File**: [`./tc_e2e_033_migration_failure_rollback_e2e_test.go`](./tc_e2e_033_migration_failure_rollback_e2e_test.go)
+* **Objective**: Validate the compensating rollback branch of the migration plan (Phase 3 warning + "Bulletproof" additions): a `tenant.migration_failed` event must (a) flip the tenant status back to `ACTIVE` via `RollbackFailedMigration` and (b) stage a `tenant.infrastructure_changed` unfreeze broadcast so order-service replicas purge the MIGRATING registry entry and resume traffic — no zombie lock state on the failure path.
+* **Architectural Scope**: `tenant-service` (`MigrationFailedConsumer`, `workspace_service.RollbackFailedMigration`), `order-service` (`InfrastructureLockingConsumer`, `InfrastructureChangedConsumer`), control plane DB (`public.tenants`), RabbitMQ.
+* **Failure Modes Guarded**: Zombie MIGRATING tenants after a failed migration, replicas frozen forever on the failure path (no compensating unfreeze).
+* **Test Procedure**:
+  1. Register a shared tenant, activate, provision credentials, login.
+  2. Acquire the lock deterministically (status `MIGRATING` + `tenant.infrastructure_locking` broadcast) and assert HTTP 423 on the data plane.
+  3. Publish a synthetic `tenant.migration_failed` event with the exact payload `infra-provisioner` emits on rollback (unique `event_id`, `tenant_id`, `reason`).
+  4. Poll `tenant_manager_db` until `tenants.status` = `active` (compensating action committed).
+  5. Assert the `tenant.infrastructure_changed` unfreeze broadcast is received on an exclusive queue.
+  6. Assert `POST /api/orders` → HTTP 201 and `GET /api/orders` → HTTP 200 (data plane unfrozen).
+* **Expected Guarantee**: The rollback saga restores the ACTIVE status, broadcasts the unfreeze, and the data plane resumes serving traffic end-to-end.
+* **Operational Preconditions**: Must run serially (`-p 1`); uses synthetic AMQP events + direct control-plane DB writes; no Docker operations required.
+
+---
+
 ## 4. Execution Procedures & Verification Commands
 
 To execute the full automated test suite against active local Docker infrastructure:
@@ -430,10 +504,11 @@ CGO_ENABLED=0 go test -v -p 1 -timeout 10m ./...
 
 ## 5. Known Architectural Limitations & Open Design Decisions
 
-The E2E suite surfaced three architectural behaviors that are either intentional trade-offs or incomplete features. They are documented here so the report reflects reality rather than aspiration:
+The E2E suite surfaced architectural behaviors that are either intentional trade-offs or incomplete features (including the migration-plan contract paths now covered by TC-E2E-030..033). They are documented here so the report reflects reality rather than aspiration:
 
-### 5.1 Tenant "Plan Upgrade" Is Metadata-Only (No Infrastructure Migration)
-`PUT /api/tenants/me/plan` only updates the `plan` column in `public.tenants` ([tenant_repository.go](../tenant-service/internal/repository/tenant_repository.go)). It does **not** publish `tenant.infrastructure_changed`, does not trigger `infra-provisioner` container orchestration, and does not migrate data from the shared schema to a dedicated container. **TC-E2E-021 therefore validates a DB column flip, not a true plan migration.** A real migration contract test (proposed TC-E2E-030) cannot pass until the feature is implemented. Decision required: implement real duality migration, or scope the documented behavior accordingly.
+### 5.1 Tenant "Plan Upgrade" Is Now a Real Migration Contract (Verified by TC-E2E-030)
+The plan-upgrade feature described in [`migrations-plan.md`](../migrations-plan.md) is implemented end-to-end: `PUT /api/tenants/me/plan` sets `tenants.status='MIGRATING'`, stages the `tenant.infrastructure_locking` broadcast (freezing `order-service` replicas with HTTP 423 via the `RoutingRegistry`), stages `workspace.initiated` for `infra-provisioner` (dedicated container provisioning + deterministic `ALTER SCHEMA ... RENAME TO ..._locked` lock), and completes the cutover through `infrastructure.provisioned` → `tenant.order_db.ready` → `ACTIVE` + `tenant.infrastructure_changed`. **TC-E2E-030 (§3.30) now validates this real migration contract** (lock → 423 shield → provisioned → cutover → unfreeze → dedicated routing), TC-E2E-032/033 validate the lock shield and rollback compensation deterministically, and §5.1's former "column flip only" limitation is resolved.
+Remaining data-preservation caveat: the `infra-provisioner` runtime image is **distroless** (`gcr.io/distroless/static-debian12`) and contains no `pg_dump`/`psql`/`sed`, so `SchemaMigrator.MigrateData` detects the missing binaries and returns `nil` (silent no-op). The deterministic schema-lock rename still executes (`tenant_<id>_order_db` → `tenant_<id>_order_db_locked`, left as deferred cleanup per the plan), but pre-upgrade data is NOT copied into the dedicated container. TC-E2E-030 therefore asserts the migration *contract* and post-cutover functionality, not legacy-data survival. Decision required: add PostgreSQL client tooling to the `infra-provisioner` image and extend TC-E2E-030 with a data-survival assertion (e.g. `GET /api/orders` must return the pre-upgrade order after cutover).
 
 ### 5.2 "Instant JWT Revocation" Has a 60-Second Cache Window
 `VersionCache` in downstream services ([jwt_middleware.go](../order-service/internal/middleware/jwt_middleware.go)) caches the user permission version for `ttl: 60s`. If a request succeeds with `perm_version = 1` *before* a role-permission bump, the cached entry keeps `1 <= 1` true for up to 60 seconds — a revoked token remains accepted during that window. **TC-E2E-017 validates the cold-cache path only.** Any claim of "instant revocation" must either accept this window or shorten/remove the TTL.
@@ -445,3 +520,10 @@ The E2E suite surfaced three architectural behaviors that are either intentional
 * The broker-outage test shipped as `tc_e2e_009_*` and is mapped to this report's TC-E2E-008/009 section.
 * TC-E2E-024 (`tc_e2e_024_*`) predates this report revision and is now documented in §3.23.
 * TC-E2E-019's mention of "forging `tenant_id` query/header parameters" is illustrative; the API derives tenant context strictly from JWT claims.
+* The migration-plan contract tests ship as `tc_e2e_030_*`–`tc_e2e_033_*` and are documented in §3.30–§3.33. TC-E2E-030 requires the same Docker-socket preconditions as TC-E2E-002; TC-E2E-031/032/033 are DB/AMQP-only.
+
+### 5.5 Migration Rollback Paths Verified But Not Fault-Injected
+TC-E2E-033 verifies the compensating rollback (`tenant.migration_failed` → status `ACTIVE` + `tenant.infrastructure_changed` unfreeze) by publishing the exact synthetic event `infra-provisioner` emits, and TC-E2E-030's success-path assertions (provisioned broadcast + running container) guarantee a rollback cannot masquerade as a successful cutover. The `ALTER SCHEMA` lock-timeout edge case itself (stuck transactions triggering `DestroyContainer` + `migration_failed`) is not fault-injected in the automated suite — it is exercised by unit tests in `infra-provisioner` and would require a transaction-holding harness to reproduce E2E.
+
+### 5.6 Order-Service OutboxWorker Table Wiring Gap (Sender-Side `order.created` Drain)
+`order-service/cmd/main.go` connects its `OutboxWorker` to the default `postgres` database (`dbname=postgres`, `SchemaName: "public"`), while `OrderRepository.CreateOrder` stages outbox rows transactionally into `shared_db.tenant_<id>_order_db.outbox` (shared plan) or `order_db.public.outbox` (dedicated plan). As wired, the worker polls a table that is never written, so the sender-side drain to `PUBLISHED` does not occur in a deployed environment. TC-E2E-031 (§3.31) therefore hard-asserts the dual-write and the consumer-side `InboxRepository` idempotency barrier — both independent of the worker wiring — and treats the `PUBLISHED` transition as a conditional observation that hard-asserts the full `order.created` loop once the worker's DSN/schema targets the tenant's outbox table. This matches the "(unfinished)" marker on the outbox-worker commit (`f76c898`).

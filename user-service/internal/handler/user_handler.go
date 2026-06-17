@@ -72,7 +72,6 @@ func (userHandler *UserHandler) ListUsers(c *gin.Context) {
 	httputil.WriteSuccess(c, http.StatusOK, "Users retrieved successfully", userResponses)
 }
 
-// GetMe returns the caller's full user profile keyed by the JWT subject claim.
 func (userHandler *UserHandler) GetMe(c *gin.Context) {
 	userID := c.GetString(middleware.ContextKeyUserID)
 	if userID == "" {
@@ -125,8 +124,6 @@ func (userHandler *UserHandler) UpdateMe(c *gin.Context) {
 		return
 	}
 
-	// Return the full, updated profile so clients can reset local state from
-	// the authoritative record.
 	user, err := userHandler.userService.GetUserByID(c.Request.Context(), userID)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, "failed to reload user profile after update: "+err.Error())
