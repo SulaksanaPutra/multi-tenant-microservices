@@ -15,8 +15,8 @@ import (
 )
 
 type UserService interface {
-	ListUsers(ctx context.Context, tenantID string) ([]domain.User, error)
-	GetUserByID(ctx context.Context, userID string) (*domain.User, error)
+	ListUsers(ctx context.Context, tenantID string) ([]service.UserOutput, error)
+	GetUserByID(ctx context.Context, userID string) (*service.UserOutput, error)
 	UpdateUser(ctx context.Context, input service.UpdateUserInput) error
 }
 
@@ -39,10 +39,10 @@ type ListUsersResponse struct {
 }
 
 type UpdateUserRequest struct {
-	Name string `json:"name" binding:"required, min=3, max=50"`
+	Name string `json:"name" binding:"required,min=3,max=50"`
 }
 
-func toUserResponse(u domain.User) ListUsersResponse {
+func toUserResponse(u service.UserOutput) ListUsersResponse {
 	return ListUsersResponse{
 		ID:        u.ID,
 		Email:     u.Email,

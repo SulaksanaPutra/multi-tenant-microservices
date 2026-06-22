@@ -8,17 +8,17 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"auth-service/internal/domain"
 	"auth-service/internal/httputil"
+	"auth-service/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
 type mockPermissionService struct {
-	ListPermissionsFn func(ctx context.Context) ([]domain.Permission, error)
+	ListPermissionsFn func(ctx context.Context) ([]service.PermissionOutput, error)
 }
 
-func (m *mockPermissionService) ListPermissions(ctx context.Context) ([]domain.Permission, error) {
+func (m *mockPermissionService) ListPermissions(ctx context.Context) ([]service.PermissionOutput, error) {
 	if m.ListPermissionsFn != nil {
 		return m.ListPermissionsFn(ctx)
 	}
@@ -33,7 +33,7 @@ func TestPermissionHandler_ListPermissions(t *testing.T) {
 		_, r := gin.CreateTestContext(w)
 
 		mockSvc := &mockPermissionService{
-			ListPermissionsFn: func(_ context.Context) ([]domain.Permission, error) {
+			ListPermissionsFn: func(_ context.Context) ([]service.PermissionOutput, error) {
 				return nil, errors.New("list failure")
 			},
 		}
@@ -52,8 +52,8 @@ func TestPermissionHandler_ListPermissions(t *testing.T) {
 		_, r := gin.CreateTestContext(w)
 
 		mockSvc := &mockPermissionService{
-			ListPermissionsFn: func(_ context.Context) ([]domain.Permission, error) {
-				return []domain.Permission{
+			ListPermissionsFn: func(_ context.Context) ([]service.PermissionOutput, error) {
+				return []service.PermissionOutput{
 					{ID: "p1", Name: "orders:read", Service: "order-service"},
 				}, nil
 			},

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"order-service/internal/domain"
 	"order-service/internal/infrastructure/tenantdb"
@@ -14,6 +15,28 @@ type CreateOrderInput struct {
 	CustomerID string
 	Amount     float64
 	Status     string
+}
+
+type OrderOutput struct {
+	ID         string
+	TenantID   string
+	CustomerID string
+	Status     string
+	Amount     float64
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+func toOrderOutput(o domain.Order) OrderOutput {
+	return OrderOutput{
+		ID:         o.ID,
+		TenantID:   o.TenantID,
+		CustomerID: o.CustomerID,
+		Status:     o.Status,
+		Amount:     o.Amount,
+		CreatedAt:  o.CreatedAt,
+		UpdatedAt:  o.UpdatedAt,
+	}
 }
 
 // OrderRepository is the consumer-side interface expected by OrderService.
@@ -32,11 +55,19 @@ func NewOrderService(orderRepository OrderRepository) *OrderService {
 	}
 }
 
-func (s *OrderService) ListOrders(ctx context.Context) ([]domain.Order, error) {
-	return s.orderRepository.ListOrders(ctx)
+func (s *OrderService) ListOrders(ctx context.Context) ([]OrderOutput, error) {
+	orders, err := s.orderRepository.ListOrders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	outputs := make([]OrderOutput, len(orders))
+	for i, o := range orders {
+		outputs[i] = toOrderOutput(o)
+	}
+	return outputs, nil
 }
 
-func (s *OrderService) CreateOrder(ctx context.Context, input CreateOrderInput) (*domain.Order, error) {
+func (s *OrderService) CreateOrder(ctx context.Context, input CreateOrderInput) (*OrderOutput, error) {
 	tenantID := input.TenantID
 	if tenantID == "" {
 		if tID, ok := ctx.Value("tenantID").(string); ok && tID != "" {
@@ -81,5 +112,6 @@ func (s *OrderService) CreateOrder(ctx context.Context, input CreateOrderInput) 
 		return nil, fmt.Errorf("order service: failed to create order: %w", err)
 	}
 
-	return &order, nil
+	output := toOrderOutput(order)
+	return &output, nil
 }

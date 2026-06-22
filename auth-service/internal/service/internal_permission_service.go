@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"time"
 
 	"auth-service/internal/domain"
 	"auth-service/internal/repository"
@@ -13,6 +14,26 @@ import (
 type PermissionRepository interface {
 	BulkUpsertPermissions(ctx context.Context, serviceName string, items []repository.RegisterPermissionItem) error
 	ListAllPermissions(ctx context.Context) ([]domain.Permission, error)
+}
+
+type PermissionOutput struct {
+	ID          string
+	Name        string
+	Service     string
+	Description string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+func toPermissionOutput(p domain.Permission) PermissionOutput {
+	return PermissionOutput{
+		ID:          p.ID,
+		Name:        p.Name,
+		Service:     p.Service,
+		Description: p.Description,
+		CreatedAt:   p.CreatedAt,
+		UpdatedAt:   p.UpdatedAt,
+	}
 }
 
 type InternalRegisterPermissionItem struct {
@@ -61,8 +82,16 @@ func (s *InternalPermissionService) RegisterPermissions(ctx context.Context, inp
 	return nil
 }
 
-func (s *InternalPermissionService) ListPermissions(ctx context.Context) ([]domain.Permission, error) {
-	return s.permissionRepository.ListAllPermissions(ctx)
+func (s *InternalPermissionService) ListPermissions(ctx context.Context) ([]PermissionOutput, error) {
+	permissions, err := s.permissionRepository.ListAllPermissions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	outputs := make([]PermissionOutput, len(permissions))
+	for i, p := range permissions {
+		outputs[i] = toPermissionOutput(p)
+	}
+	return outputs, nil
 }
 
 func (s *InternalPermissionService) GetUserPermissionVersion(ctx context.Context, userID, tenantID string) (int64, error) {

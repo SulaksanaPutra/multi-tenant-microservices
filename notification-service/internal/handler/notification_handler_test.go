@@ -7,16 +7,16 @@ import (
 	"testing"
 	"time"
 
-	"notification-service/internal/domain"
+	"notification-service/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
 type mockNotificationService struct {
-	listNotificationsFn func(ctx context.Context, tenantID string) ([]domain.NotificationLog, error)
+	listNotificationsFn func(ctx context.Context, tenantID string) ([]service.NotificationLogOutput, error)
 }
 
-func (m *mockNotificationService) ListNotifications(ctx context.Context, tenantID string) ([]domain.NotificationLog, error) {
+func (m *mockNotificationService) ListNotifications(ctx context.Context, tenantID string) ([]service.NotificationLogOutput, error) {
 	if m.listNotificationsFn != nil {
 		return m.listNotificationsFn(ctx, tenantID)
 	}
@@ -27,13 +27,13 @@ func TestNotificationHandler_ListNotifications(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	mockSvc := &mockNotificationService{
-		listNotificationsFn: func(ctx context.Context, tenantID string) ([]domain.NotificationLog, error) {
+		listNotificationsFn: func(ctx context.Context, tenantID string) ([]service.NotificationLogOutput, error) {
 			if tenantID != "ten_test123" {
 				t.Fatalf("expected tenantID 'ten_test123', got '%s'", tenantID)
 			}
-			return []domain.NotificationLog{
+			return []service.NotificationLogOutput{
 				{
-					ID:             1,
+					ID:             "ntf_1",
 					UserID:         "usr_123",
 					TenantID:       "ten_test123",
 					RecipientEmail: "user@example.com",

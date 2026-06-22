@@ -333,6 +333,29 @@ addRegexCheck({
     'repo write method accepts a raw `domain.*` struct — define an `{Action}{Entity}Input` DTO instead',
 });
 
+// Rule 6.1 — service methods must return {UseCase}Output DTOs, not raw domain entities.
+// Matches service methods whose (first) return type references a `domain.*` entity
+// directly (value, pointer, or slice). Consumer-side repository interfaces in the
+// service package are `type ... interface` declarations, not `func`s, so they are
+// correctly exempt — repositories legitimately return domain entities.
+addRegexCheck({
+  id: 'service-returns-domain',
+  rule: '6.1',
+  name: 'Service methods must return {UseCase}Output DTOs, not domain entities',
+  scope: (rel) => /\/service\//.test(rel),
+  exclude: (rel) =>
+    /_test\.go$/.test(rel) ||
+    /order-service\/internal\/service\/migration_service/.test(rel) ||
+    // InboxService.GetBarrierEvents is a Layer-1 infrastructure accessor (event
+    // inbox barrier read). By design it returns the raw []domain.InboxMessage rows
+    // as data fed into the business service (see Rule 7.2 / event inbox pattern),
+    // not a handler-facing use-case Output. Exempting it mirrors migration_service.
+    /notification-service\/internal\/service\/inbox_service/.test(rel),
+  regex: /\bfunc\s+(?:\([^)]*\)\s*)?[A-Z]\w*\s*\([^)]*\)\s*\(?\s*(?:\[\s*\]|\*)?\s*domain\.\w+/,
+  message: () =>
+    'service method returns a raw `domain.*` entity — expose a `{UseCase}Output` DTO instead and map it in the handler layer',
+});
+
 // Rule 6.1 — service DTOs must not carry JSON tags.
 addRegexCheck({
   id: 'json-tag-in-service',

@@ -8,19 +8,18 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"tenant-service/internal/domain"
 	"tenant-service/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
 type mockTenantService struct {
-	getTenantByIDFn    func(ctx context.Context, tenantID string) (*domain.Tenant, error)
+	getTenantByIDFn    func(ctx context.Context, tenantID string) (*service.TenantOutput, error)
 	updateTenantFn     func(ctx context.Context, input service.UpdateTenantServiceInput) error
 	changeTenantPlanFn func(ctx context.Context, input service.ChangeTenantPlanInput) error
 }
 
-func (m *mockTenantService) GetTenantByID(ctx context.Context, tenantID string) (*domain.Tenant, error) {
+func (m *mockTenantService) GetTenantByID(ctx context.Context, tenantID string) (*service.TenantOutput, error) {
 	if m.getTenantByIDFn != nil {
 		return m.getTenantByIDFn(ctx, tenantID)
 	}
@@ -56,8 +55,8 @@ func setupTenantTestRouter(tenantHandler *TenantHandler) *gin.Engine {
 
 func TestTenantHandler_GetTenantMe(t *testing.T) {
 	mockSvc := &mockTenantService{
-		getTenantByIDFn: func(ctx context.Context, tenantID string) (*domain.Tenant, error) {
-			return &domain.Tenant{
+		getTenantByIDFn: func(ctx context.Context, tenantID string) (*service.TenantOutput, error) {
+			return &service.TenantOutput{
 				ID:         tenantID,
 				Name:       "Acme Corp",
 				Slug:       "acme-corp",
@@ -103,8 +102,8 @@ func TestTenantHandler_GetTenantMe(t *testing.T) {
 func TestTenantHandler_UpdateTenantMe(t *testing.T) {
 	updated := false
 	mockSvc := &mockTenantService{
-		getTenantByIDFn: func(ctx context.Context, tenantID string) (*domain.Tenant, error) {
-			return &domain.Tenant{
+		getTenantByIDFn: func(ctx context.Context, tenantID string) (*service.TenantOutput, error) {
+			return &service.TenantOutput{
 				ID:         "ten_test123",
 				Name:       "New Acme",
 				Slug:       "new-acme",
@@ -144,8 +143,8 @@ func TestTenantHandler_UpdateTenantMe(t *testing.T) {
 func TestTenantHandler_UpdateTenantMe_OwnerFieldsOptional(t *testing.T) {
 	updated := false
 	mockSvc := &mockTenantService{
-		getTenantByIDFn: func(ctx context.Context, tenantID string) (*domain.Tenant, error) {
-			return &domain.Tenant{
+		getTenantByIDFn: func(ctx context.Context, tenantID string) (*service.TenantOutput, error) {
+			return &service.TenantOutput{
 				ID:         "ten_test123",
 				Name:       "New Acme",
 				Slug:       "new-acme",

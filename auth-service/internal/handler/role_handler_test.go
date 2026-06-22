@@ -17,31 +17,31 @@ import (
 )
 
 type mockRoleService struct {
-	CreateRoleFn             func(ctx context.Context, input service.CreateRoleInput) (*domain.Role, error)
-	GetRoleFn                func(ctx context.Context, roleID string) (*domain.Role, error)
-	ListRolesForTenantFn     func(ctx context.Context, tenantID string) ([]domain.Role, error)
+	CreateRoleFn             func(ctx context.Context, input service.CreateRoleInput) (*service.RoleOutput, error)
+	GetRoleFn                func(ctx context.Context, roleID string) (*service.RoleOutput, error)
+	ListRolesForTenantFn     func(ctx context.Context, tenantID string) ([]service.RoleOutput, error)
 	UpdateRolePermissionsFn  func(ctx context.Context, input service.UpdateRolePermissionsInput) error
 	DeleteRoleFn             func(ctx context.Context, roleID string) error
 	AssignUserRoleFn         func(ctx context.Context, input service.AssignUserRoleInput) error
-	GetUserRoleFn            func(ctx context.Context, userID, tenantID string) (*domain.UserRole, error)
+	GetUserRoleFn            func(ctx context.Context, userID, tenantID string) (*service.UserRoleOutput, error)
 	ListUserRolesForTenantFn func(ctx context.Context, tenantID string, userIDs []string) ([]service.UserRoleAssignmentOutput, error)
 }
 
-func (m *mockRoleService) CreateRole(ctx context.Context, input service.CreateRoleInput) (*domain.Role, error) {
+func (m *mockRoleService) CreateRole(ctx context.Context, input service.CreateRoleInput) (*service.RoleOutput, error) {
 	if m.CreateRoleFn != nil {
 		return m.CreateRoleFn(ctx, input)
 	}
-	return &domain.Role{ID: "role_1", Name: input.Name}, nil
+	return &service.RoleOutput{ID: "role_1", Name: input.Name}, nil
 }
 
-func (m *mockRoleService) GetRole(ctx context.Context, roleID string) (*domain.Role, error) {
+func (m *mockRoleService) GetRole(ctx context.Context, roleID string) (*service.RoleOutput, error) {
 	if m.GetRoleFn != nil {
 		return m.GetRoleFn(ctx, roleID)
 	}
-	return &domain.Role{ID: roleID, Name: "role_name"}, nil
+	return &service.RoleOutput{ID: roleID, Name: "role_name"}, nil
 }
 
-func (m *mockRoleService) ListRolesForTenant(ctx context.Context, tenantID string) ([]domain.Role, error) {
+func (m *mockRoleService) ListRolesForTenant(ctx context.Context, tenantID string) ([]service.RoleOutput, error) {
 	if m.ListRolesForTenantFn != nil {
 		return m.ListRolesForTenantFn(ctx, tenantID)
 	}
@@ -69,11 +69,11 @@ func (m *mockRoleService) AssignUserRole(ctx context.Context, input service.Assi
 	return nil
 }
 
-func (m *mockRoleService) GetUserRole(ctx context.Context, userID, tenantID string) (*domain.UserRole, error) {
+func (m *mockRoleService) GetUserRole(ctx context.Context, userID, tenantID string) (*service.UserRoleOutput, error) {
 	if m.GetUserRoleFn != nil {
 		return m.GetUserRoleFn(ctx, userID, tenantID)
 	}
-	return &domain.UserRole{UserID: userID, TenantID: tenantID, RoleID: "role_1"}, nil
+	return &service.UserRoleOutput{UserID: userID, TenantID: tenantID, RoleID: "role_1"}, nil
 }
 
 func (m *mockRoleService) ListUserRolesForTenant(ctx context.Context, tenantID string, userIDs []string) ([]service.UserRoleAssignmentOutput, error) {
@@ -109,7 +109,7 @@ func TestRoleHandler_CreateRole(t *testing.T) {
 		_, r := gin.CreateTestContext(w)
 
 		mockSvc := &mockRoleService{
-			CreateRoleFn: func(_ context.Context, _ service.CreateRoleInput) (*domain.Role, error) {
+			CreateRoleFn: func(_ context.Context, _ service.CreateRoleInput) (*service.RoleOutput, error) {
 				return nil, domain.ErrRoleAlreadyExists
 			},
 		}
@@ -132,8 +132,8 @@ func TestRoleHandler_CreateRole(t *testing.T) {
 		_, r := gin.CreateTestContext(w)
 
 		mockSvc := &mockRoleService{
-			CreateRoleFn: func(_ context.Context, input service.CreateRoleInput) (*domain.Role, error) {
-				return &domain.Role{ID: "role_123", Name: input.Name}, nil
+			CreateRoleFn: func(_ context.Context, input service.CreateRoleInput) (*service.RoleOutput, error) {
+				return &service.RoleOutput{ID: "role_123", Name: input.Name}, nil
 			},
 		}
 		h := NewRoleHandler(mockSvc)
@@ -170,7 +170,7 @@ func TestRoleHandler_GetRole(t *testing.T) {
 		_, r := gin.CreateTestContext(w)
 
 		mockSvc := &mockRoleService{
-			GetRoleFn: func(_ context.Context, _ string) (*domain.Role, error) {
+			GetRoleFn: func(_ context.Context, _ string) (*service.RoleOutput, error) {
 				return nil, domain.ErrRoleNotFound
 			},
 		}
@@ -189,8 +189,8 @@ func TestRoleHandler_GetRole(t *testing.T) {
 		_, r := gin.CreateTestContext(w)
 
 		mockSvc := &mockRoleService{
-			GetRoleFn: func(_ context.Context, roleID string) (*domain.Role, error) {
-				return &domain.Role{ID: roleID, Name: "manager"}, nil
+			GetRoleFn: func(_ context.Context, roleID string) (*service.RoleOutput, error) {
+				return &service.RoleOutput{ID: roleID, Name: "manager"}, nil
 			},
 		}
 		h := NewRoleHandler(mockSvc)

@@ -5,14 +5,14 @@ import (
 	"net/http"
 	"time"
 
-	"auth-service/internal/domain"
 	"auth-service/internal/httputil"
+	"auth-service/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
 type PermissionService interface {
-	ListPermissions(ctx context.Context) ([]domain.Permission, error)
+	ListPermissions(ctx context.Context) ([]service.PermissionOutput, error)
 }
 
 // PermissionResponse is the transport DTO for a permission catalog entry.
@@ -33,7 +33,7 @@ func NewPermissionHandler(permissionService PermissionService) *PermissionHandle
 	return &PermissionHandler{permissionService: permissionService}
 }
 
-func toPermissionResponse(permission domain.Permission) PermissionResponse {
+func toPermissionResponse(permission service.PermissionOutput) PermissionResponse {
 	return PermissionResponse{
 		ID:          permission.ID,
 		Name:        permission.Name,

@@ -73,11 +73,15 @@ func (m *mockOutboxRepository) MarkPublished(ctx context.Context, id string) err
 }
 
 type mockTenantPublisher struct {
-	mu                            sync.Mutex
-	publishWorkspaceInitiatedFunc func(ctx context.Context, evt domain.WorkspaceInitiatedEvent) error
-	publishWorkspaceReadyFunc     func(ctx context.Context, evt domain.WorkspaceReadyEvent) error
-	publishedInitiatedEvents      []domain.WorkspaceInitiatedEvent
-	publishedReadyEvents          []domain.WorkspaceReadyEvent
+	mu                               sync.Mutex
+	publishWorkspaceInitiatedFunc    func(ctx context.Context, evt domain.WorkspaceInitiatedEvent) error
+	publishWorkspaceReadyFunc        func(ctx context.Context, evt domain.WorkspaceReadyEvent) error
+	publishInfrastructureLockingFunc func(ctx context.Context, evt domain.InfrastructureLockingEvent) error
+	publishInfraChangedFunc          func(ctx context.Context, evt domain.InfraChangedEvent) error
+	publishMigrationFailedFunc       func(ctx context.Context, evt domain.TenantMigrationFailedEvent) error
+	publishedInitiatedEvents         []domain.WorkspaceInitiatedEvent
+	publishedReadyEvents             []domain.WorkspaceReadyEvent
+	publishedInfraChangedEvents      []domain.InfraChangedEvent
 }
 
 func (m *mockTenantPublisher) PublishWorkspaceInitiated(ctx context.Context, evt domain.WorkspaceInitiatedEvent) error {
@@ -98,6 +102,31 @@ func (m *mockTenantPublisher) PublishWorkspaceReady(ctx context.Context, evt dom
 
 	if m.publishWorkspaceReadyFunc != nil {
 		return m.publishWorkspaceReadyFunc(ctx, evt)
+	}
+	return nil
+}
+
+func (m *mockTenantPublisher) PublishInfraChanged(ctx context.Context, evt domain.InfraChangedEvent) error {
+	m.mu.Lock()
+	m.publishedInfraChangedEvents = append(m.publishedInfraChangedEvents, evt)
+	m.mu.Unlock()
+
+	if m.publishInfraChangedFunc != nil {
+		return m.publishInfraChangedFunc(ctx, evt)
+	}
+	return nil
+}
+
+func (m *mockTenantPublisher) PublishInfrastructureLocking(ctx context.Context, evt domain.InfrastructureLockingEvent) error {
+	if m.publishInfrastructureLockingFunc != nil {
+		return m.publishInfrastructureLockingFunc(ctx, evt)
+	}
+	return nil
+}
+
+func (m *mockTenantPublisher) PublishMigrationFailed(ctx context.Context, evt domain.TenantMigrationFailedEvent) error {
+	if m.publishMigrationFailedFunc != nil {
+		return m.publishMigrationFailedFunc(ctx, evt)
 	}
 	return nil
 }

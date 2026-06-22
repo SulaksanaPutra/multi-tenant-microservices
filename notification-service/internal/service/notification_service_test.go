@@ -330,12 +330,14 @@ func TestProcessEventAndTrySendWelcome_TenantInfoFallback(t *testing.T) {
 
 func TestNotificationService_ListNotifications(t *testing.T) {
 	t.Run("returns notifications list", func(t *testing.T) {
-		expectedLogs := []domain.NotificationLog{
+		expectedLogs := []NotificationLogOutput{
 			{ID: "ntf_1", TenantID: "t-1", RecipientEmail: "a@b.com"},
 		}
 		notifRepo := &mockNotificationRepo{
 			listNotificationsFunc: func(ctx context.Context, tenantID string) ([]domain.NotificationLog, error) {
-				return expectedLogs, nil
+				return []domain.NotificationLog{
+					{ID: "ntf_1", TenantID: "t-1", RecipientEmail: "a@b.com"},
+				}, nil
 			},
 		}
 		svc := NewNotificationService(notifRepo)
