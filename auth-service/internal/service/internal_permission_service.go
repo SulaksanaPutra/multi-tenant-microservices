@@ -15,9 +15,6 @@ type PermissionRepository interface {
 	ListAllPermissions(ctx context.Context) ([]domain.Permission, error)
 }
 
-// InternalRegisterPermissionItem is the service-level DTO for a single
-// permission registration entry. It decouples the handler and service layers
-// from the repository's persistence DTO.
 type InternalRegisterPermissionItem struct {
 	Name        string
 	Description string

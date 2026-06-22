@@ -25,11 +25,11 @@ type InternalCreateSetupTokenResponse struct {
 }
 
 type InternalAuthHandler struct {
-	authService InternalAuthAppService
+	internalAuthAppService InternalAuthAppService
 }
 
-func NewInternalAuthHandler(authService InternalAuthAppService) *InternalAuthHandler {
-	return &InternalAuthHandler{authService: authService}
+func NewInternalAuthHandler(internalAuthAppService InternalAuthAppService) *InternalAuthHandler {
+	return &InternalAuthHandler{internalAuthAppService: internalAuthAppService}
 }
 
 func (h *InternalAuthHandler) CreateSetupToken(c *gin.Context) {
@@ -39,7 +39,7 @@ func (h *InternalAuthHandler) CreateSetupToken(c *gin.Context) {
 		return
 	}
 
-	token, err := h.authService.CreatePasswordSetupToken(c.Request.Context(), service.InternalCreateSetupTokenInput{
+	token, err := h.internalAuthAppService.CreatePasswordSetupToken(c.Request.Context(), service.InternalCreateSetupTokenInput{
 		UserID:   req.UserID,
 		TenantID: req.TenantID,
 		Email:    req.Email,

@@ -40,9 +40,6 @@ type WorkspaceInfo struct {
 	TenantID string `json:"tenant_id"`
 }
 
-// LoginResponse is the transport DTO for authentication responses. For the
-// multi-workspace flow it carries RequiresWorkspace instead of a nested status
-// value so it cannot collide with the envelope's status field.
 type LoginResponse struct {
 	RequiresWorkspace bool            `json:"requires_workspace,omitempty"`
 	ExchangeToken     string          `json:"exchange_token,omitempty"`
@@ -130,9 +127,9 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	if res.Status == domain.LoginStatusSelectWorkspace {
 		workspaceResponses := make([]WorkspaceInfo, 0, len(res.Workspaces))
 		for _, ws := range res.Workspaces {
-workspaceResponses = append(workspaceResponses, WorkspaceInfo{
-			TenantID: ws.TenantID,
-		})
+			workspaceResponses = append(workspaceResponses, WorkspaceInfo{
+				TenantID: ws.TenantID,
+			})
 		}
 		httputil.WriteSuccess(c, http.StatusOK, "Multiple workspace accounts found. Please select a workspace.", LoginResponse{
 			RequiresWorkspace: true,

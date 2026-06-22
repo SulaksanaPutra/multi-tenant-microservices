@@ -39,7 +39,7 @@ type ListUsersResponse struct {
 }
 
 type UpdateUserRequest struct {
-	Name string `json:"name" binding:"required"`
+	Name string `json:"name" binding:"required, min=3, max=50"`
 }
 
 func toUserResponse(u domain.User) ListUsersResponse {

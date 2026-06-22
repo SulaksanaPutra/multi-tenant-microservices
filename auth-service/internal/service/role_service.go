@@ -43,8 +43,6 @@ type AssignUserRoleInput struct {
 	AssignedBy *string
 }
 
-// UserRoleAssignmentOutput is the transport-agnostic projection of a single
-// role assignment row within a tenant, used to compose "users + roles" tables.
 type UserRoleAssignmentOutput struct {
 	UserID   string
 	RoleID   string
@@ -188,9 +186,6 @@ func (s *RoleService) GetUserRole(ctx context.Context, userID, tenantID string) 
 	return s.roleRepository.FindUserRole(ctx, userID, tenantID)
 }
 
-// ListUserRolesForTenant returns role assignments for the given user IDs within
-// a single tenant. Scope is enforced by the underlying query (tenant_id match),
-// so callers can only receive assignments belonging to the supplied tenant.
 func (s *RoleService) ListUserRolesForTenant(ctx context.Context, tenantID string, userIDs []string) ([]UserRoleAssignmentOutput, error) {
 	if tenantID == "" {
 		return nil, domain.ErrTenantIDRequired

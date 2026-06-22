@@ -81,8 +81,8 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 		}
 
 		c := &WorkspaceInitiatedConsumer{
-			publisher:    pub,
-			sharedDBHost: "postgres-shared-host",
+			infrastructureEventPublisher: pub,
+			sharedDBHost:                 "postgres-shared-host",
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -122,10 +122,10 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 		}
 
 		c := &WorkspaceInitiatedConsumer{
-			publisher:         pub,
-			provisioner:       prov,
-			infraMasterSecret: "master_secret",
-			domainSecrets:     map[string]string{"order_db": "secret_key"},
+			infrastructureEventPublisher: pub,
+			provisioner:                  prov,
+			infraMasterSecret:            "master_secret",
+			domainSecrets:                map[string]string{"order_db": "secret_key"},
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -159,7 +159,7 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 		bodyUnknown, _ := json.Marshal(evtUnknown)
 
 		c := &WorkspaceInitiatedConsumer{
-			publisher: &mockInfrastructureEventPublisher{},
+			infrastructureEventPublisher: &mockInfrastructureEventPublisher{},
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -189,8 +189,8 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 		}
 
 		c := &WorkspaceInitiatedConsumer{
-			publisher:   &mockInfrastructureEventPublisher{},
-			provisioner: prov,
+			infrastructureEventPublisher: &mockInfrastructureEventPublisher{},
+			provisioner:                  prov,
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -220,8 +220,8 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 		}
 
 		c := &WorkspaceInitiatedConsumer{
-			publisher:    pub,
-			sharedDBHost: "postgres-shared-host",
+			infrastructureEventPublisher: pub,
+			sharedDBHost:                 "postgres-shared-host",
 		}
 
 		mockAck := &mockAcknowledger{}
