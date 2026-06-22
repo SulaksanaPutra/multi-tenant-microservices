@@ -38,9 +38,9 @@ func TestMigrationFailedConsumer_HandleDelivery(t *testing.T) {
 		rollbackService := &mockMigrationRollbackService{}
 
 		c := &MigrationFailedConsumer{
-			txManager:    txManager,
-			inboxService: inboxService,
-			rollbackService:  rollbackService,
+			txManager:                txManager,
+			inboxService:             inboxService,
+			migrationRollbackService: rollbackService,
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -73,9 +73,9 @@ func TestMigrationFailedConsumer_HandleDelivery(t *testing.T) {
 		rollbackService := &mockMigrationRollbackService{}
 
 		c := &MigrationFailedConsumer{
-			txManager:    txManager,
-			inboxService: inboxService,
-			rollbackService:  rollbackService,
+			txManager:                txManager,
+			inboxService:             inboxService,
+			migrationRollbackService: rollbackService,
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -129,7 +129,7 @@ func TestMigrationFailedConsumer_HandleDelivery(t *testing.T) {
 					return false, nil
 				},
 			},
-			rollbackService: &mockMigrationRollbackService{},
+			migrationRollbackService: &mockMigrationRollbackService{},
 		}
 
 		mockAck := &mockAcknowledger{}

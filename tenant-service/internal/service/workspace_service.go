@@ -355,4 +355,3 @@ func (workspaceService *WorkspaceService) ChangeTenantPlan(ctx context.Context, 
 
 	return nil
 }
-}

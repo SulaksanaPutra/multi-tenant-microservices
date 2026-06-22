@@ -61,14 +61,14 @@ func main() {
 	sharedDBPass := getEnv("SHARED_DB_PASSWORD", getEnv("DB_PASSWORD", "postgres"))
 
 	wiConsumer, err := consumer.NewWorkspaceInitiatedConsumer(consumer.Params{
-		Client:            rmqClient,
-		Publisher:         infraPub,
-		Provisioner:       dockerProv,
-		Migrator:          schemaMigrator,
-		InfraMasterSecret: infraMasterSecret,
-		DomainSecrets:     domainSecrets,
-		SharedDBHost:      sharedDBHost,
-		SharedDBPass:      sharedDBPass,
+		Client:                     rmqClient,
+		InfrastructureEventHandler: infraPub,
+		Provisioner:                dockerProv,
+		Migrator:                   schemaMigrator,
+		InfraMasterSecret:          infraMasterSecret,
+		DomainSecrets:              domainSecrets,
+		SharedDBHost:               sharedDBHost,
+		SharedDBPass:               sharedDBPass,
 	})
 	if err != nil {
 		log.Fatalf("Failed to initialize WorkspaceInitiated consumer: %v", err)

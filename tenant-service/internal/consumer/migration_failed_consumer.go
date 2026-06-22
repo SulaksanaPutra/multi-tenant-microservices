@@ -27,10 +27,10 @@ type MigrationRollbackService interface {
 }
 
 type MigrationFailedConsumer struct {
-	txManager       TxManager
-	client          *rabbitmq.Client
-	inboxService    InboxService
-	rollbackService MigrationRollbackService
+	txManager                TxManager
+	client                   *rabbitmq.Client
+	inboxService             InboxService
+	migrationRollbackService MigrationRollbackService
 }
 
 func NewMigrationFailedConsumer(params MigrationFailedConsumerParams) (*MigrationFailedConsumer, error) {
@@ -42,10 +42,10 @@ func NewMigrationFailedConsumer(params MigrationFailedConsumerParams) (*Migratio
 	}
 
 	consumer := &MigrationFailedConsumer{
-		txManager:       params.TxManager,
-		client:          params.Client,
-		inboxService:    params.InboxService,
-		rollbackService: params.MigrationRollbackService,
+		txManager:                params.TxManager,
+		client:                   params.Client,
+		inboxService:             params.InboxService,
+		migrationRollbackService: params.MigrationRollbackService,
 	}
 
 	if err := consumer.setupTopology(); err != nil {
@@ -153,7 +153,7 @@ func (c *MigrationFailedConsumer) handleDelivery(ctx context.Context, d rabbitmq
 
 		// Reset tenant status back to ACTIVE and stage the unfreeze broadcast
 		// (both owned by the Layer-2 service within the outer Unit-of-Work).
-		if err := c.rollbackService.RollbackFailedMigration(txCtx, evt.TenantID); err != nil {
+		if err := c.migrationRollbackService.RollbackFailedMigration(txCtx, evt.TenantID); err != nil {
 			return err
 		}
 

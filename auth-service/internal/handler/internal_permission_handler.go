@@ -32,11 +32,11 @@ type InternalPermissionVersionResponse struct {
 }
 
 type InternalPermissionHandler struct {
-	permissionService InternalPermissionService
+	internalPermissionService InternalPermissionService
 }
 
-func NewInternalPermissionHandler(permissionService InternalPermissionService) *InternalPermissionHandler {
-	return &InternalPermissionHandler{permissionService: permissionService}
+func NewInternalPermissionHandler(internalPermissionService InternalPermissionService) *InternalPermissionHandler {
+	return &InternalPermissionHandler{internalPermissionService: internalPermissionService}
 }
 
 func (h *InternalPermissionHandler) RegisterPermissions(c *gin.Context) {
@@ -54,7 +54,7 @@ func (h *InternalPermissionHandler) RegisterPermissions(c *gin.Context) {
 		}
 	}
 
-	if err := h.permissionService.RegisterPermissions(c.Request.Context(), service.InternalRegisterPermissionsInput{
+	if err := h.internalPermissionService.RegisterPermissions(c.Request.Context(), service.InternalRegisterPermissionsInput{
 		Service:     req.Service,
 		Permissions: items,
 	}); err != nil {
@@ -74,7 +74,7 @@ func (h *InternalPermissionHandler) GetUserPermissionVersion(c *gin.Context) {
 		return
 	}
 
-	ver, err := h.permissionService.GetUserPermissionVersion(c.Request.Context(), userID, tenantID)
+	ver, err := h.internalPermissionService.GetUserPermissionVersion(c.Request.Context(), userID, tenantID)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return

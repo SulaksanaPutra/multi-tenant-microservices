@@ -39,11 +39,11 @@ type OutboxWorker struct {
 
 func NewOutboxWorker(
 	outboxRepository OutboxRepository,
-	publisher UserEventPublisher,
+	userEventPublisher UserEventPublisher,
 ) *OutboxWorker {
 	return &OutboxWorker{
 		outboxRepository:   outboxRepository,
-		userEventPublisher: publisher,
+		userEventPublisher: userEventPublisher,
 		wakeUpChan:         make(chan struct{}, 1),
 		debounceDelay:      defaultDebounceDelay,
 		pollInterval:       defaultPollInterval,

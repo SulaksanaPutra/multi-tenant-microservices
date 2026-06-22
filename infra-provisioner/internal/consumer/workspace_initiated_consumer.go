@@ -34,25 +34,25 @@ type Migrator interface {
 }
 
 type WorkspaceInitiatedConsumer struct {
-	client            *rabbitmq.Client
-	publisher         InfrastructureEventPublisher
-	provisioner       Provisioner
-	migrator          Migrator
-	infraMasterSecret string
-	domainSecrets     map[string]string
-	sharedDBHost      string
-	sharedDBPass      string
+	client                       *rabbitmq.Client
+	infrastructureEventPublisher InfrastructureEventPublisher
+	provisioner                  Provisioner
+	migrator                     Migrator
+	infraMasterSecret            string
+	domainSecrets                map[string]string
+	sharedDBHost                 string
+	sharedDBPass                 string
 }
 
 type WorkspaceInitiatedConsumerParams struct {
-	Client            *rabbitmq.Client
-	Publisher         InfrastructureEventPublisher
-	Provisioner       Provisioner
-	Migrator          Migrator
-	InfraMasterSecret string
-	DomainSecrets     map[string]string
-	SharedDBHost      string
-	SharedDBPass      string
+	Client                     *rabbitmq.Client
+	InfrastructureEventHandler InfrastructureEventPublisher
+	Provisioner                Provisioner
+	Migrator                   Migrator
+	InfraMasterSecret          string
+	DomainSecrets              map[string]string
+	SharedDBHost               string
+	SharedDBPass               string
 }
 
 type Params = WorkspaceInitiatedConsumerParams
@@ -75,14 +75,14 @@ func NewWorkspaceInitiatedConsumer(params WorkspaceInitiatedConsumerParams) (*Wo
 	}
 
 	consumer := &WorkspaceInitiatedConsumer{
-		client:            params.Client,
-		publisher:         params.Publisher,
-		provisioner:       params.Provisioner,
-		migrator:          params.Migrator,
-		infraMasterSecret: params.InfraMasterSecret,
-		domainSecrets:     domainSec,
-		sharedDBHost:      sharedHost,
-		sharedDBPass:      sharedPass,
+		client:                       params.Client,
+		infrastructureEventPublisher: params.InfrastructureEventHandler,
+		provisioner:                  params.Provisioner,
+		migrator:                     params.Migrator,
+		infraMasterSecret:            params.InfraMasterSecret,
+		domainSecrets:                domainSec,
+		sharedDBHost:                 sharedHost,
+		sharedDBPass:                 sharedPass,
 	}
 
 	if err := consumer.setupTopology(); err != nil {
@@ -190,7 +190,7 @@ func (c *WorkspaceInitiatedConsumer) handleDelivery(ctx context.Context, d rabbi
 	}
 
 	// Publish infrastructure.provisioned event via Publisher Adapter
-	if err := c.publisher.PublishInfrastructureProvisioned(ctx, *provEvent); err != nil {
+	if err := c.infrastructureEventPublisher.PublishInfrastructureProvisioned(ctx, *provEvent); err != nil {
 		log.Printf("WorkspaceInitiatedConsumer Error: Failed to publish '%s' for tenant='%s': %v", domain.RoutingKeyInfrastructureProvisioned, evt.TenantID, err)
 		_ = d.Nack(false, true)
 		return err
@@ -237,7 +237,7 @@ func (c *WorkspaceInitiatedConsumer) handleProvisioning(ctx context.Context, evt
 				if lockErr := c.migrator.LockSchema(ctx, sharedDSN, schemaName, lockedSchemaName); lockErr != nil {
 					log.Printf("WorkspaceInitiatedConsumer Error: Schema lock failed for tenant='%s': %v — executing compensating rollback", evt.TenantID, lockErr)
 					_ = c.migrator.DestroyContainer(ctx, containerName)
-					_ = c.publisher.PublishTenantMigrationFailed(ctx, domain.TenantMigrationFailedEvent{
+					_ = c.infrastructureEventPublisher.PublishTenantMigrationFailed(ctx, domain.TenantMigrationFailedEvent{
 						EventID:  evt.EventID,
 						TenantID: evt.TenantID,
 						Reason:   lockErr.Error(),
@@ -254,7 +254,7 @@ func (c *WorkspaceInitiatedConsumer) handleProvisioning(ctx context.Context, evt
 					log.Printf("WorkspaceInitiatedConsumer Error: Data migration failed for tenant='%s': %v — executing schema restore & compensating rollback", evt.TenantID, migErr)
 					_ = c.migrator.RestoreSchema(ctx, sharedDSN, lockedSchemaName, schemaName)
 					_ = c.migrator.DestroyContainer(ctx, containerName)
-					_ = c.publisher.PublishTenantMigrationFailed(ctx, domain.TenantMigrationFailedEvent{
+					_ = c.infrastructureEventPublisher.PublishTenantMigrationFailed(ctx, domain.TenantMigrationFailedEvent{
 						EventID:  evt.EventID,
 						TenantID: evt.TenantID,
 						Reason:   migErr.Error(),
