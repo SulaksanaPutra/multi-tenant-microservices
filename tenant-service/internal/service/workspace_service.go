@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"tenant-service/internal/domain"
 	"tenant-service/internal/httputil"
@@ -36,6 +37,32 @@ type UpdateTenantServiceInput struct {
 type ChangeTenantPlanInput struct {
 	TenantID string
 	Plan     string
+}
+
+type TenantOutput struct {
+	ID         string
+	Name       string
+	Slug       string
+	OwnerEmail string
+	OwnerName  string
+	Plan       string
+	Status     string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+func toTenantOutput(t domain.Tenant) TenantOutput {
+	return TenantOutput{
+		ID:         t.ID,
+		Name:       t.Name,
+		Slug:       t.Slug,
+		OwnerEmail: t.OwnerEmail,
+		OwnerName:  t.OwnerName,
+		Plan:       t.Plan,
+		Status:     t.Status,
+		CreatedAt:  t.CreatedAt,
+		UpdatedAt:  t.UpdatedAt,
+	}
 }
 
 // TenantRepository is the consumer-side interface expected by WorkspaceService.
@@ -210,11 +237,19 @@ func (workspaceService *WorkspaceService) ActivateWorkspace(ctx context.Context,
 	return nil
 }
 
-func (workspaceService *WorkspaceService) GetTenantByID(ctx context.Context, tenantID string) (*domain.Tenant, error) {
+func (workspaceService *WorkspaceService) GetTenantByID(ctx context.Context, tenantID string) (*TenantOutput, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return nil, domain.ErrTenantIDRequired
 	}
-	return workspaceService.tenantRepository.GetTenantByID(ctx, tenantID)
+	tenant, err := workspaceService.tenantRepository.GetTenantByID(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if tenant == nil {
+		return nil, domain.ErrNotFound
+	}
+	output := toTenantOutput(*tenant)
+	return &output, nil
 }
 
 // RollbackFailedMigration resets a tenant to ACTIVE after its infrastructure

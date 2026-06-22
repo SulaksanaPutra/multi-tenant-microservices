@@ -8,30 +8,29 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"user-service/internal/domain"
 	"user-service/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
 type mockUserService struct {
-	listUsersFn  func(ctx context.Context, tenantID string) ([]domain.User, error)
-	getUserByIDFn func(ctx context.Context, userID string) (*domain.User, error)
-	updateUserFn func(ctx context.Context, input service.UpdateUserInput) error
+	listUsersFn   func(ctx context.Context, tenantID string) ([]service.UserOutput, error)
+	getUserByIDFn func(ctx context.Context, userID string) (*service.UserOutput, error)
+	updateUserFn  func(ctx context.Context, input service.UpdateUserInput) error
 }
 
-func (m *mockUserService) ListUsers(ctx context.Context, tenantID string) ([]domain.User, error) {
+func (m *mockUserService) ListUsers(ctx context.Context, tenantID string) ([]service.UserOutput, error) {
 	if m.listUsersFn != nil {
 		return m.listUsersFn(ctx, tenantID)
 	}
 	return nil, nil
 }
 
-func (m *mockUserService) GetUserByID(ctx context.Context, userID string) (*domain.User, error) {
+func (m *mockUserService) GetUserByID(ctx context.Context, userID string) (*service.UserOutput, error) {
 	if m.getUserByIDFn != nil {
 		return m.getUserByIDFn(ctx, userID)
 	}
-	return &domain.User{ID: userID, Email: "owner@example.com", Name: "Test User"}, nil
+	return &service.UserOutput{ID: userID, Email: "owner@example.com", Name: "Test User"}, nil
 }
 
 func (m *mockUserService) UpdateUser(ctx context.Context, input service.UpdateUserInput) error {
@@ -58,9 +57,9 @@ func setupTestRouter(userHandler *UserHandler) *gin.Engine {
 func TestUserHandler_ListUsers(t *testing.T) {
 	var gotTenantID string
 	mockSvc := &mockUserService{
-		listUsersFn: func(ctx context.Context, tenantID string) ([]domain.User, error) {
+		listUsersFn: func(ctx context.Context, tenantID string) ([]service.UserOutput, error) {
 			gotTenantID = tenantID
-			return []domain.User{
+			return []service.UserOutput{
 				{ID: "usr_1", Email: "test1@example.com", Name: "Test One"},
 			}, nil
 		},

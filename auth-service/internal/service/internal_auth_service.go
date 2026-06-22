@@ -17,10 +17,6 @@ type InternalCreateSetupTokenInput struct {
 	Email    string
 }
 
-type MembershipRepository interface {
-	AddMembership(ctx context.Context, userID, tenantID string) error
-}
-
 type InternalAuthService struct {
 	setupTokenRepository SetupTokenRepository
 	membershipRepository MembershipRepository

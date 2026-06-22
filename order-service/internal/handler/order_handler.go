@@ -18,7 +18,7 @@ import (
 )
 
 type CreateOrderRequest struct {
-	CustomerID string  `json:"customer_id" binding:"required, max=255"`
+	CustomerID string  `json:"customer_id" binding:"required,max=255"`
 	Amount     float64 `json:"amount" binding:"required,gt=0"`
 	Status     string  `json:"status" binding:"required,oneof=pending completed cancelled"`
 }
@@ -33,7 +33,7 @@ type OrderResponse struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
-func toOrderResponse(o domain.Order) OrderResponse {
+func toOrderResponse(o service.OrderOutput) OrderResponse {
 	return OrderResponse{
 		ID:         o.ID,
 		TenantID:   o.TenantID,
@@ -47,8 +47,8 @@ func toOrderResponse(o domain.Order) OrderResponse {
 
 // OrderService is the consumer-side interface expected by OrderHandler.
 type OrderService interface {
-	ListOrders(ctx context.Context) ([]domain.Order, error)
-	CreateOrder(ctx context.Context, input service.CreateOrderInput) (*domain.Order, error)
+	ListOrders(ctx context.Context) ([]service.OrderOutput, error)
+	CreateOrder(ctx context.Context, input service.CreateOrderInput) (*service.OrderOutput, error)
 }
 
 // OrderServiceFactory constructs an OrderService for a given tenant configuration.

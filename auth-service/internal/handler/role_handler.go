@@ -16,13 +16,13 @@ import (
 )
 
 type RoleService interface {
-	CreateRole(ctx context.Context, input service.CreateRoleInput) (*domain.Role, error)
-	GetRole(ctx context.Context, roleID string) (*domain.Role, error)
-	ListRolesForTenant(ctx context.Context, tenantID string) ([]domain.Role, error)
+	CreateRole(ctx context.Context, input service.CreateRoleInput) (*service.RoleOutput, error)
+	GetRole(ctx context.Context, roleID string) (*service.RoleOutput, error)
+	ListRolesForTenant(ctx context.Context, tenantID string) ([]service.RoleOutput, error)
 	UpdateRolePermissions(ctx context.Context, input service.UpdateRolePermissionsInput) error
 	DeleteRole(ctx context.Context, roleID string) error
 	AssignUserRole(ctx context.Context, input service.AssignUserRoleInput) error
-	GetUserRole(ctx context.Context, userID, tenantID string) (*domain.UserRole, error)
+	GetUserRole(ctx context.Context, userID, tenantID string) (*service.UserRoleOutput, error)
 	ListUserRolesForTenant(ctx context.Context, tenantID string, userIDs []string) ([]service.UserRoleAssignmentOutput, error)
 }
 
@@ -80,7 +80,7 @@ func NewRoleHandler(roleService RoleService) *RoleHandler {
 	return &RoleHandler{roleService: roleService}
 }
 
-func toRoleResponse(role domain.Role) RoleResponse {
+func toRoleResponse(role service.RoleOutput) RoleResponse {
 	permissions := make([]PermissionResponse, len(role.Permissions))
 	for i, permission := range role.Permissions {
 		permissions[i] = toPermissionResponse(permission)
@@ -96,7 +96,7 @@ func toRoleResponse(role domain.Role) RoleResponse {
 	}
 }
 
-func toUserRoleResponse(ur domain.UserRole) UserRoleResponse {
+func toUserRoleResponse(ur service.UserRoleOutput) UserRoleResponse {
 	var role *RoleResponse
 	if ur.Role != nil {
 		roleResponse := toRoleResponse(*ur.Role)

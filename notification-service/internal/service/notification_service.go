@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"notification-service/internal/domain"
 	"notification-service/internal/repository"
@@ -29,6 +30,32 @@ type ProcessEventOutput struct {
 	TenantName     string
 	TenantSlug     string
 	OwnerName      string
+}
+
+type NotificationLogOutput struct {
+	ID             string
+	UserID         string
+	TenantID       string
+	RecipientEmail string
+	Subject        string
+	Body           string
+	Status         string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+func toNotificationLogOutput(l domain.NotificationLog) NotificationLogOutput {
+	return NotificationLogOutput{
+		ID:             l.ID,
+		UserID:         l.UserID,
+		TenantID:       l.TenantID,
+		RecipientEmail: l.RecipientEmail,
+		Subject:        l.Subject,
+		Body:           l.Body,
+		Status:         l.Status,
+		CreatedAt:      l.CreatedAt,
+		UpdatedAt:      l.UpdatedAt,
+	}
 }
 
 // NotificationRepository is the consumer-side interface expected by NotificationService.
@@ -61,11 +88,19 @@ func (s *NotificationService) UpdateNotificationStatus(ctx context.Context, logI
 	return s.notificationRepository.UpdateNotificationStatus(ctx, logID, status)
 }
 
-func (s *NotificationService) ListNotifications(ctx context.Context, tenantID string) ([]domain.NotificationLog, error) {
+func (s *NotificationService) ListNotifications(ctx context.Context, tenantID string) ([]NotificationLogOutput, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return nil, domain.ErrTenantIDRequired
 	}
-	return s.notificationRepository.ListNotifications(ctx, tenantID)
+	logs, err := s.notificationRepository.ListNotifications(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	outputs := make([]NotificationLogOutput, len(logs))
+	for i, l := range logs {
+		outputs[i] = toNotificationLogOutput(l)
+	}
+	return outputs, nil
 }
 
 func (s *NotificationService) ProcessEventAndTrySendWelcome(

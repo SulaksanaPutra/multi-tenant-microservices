@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"notification-service/internal/middleware"
 	"time"
 
 	"notification-service/internal/domain"
 	"notification-service/internal/httputil"
+	"notification-service/internal/middleware"
+	"notification-service/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -27,7 +28,7 @@ type NotificationLogResponse struct {
 
 // NotificationService is the consumer-side interface expected by NotificationHandler.
 type NotificationService interface {
-	ListNotifications(ctx context.Context, tenantID string) ([]domain.NotificationLog, error)
+	ListNotifications(ctx context.Context, tenantID string) ([]service.NotificationLogOutput, error)
 }
 
 type NotificationHandler struct {

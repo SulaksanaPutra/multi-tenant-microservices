@@ -26,6 +26,24 @@ type UpdateUserInput struct {
 	Name   string
 }
 
+type UserOutput struct {
+	ID        string
+	Email     string
+	Name      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+func toUserOutput(u domain.User) UserOutput {
+	return UserOutput{
+		ID:        u.ID,
+		Email:     u.Email,
+		Name:      u.Name,
+		CreatedAt: u.CreatedAt,
+		UpdatedAt: u.UpdatedAt,
+	}
+}
+
 // UserRepository is the consumer-side interface expected by UserService.
 type UserRepository interface {
 	CreateUser(ctx context.Context, input repository.CreateUserInput) error
@@ -136,16 +154,29 @@ func (userService *UserService) UpdateUser(ctx context.Context, input UpdateUser
 	})
 }
 
-func (userService *UserService) ListUsers(ctx context.Context, tenantID string) ([]domain.User, error) {
+func (userService *UserService) ListUsers(ctx context.Context, tenantID string) ([]UserOutput, error) {
 	if tenantID == "" {
 		return nil, domain.ErrTenantIDRequired
 	}
-	return userService.userRepository.ListUsers(ctx, tenantID)
+	users, err := userService.userRepository.ListUsers(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	outputs := make([]UserOutput, len(users))
+	for i, u := range users {
+		outputs[i] = toUserOutput(u)
+	}
+	return outputs, nil
 }
 
-func (userService *UserService) GetUserByID(ctx context.Context, userID string) (*domain.User, error) {
+func (userService *UserService) GetUserByID(ctx context.Context, userID string) (*UserOutput, error) {
 	if userID == "" {
 		return nil, domain.ErrUserIDRequired
 	}
-	return userService.userRepository.GetUserByID(ctx, userID)
+	user, err := userService.userRepository.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	output := toUserOutput(*user)
+	return &output, nil
 }

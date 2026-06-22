@@ -201,13 +201,16 @@ func TestOrderService_CreateOrder_RepoError(t *testing.T) {
 
 func TestOrderService_ListOrders(t *testing.T) {
 	t.Run("returns list of orders", func(t *testing.T) {
-		expectedOrders := []domain.Order{
+		expectedOrders := []OrderOutput{
 			{ID: "ord-1", TenantID: "t-1", Amount: 100},
 			{ID: "ord-2", TenantID: "t-1", Amount: 200},
 		}
 		repo := &mockOrderRepository{
 			listOrdersFunc: func(ctx context.Context) ([]domain.Order, error) {
-				return expectedOrders, nil
+				return []domain.Order{
+					{ID: "ord-1", TenantID: "t-1", Amount: 100},
+					{ID: "ord-2", TenantID: "t-1", Amount: 200},
+				}, nil
 			},
 		}
 		svc := NewOrderService(repo)

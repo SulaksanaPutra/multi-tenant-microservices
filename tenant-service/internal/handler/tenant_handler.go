@@ -7,7 +7,6 @@ import (
 
 	"tenant-service/internal/middleware"
 
-	"tenant-service/internal/domain"
 	"tenant-service/internal/httputil"
 	"tenant-service/internal/service"
 
@@ -15,7 +14,7 @@ import (
 )
 
 type TenantServiceInterface interface {
-	GetTenantByID(ctx context.Context, tenantID string) (*domain.Tenant, error)
+	GetTenantByID(ctx context.Context, tenantID string) (*service.TenantOutput, error)
 	UpdateTenant(ctx context.Context, input service.UpdateTenantServiceInput) error
 	ChangeTenantPlan(ctx context.Context, input service.ChangeTenantPlanInput) error
 }
@@ -60,7 +59,7 @@ type ChangeTenantPlanResponse struct {
 	Plan     string `json:"plan"`
 }
 
-func toTenantResponse(tenant domain.Tenant) TenantResponse {
+func toTenantResponse(tenant service.TenantOutput) TenantResponse {
 	return TenantResponse{
 		TenantID:   tenant.ID,
 		Name:       tenant.Name,

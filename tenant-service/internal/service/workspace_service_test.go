@@ -20,6 +20,7 @@ type mockTenantRepository struct {
 	activateTenantFunc   func(ctx context.Context, tenantID string) error
 	updateTenantFunc     func(ctx context.Context, input repository.UpdateTenantInput) error
 	updateTenantPlanFunc func(ctx context.Context, input repository.UpdateTenantPlanInput) error
+	setTenantStatusFunc  func(ctx context.Context, tenantID, status string) error
 }
 
 func (m *mockTenantRepository) CreateTenant(ctx context.Context, input repository.CreateTenantInput) error {
@@ -53,6 +54,13 @@ func (m *mockTenantRepository) UpdateTenant(ctx context.Context, input repositor
 func (m *mockTenantRepository) UpdateTenantPlan(ctx context.Context, input repository.UpdateTenantPlanInput) error {
 	if m.updateTenantPlanFunc != nil {
 		return m.updateTenantPlanFunc(ctx, input)
+	}
+	return nil
+}
+
+func (m *mockTenantRepository) SetTenantStatus(ctx context.Context, tenantID, status string) error {
+	if m.setTenantStatusFunc != nil {
+		return m.setTenantStatusFunc(ctx, tenantID, status)
 	}
 	return nil
 }
@@ -182,7 +190,7 @@ func TestWorkspaceService_RegisterWorkspace_Success(t *testing.T) {
 }
 
 func TestWorkspaceService_ActivateWorkspace_EmitsTenantInfo(t *testing.T) {
-	var capturedOutbox repository.CreateOutboxMessageInput
+	var capturedOutbox []repository.CreateOutboxMessageInput
 
 	tenantRepo := &mockTenantRepository{
 		getTenantByIDFunc: func(ctx context.Context, tenantID string) (*domain.Tenant, error) {
@@ -203,7 +211,7 @@ func TestWorkspaceService_ActivateWorkspace_EmitsTenantInfo(t *testing.T) {
 
 	outboxRepo := &mockOutboxRepository{
 		createOutboxMessageFunc: func(ctx context.Context, input repository.CreateOutboxMessageInput) error {
-			capturedOutbox = input
+			capturedOutbox = append(capturedOutbox, input)
 			return nil
 		},
 	}
@@ -218,12 +226,19 @@ func TestWorkspaceService_ActivateWorkspace_EmitsTenantInfo(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if capturedOutbox.EventType != "workspace.ready" {
-		t.Fatalf("expected workspace.ready outbox message, got %+v", capturedOutbox)
+	var ready *repository.CreateOutboxMessageInput
+	for i := range capturedOutbox {
+		if capturedOutbox[i].EventType == "workspace.ready" {
+			ready = &capturedOutbox[i]
+			break
+		}
+	}
+	if ready == nil {
+		t.Fatalf("expected a workspace.ready outbox message, got %+v", capturedOutbox)
 	}
 
 	var evt domain.WorkspaceReadyEvent
-	if err := json.Unmarshal(capturedOutbox.Payload, &evt); err != nil {
+	if err := json.Unmarshal(ready.Payload, &evt); err != nil {
 		t.Fatalf("failed to unmarshal WorkspaceReady payload: %v", err)
 	}
 	if evt.TenantID != "tnt_acme" {
@@ -319,6 +334,9 @@ func TestWorkspaceService_ChangeTenantPlan(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		changed := false
 		mockRepo := &mockTenantRepository{
+			getTenantByIDFunc: func(ctx context.Context, tenantID string) (*domain.Tenant, error) {
+				return &domain.Tenant{ID: tenantID, OwnerEmail: "owner@test.com"}, nil
+			},
 			updateTenantPlanFunc: func(ctx context.Context, input repository.UpdateTenantPlanInput) error {
 				if input.ID == "t_100" && input.Plan == "dedicated" {
 					changed = true
@@ -326,7 +344,11 @@ func TestWorkspaceService_ChangeTenantPlan(t *testing.T) {
 				return nil
 			},
 		}
-		svc := NewWorkspaceService(WorkspaceServiceParams{TenantRepository: mockRepo})
+		svc := NewWorkspaceService(WorkspaceServiceParams{
+			TenantRepository: mockRepo,
+			OutboxRepository: &mockOutboxRepository{},
+			OutboxWorker:     &mockOutboxWorker{},
+		})
 		err := svc.ChangeTenantPlan(context.Background(), ChangeTenantPlanInput{TenantID: "t_100", Plan: "dedicated"})
 		if err != nil {
 			t.Fatalf("expected nil error, got %v", err)
