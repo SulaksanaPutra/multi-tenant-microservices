@@ -12,11 +12,19 @@ import (
 
 type mockInfrastructureEventPublisher struct {
 	publishInfrastructureProvisionedFunc func(ctx context.Context, evt domain.InfrastructureProvisionedEvent) error
+	publishTenantMigrationFailedFunc     func(ctx context.Context, evt domain.TenantMigrationFailedEvent) error
 }
 
 func (m *mockInfrastructureEventPublisher) PublishInfrastructureProvisioned(ctx context.Context, evt domain.InfrastructureProvisionedEvent) error {
 	if m.publishInfrastructureProvisionedFunc != nil {
 		return m.publishInfrastructureProvisionedFunc(ctx, evt)
+	}
+	return nil
+}
+
+func (m *mockInfrastructureEventPublisher) PublishTenantMigrationFailed(ctx context.Context, evt domain.TenantMigrationFailedEvent) error {
+	if m.publishTenantMigrationFailedFunc != nil {
+		return m.publishTenantMigrationFailedFunc(ctx, evt)
 	}
 	return nil
 }

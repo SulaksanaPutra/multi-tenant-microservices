@@ -272,9 +272,9 @@ func TestRoleRepository_UpdateRolePermissions(t *testing.T) {
 			t.Fatalf("expected nil error, got %v", err)
 		}
 
-		// 1 DELETE + 2 upsert perms + 2 insert role_permissions = 5 queries
-		if len(capturedQueries) != 5 {
-			t.Errorf("expected 5 exec queries, got %d: %v", len(capturedQueries), capturedQueries)
+		// 1 DELETE + 2 upsert perms + 2 insert role_permissions + 1 UPDATE updated_at = 6 queries
+		if len(capturedQueries) != 6 {
+			t.Errorf("expected 6 exec queries, got %d: %v", len(capturedQueries), capturedQueries)
 		}
 	})
 }

@@ -152,13 +152,15 @@ func TestOrderRepository_CreateOrder_NilDB(t *testing.T) {
 
 func TestOrderRepository_CreateOrder_Success(t *testing.T) {
 	dummyDB := getDummyDB()
-	var capturedQuery string
-	var capturedArgs []any
+	var capturedQueries []string
+	var capturedOrdersArgs []any
 
 	mockExec := &testutil.MockDBExecutor{
 		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
-			capturedQuery = query
-			capturedArgs = args
+			capturedQueries = append(capturedQueries, query)
+			if len(capturedQueries) == 1 {
+				capturedOrdersArgs = args
+			}
 			return testutil.MockResult{RowsAffectedVal: 1}, nil
 		},
 	}
@@ -184,27 +186,35 @@ func TestOrderRepository_CreateOrder_Success(t *testing.T) {
 		t.Fatalf("expected nil error, got %v", err)
 	}
 
-	if !strings.Contains(capturedQuery, `INSERT INTO "tenant_xyz".orders`) {
-		t.Errorf("expected query to contain 'INSERT INTO \"tenant_xyz\".orders', got: %s", capturedQuery)
+	if len(capturedQueries) != 2 {
+		t.Fatalf("expected 2 exec queries (orders + outbox), got %d: %v", len(capturedQueries), capturedQueries)
 	}
 
-	if len(capturedArgs) != 5 {
-		t.Fatalf("expected 5 query arguments, got %d", len(capturedArgs))
+	if !strings.Contains(capturedQueries[0], `INSERT INTO "tenant_xyz".orders`) {
+		t.Errorf("expected first query to contain 'INSERT INTO \"tenant_xyz\".orders', got: %s", capturedQueries[0])
 	}
 
-	if capturedArgs[0] != input.ID || capturedArgs[1] != input.TenantID || capturedArgs[2] != input.CustomerID || capturedArgs[3] != input.Status || capturedArgs[4] != input.Amount {
+	if !strings.Contains(capturedQueries[1], `INSERT INTO "tenant_xyz".outbox`) {
+		t.Errorf("expected second query to contain 'INSERT INTO \"tenant_xyz\".outbox', got: %s", capturedQueries[1])
+	}
+
+	if len(capturedOrdersArgs) != 5 {
+		t.Fatalf("expected 5 query arguments for orders insert, got %d", len(capturedOrdersArgs))
+	}
+
+	if capturedOrdersArgs[0] != input.ID || capturedOrdersArgs[1] != input.TenantID || capturedOrdersArgs[2] != input.CustomerID || capturedOrdersArgs[3] != input.Status || capturedOrdersArgs[4] != input.Amount {
 		t.Errorf("unexpected query arguments: got %v, expected [%s, %s, %s, %s, %f]",
-			capturedArgs, input.ID, input.TenantID, input.CustomerID, input.Status, input.Amount)
+			capturedOrdersArgs, input.ID, input.TenantID, input.CustomerID, input.Status, input.Amount)
 	}
 }
 
 func TestOrderRepository_CreateOrder_DefaultPublicSchema(t *testing.T) {
 	dummyDB := getDummyDB()
-	var capturedQuery string
+	var capturedQueries []string
 
 	mockExec := &testutil.MockDBExecutor{
 		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
-			capturedQuery = query
+			capturedQueries = append(capturedQueries, query)
 			return testutil.MockResult{RowsAffectedVal: 1}, nil
 		},
 	}
@@ -229,8 +239,16 @@ func TestOrderRepository_CreateOrder_DefaultPublicSchema(t *testing.T) {
 		t.Fatalf("expected nil error, got %v", err)
 	}
 
-	if !strings.Contains(capturedQuery, `INSERT INTO "public".orders`) {
-		t.Errorf("expected query to default to \"public\".orders, got: %s", capturedQuery)
+	if len(capturedQueries) != 2 {
+		t.Fatalf("expected 2 exec queries (orders + outbox), got %d: %v", len(capturedQueries), capturedQueries)
+	}
+
+	if !strings.Contains(capturedQueries[0], `INSERT INTO "public".orders`) {
+		t.Errorf("expected first query to default to \"public\".orders, got: %s", capturedQueries[0])
+	}
+
+	if !strings.Contains(capturedQueries[1], `INSERT INTO "public".outbox`) {
+		t.Errorf("expected second query to default to \"public\".outbox, got: %s", capturedQueries[1])
 	}
 }
 
