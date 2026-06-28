@@ -75,7 +75,7 @@ func (userRepository *UserRepository) GetUserByEmail(ctx context.Context, email 
 
 func (userRepository *UserRepository) GetUserByID(ctx context.Context, userID string) (*domain.User, error) {
 	if userID == "" {
-		return nil, fmt.Errorf("user repository: user_id is required to fetch user")
+		return nil, errors.New("user repository: user_id is required to fetch user")
 	}
 	exec := txcontext.GetExecutor(ctx, userRepository.dbClient)
 	const query = `
