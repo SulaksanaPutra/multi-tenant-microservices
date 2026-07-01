@@ -2,10 +2,10 @@
 -- {{SCHEMA_NAME}} is substituted at runtime by the provisioner (shared or dedicated).
 
 CREATE TABLE IF NOT EXISTS {{SCHEMA_NAME}}.outbox (
-    id             VARCHAR(36)    PRIMARY KEY,
+    id             VARCHAR(64)    PRIMARY KEY,
     tenant_id      VARCHAR(36)    NOT NULL,
     aggregate_type VARCHAR(100)   NOT NULL,
-    aggregate_id   VARCHAR(36)    NOT NULL,
+    aggregate_id   VARCHAR(64)    NOT NULL,
     event_type     VARCHAR(100)   NOT NULL,
     payload        TEXT           NOT NULL DEFAULT '{}',
     status         VARCHAR(20)    NOT NULL DEFAULT 'PENDING',

@@ -102,9 +102,11 @@ func (c *Client) connect() error {
 	return nil
 }
 
-// watchConnection monitors the active connection and drives the reconnect lifecycle.
-// On socket drop it immediately cancels the connection context (notifying all consumers
-// before any sleep), resets readyCh, then reconnects and broadcasts recovery.
+// watchConnection monitors the active connection and channel and drives the reconnect
+// lifecycle. On socket drop (or a channel-level close — e.g. a failed publisher-confirm
+// on the shared channel during a broker outage) it immediately cancels the connection
+// context (notifying all consumers before any sleep), resets readyCh, then reconnects
+// and broadcasts recovery.
 func (c *Client) watchConnection() {
 	for {
 		c.mu.RLock()
@@ -113,15 +115,22 @@ func (c *Client) watchConnection() {
 			return
 		}
 		conn := c.Conn
+		ch := c.Channel
 		c.mu.RUnlock()
 
-		if conn == nil {
+		if conn == nil || ch == nil {
 			time.Sleep(1 * time.Second)
 			continue
 		}
 
-		// Block until the broker closes the connection.
-		closeErr := <-conn.NotifyClose(make(chan *amqp.Error, 1))
+		// Block until either the broker closes the connection or the shared channel
+		// closes. Channel-level closes are otherwise invisible to consumers, which
+		// would spin on "channel/connection is not open" forever.
+		var closeErr *amqp.Error
+		select {
+		case closeErr = <-conn.NotifyClose(make(chan *amqp.Error, 1)):
+		case closeErr = <-ch.NotifyClose(make(chan *amqp.Error, 1)):
+		}
 
 		c.mu.RLock()
 		closed := c.isClosed
@@ -141,7 +150,7 @@ func (c *Client) watchConnection() {
 		c.readyCh = make(chan struct{})
 		c.mu.Unlock()
 
-		log.Printf("Order Service RabbitMQ Driver: Connection dropped (reason: %v). Attempting reconnection...", closeErr)
+		log.Printf("Order Service RabbitMQ Driver: Connection/channel closed (reason: %v). Attempting reconnection...", closeErr)
 
 		// 3. Reconnect loop with fixed 2-second backoff at the driver level.
 		for {
@@ -296,4 +305,3 @@ func (c *Client) Close() {
 		_ = conn.Close()
 	}
 }
-
