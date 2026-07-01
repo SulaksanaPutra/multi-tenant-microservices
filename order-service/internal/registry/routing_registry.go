@@ -49,6 +49,17 @@ func (r *RoutingRegistry) Get(tenantID string) (RoutingMetadata, bool) {
 	return meta, ok
 }
 
+// TenantIDs returns the tenant IDs currently materialized in the registry. Thread-safe.
+func (r *RoutingRegistry) TenantIDs() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ids := make([]string, 0, len(r.routes))
+	for id := range r.routes {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // GetStatus returns the current Status string for a tenant ("" if not found). Thread-safe.
 func (r *RoutingRegistry) GetStatus(tenantID string) string {
 	r.mu.RLock()
@@ -87,4 +98,3 @@ func (r *RoutingRegistry) PurgeAll() {
 	r.mu.Unlock() // Release before logging — no need to hold lock during I/O.
 	log.Printf("RoutingRegistry: Purged all tenant routes (%d routes evicted)", count)
 }
-

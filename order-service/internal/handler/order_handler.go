@@ -20,7 +20,7 @@ import (
 type CreateOrderRequest struct {
 	CustomerID string  `json:"customer_id" binding:"required,max=255"`
 	Amount     float64 `json:"amount" binding:"required,gt=0"`
-	Status     string  `json:"status" binding:"required,oneof=pending completed cancelled"`
+	Status     string  `json:"status" binding:"omitempty,oneof=pending completed cancelled"`
 }
 
 type OrderResponse struct {
