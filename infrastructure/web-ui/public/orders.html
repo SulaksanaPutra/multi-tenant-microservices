@@ -61,6 +61,13 @@
 
     </div>
 
+    <!-- MIGRATION BLOCKER (DATA PLANE LOCK) -->
+    <dialog id="dialog-migrating" style="border:1px solid #ccc; padding:20px; width:420px; max-width:90%; text-align:center;">
+        <h3 style="margin-top:0;">Tenant Migration In Progress</h3>
+        <p id="migration-status">Checking tenant status...</p>
+        <p style="color:#666; font-size:0.9em;">Orders are temporarily locked while your tenant infrastructure is being migrated.</p>
+    </dialog>
+
     <script src="/nav.js"></script>
     <script>
         renderNavHeader("orders");
@@ -71,7 +78,73 @@
         }
 
         window.addEventListener("DOMContentLoaded", function() {
+            checkTenantAndLoad();
+        });
+
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        function showMigrationBlocker(message) {
+            const statusEl = document.getElementById("migration-status");
+            if (statusEl) statusEl.textContent = message;
+            const dialog = document.getElementById("dialog-migrating");
+            if (dialog && typeof dialog.showModal === "function") dialog.showModal();
+            document.body.style.overflow = "hidden";
+        }
+
+        function hideMigrationBlocker() {
+            const dialog = document.getElementById("dialog-migrating");
+            if (dialog && typeof dialog.close === "function") dialog.close();
+            document.body.style.overflow = "";
+        }
+
+        async function checkTenantAndLoad() {
+            try {
+                const res = await fetch("/api/tenants/me", { headers: getAuthHeader() });
+                const data = await res.json();
+                if (res.ok && data.data) {
+                    const status = String(data.data.Status || data.data.status || "").toUpperCase();
+                    if (status === "MIGRATING") {
+                        showMigrationBlocker("Tenant is migrating. Please wait...");
+                        pollUntilActive();
+                        return;
+                    }
+                }
+            } catch (err) {
+            }
             loadOrders();
+        }
+
+        async function pollUntilActive() {
+            const token = getJWTToken();
+            while (true) {
+                await sleep(2000);
+
+                let active = false;
+                let tenant = null;
+                try {
+                    const res = await fetch("/api/tenants/me", { headers: getAuthHeader() });
+                    const data = await res.json();
+                    if (res.ok && data.data) {
+                        tenant = data.data;
+                        const status = String(tenant.Status || tenant.status || "").toUpperCase();
+                        active = status !== "MIGRATING";
+                    }
+                } catch (err) {
+                }
+
+                if (active) {
+                    updateSessionTenant(token, tenant);
+                    hideMigrationBlocker();
+                    loadOrders();
+                    return;
+                }
+            }
+        }
+
+        document.getElementById("dialog-migrating").addEventListener("cancel", function(e) {
+            e.preventDefault();
         });
 
         async function loadOrders() {
@@ -81,6 +154,13 @@
             try {
                 const res = await fetch("/api/orders", { headers: getAuthHeader() });
                 const data = await res.json();
+
+                if (res.status === 423) {
+                    container.innerHTML = `<p style="color:#b58100;"><strong>Tenant is migrating.</strong> Orders are temporarily locked while tenant infrastructure is being migrated. Please wait and try again.</p>`;
+                    showMigrationBlocker("Tenant is migrating. Please wait...");
+                    pollUntilActive();
+                    return;
+                }
 
                 if (res.ok && data.data && Array.isArray(data.data)) {
                     let html = "<div class='table-responsive'><table border='1' cellpadding='6' cellspacing='0' style='width:100%; border-collapse:collapse; font-size:0.9em;'>";
@@ -133,6 +213,14 @@
                     body: JSON.stringify(payload)
                 });
                 const data = await res.json();
+
+                if (res.status === 423) {
+                    out.textContent = "Tenant is migrating — orders are temporarily locked. Waiting for migration to finish...";
+                    showMigrationBlocker("Tenant is migrating. Please wait...");
+                    pollUntilActive();
+                    return;
+                }
+
                 out.textContent = JSON.stringify(data, null, 2);
 
                 if (res.ok) {

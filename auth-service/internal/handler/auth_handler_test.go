@@ -181,18 +181,42 @@ func TestAuthHandler_Login(t *testing.T) {
 		}
 	})
 
-	t.Run("success -> 200 OK", func(t *testing.T) {
+	t.Run("no tenant membership -> 401 Unauthorized", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		_, r := gin.CreateTestContext(w)
+
+		mockSvc := &mockAuthService{
+			LoginFn: func(ctx context.Context, input service.LoginInput) (*service.LoginOutput, error) {
+				return nil, domain.ErrNoTenantMembership
+			},
+		}
+
+		h := NewAuthHandler(mockSvc, jwtMgr)
+		r.POST("/auth/login", h.Login)
+
+		body := LoginRequest{Email: "user@example.com", Password: "correctpassword"}
+		jsonBytes, _ := json.Marshal(body)
+		req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewBuffer(jsonBytes))
+		req.Header.Set("Content-Type", "application/json")
+
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("expected status 401, got %d", w.Code)
+		}
+	})
+
+	t.Run("workspace selection -> 200 OK", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		_, r := gin.CreateTestContext(w)
 
 		mockSvc := &mockAuthService{
 			LoginFn: func(ctx context.Context, input service.LoginInput) (*service.LoginOutput, error) {
 				return &service.LoginOutput{
-					Status: domain.LoginStatusSuccess,
-					TokenPair: &service.TokenPair{
-						AccessToken:  "access_ok",
-						RefreshToken: "refresh_ok",
-						ExpiresIn:    900,
+					Status:        domain.LoginStatusSelectWorkspace,
+					ExchangeToken: "exchange_ok",
+					Workspaces: []service.WorkspaceInfo{
+						{TenantID: "tenant-a"},
+						{TenantID: "tenant-b"},
 					},
 				}, nil
 			},
@@ -209,6 +233,76 @@ func TestAuthHandler_Login(t *testing.T) {
 		r.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected status 200, got %d", w.Code)
+		}
+
+		var envelope struct {
+			Data struct {
+				RequiresWorkspace bool            `json:"requires_workspace"`
+				ExchangeToken     string          `json:"exchange_token"`
+				Workspaces        []WorkspaceInfo `json:"workspaces"`
+				AccessToken       string          `json:"access_token"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil {
+			t.Fatalf("failed to unmarshal login response: %v", err)
+		}
+		if !envelope.Data.RequiresWorkspace {
+			t.Errorf("expected requires_workspace=true, got %v", envelope.Data.RequiresWorkspace)
+		}
+		if envelope.Data.ExchangeToken != "exchange_ok" {
+			t.Errorf("expected exchange_token=exchange_ok, got %q", envelope.Data.ExchangeToken)
+		}
+		if len(envelope.Data.Workspaces) != 2 || envelope.Data.Workspaces[0].TenantID != "tenant-a" {
+			t.Errorf("unexpected workspaces: %+v", envelope.Data.Workspaces)
+		}
+		if envelope.Data.AccessToken != "" {
+			t.Errorf("login response must not contain access_token, got %q", envelope.Data.AccessToken)
+		}
+	})
+}
+
+func TestAuthHandler_SelectTenant(t *testing.T) {
+	jwtMgr, _ := crypto.NewJWTManager(generateTestPrivateKeyPEM(t))
+
+	t.Run("success -> 200 OK with token pair", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		_, r := gin.CreateTestContext(w)
+
+		mockSvc := &mockAuthService{
+			SelectWorkspaceFn: func(ctx context.Context, input service.SelectWorkspaceInput) (*service.TokenPair, error) {
+				return &service.TokenPair{
+					AccessToken:  "access_ok",
+					RefreshToken: "refresh_ok",
+					ExpiresIn:    900,
+				}, nil
+			},
+		}
+
+		h := NewAuthHandler(mockSvc, jwtMgr)
+		r.POST("/auth/select-tenant", h.SelectTenant)
+
+		body := SelectTenantRequest{ExchangeToken: "exchange_ok", TenantID: "tenant-a"}
+		jsonBytes, _ := json.Marshal(body)
+		req := httptest.NewRequest(http.MethodPost, "/auth/select-tenant", bytes.NewBuffer(jsonBytes))
+		req.Header.Set("Content-Type", "application/json")
+
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", w.Code)
+		}
+
+		var envelope struct {
+			Data struct {
+				AccessToken  string `json:"access_token"`
+				RefreshToken string `json:"refresh_token"`
+				ExpiresIn    int    `json:"expires_in"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil {
+			t.Fatalf("failed to unmarshal select-tenant response: %v", err)
+		}
+		if envelope.Data.AccessToken != "access_ok" || envelope.Data.RefreshToken != "refresh_ok" || envelope.Data.ExpiresIn != 900 {
+			t.Errorf("unexpected token pair: %+v", envelope.Data)
 		}
 	})
 }

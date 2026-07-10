@@ -1,8 +1,6 @@
 package domain
 
-// LoginStatus values returned by AuthService.Login to tell the caller
-// whether login completed with a token pair or requires workspace selection.
-const (
-	LoginStatusSuccess         = "SUCCESS"
-	LoginStatusSelectWorkspace = "SELECT_WORKSPACE"
-)
+// LoginStatus is the status returned by AuthService.Login. Every successful
+// login (one or more memberships) returns SELECT_WORKSPACE; the caller must
+// complete authentication via SelectWorkspace.
+const LoginStatusSelectWorkspace = "SELECT_WORKSPACE"
