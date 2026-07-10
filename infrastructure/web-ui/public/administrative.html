@@ -259,8 +259,11 @@
             try {
                 const res = await fetch("/api/users/me", { headers: getAuthHeader() });
                 const data = await res.json();
-                if (res.ok && data.data && data.data.Name) {
-                    document.getElementById("update-me-name").value = data.data.Name;
+                if (res.ok && data.data) {
+                    const profileName = data.data.name || data.data.Name;
+                    if (profileName) {
+                        document.getElementById("update-me-name").value = profileName;
+                    }
                 }
             } catch (err) {
                 console.error("Failed to load user profile", err);

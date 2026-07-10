@@ -76,15 +76,17 @@
                 outputEl.textContent = JSON.stringify(data, null, 2);
 
                 if (response.ok) {
-                    const tenantId = (data.data && data.data.tenant_id) ? data.data.tenant_id : ("t_" + Date.now());
-                    saveTenant({
-                        tenant_id: tenantId,
+                    const registeredTenant = {
                         tenant_name: payload.tenant_name,
                         plan: payload.plan,
                         owner_email: payload.owner_email,
                         status: (data.data && data.data.status) ? data.data.status : "PROVISIONING",
                         registered_at: new Date().toLocaleTimeString()
-                    });
+                    };
+                    if (data.data && data.data.tenant_id) {
+                        registeredTenant.tenant_id = data.data.tenant_id;
+                    }
+                    saveTenant(registeredTenant);
 
                     localStorage.setItem("broker_demo_registered", "true");
                     renderNavHeader("register");
