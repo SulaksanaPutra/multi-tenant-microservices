@@ -178,6 +178,13 @@
         <pre id="create-role-output" style="background:#f4f4f4; padding:8px; border:1px solid #ccc; display:none; margin-top:10px;"></pre>
     </dialog>
 
+    <!-- MODAL 4: PLAN MIGRATION PROGRESS (BLOCKER) -->
+    <dialog id="dialog-migrating" style="border:1px solid #ccc; padding:20px; width:420px; max-width:90%; text-align:center;">
+        <h3 style="margin-top:0;">Tenant Migration In Progress</h3>
+        <p id="migration-status">Migration started. Checking tenant status...</p>
+        <p style="color:#666; font-size:0.9em;">Data plane operations (Orders) are temporarily locked while your tenant infrastructure is being migrated.</p>
+    </dialog>
+
     <script src="/nav.js"></script>
     <script>
         renderNavHeader("admin");
@@ -607,10 +614,74 @@
                 });
                 const data = await res.json();
                 out.textContent = JSON.stringify(data, null, 2);
-                if (res.ok) loadTenantAccess();
+                if (res.ok) {
+                    await waitForMigration(out);
+                }
             } catch (err) {
                 out.textContent = "Error: " + err.message;
             }
+        });
+
+        const MIGRATION_POLL_INTERVAL_MS = 2000;
+        const MIGRATION_POLL_TIMEOUT_MS = 120000;
+
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        function showMigrationDialog(message) {
+            const statusEl = document.getElementById("migration-status");
+            if (statusEl) statusEl.textContent = message;
+            const dialog = document.getElementById("dialog-migrating");
+            if (dialog && typeof dialog.showModal === "function") dialog.showModal();
+            document.body.style.overflow = "hidden";
+        }
+
+        function closeMigrationDialog() {
+            const dialog = document.getElementById("dialog-migrating");
+            if (dialog && typeof dialog.close === "function") dialog.close();
+            document.body.style.overflow = "";
+        }
+
+        async function waitForMigration(out) {
+            showMigrationDialog("Migration started. Checking tenant status...");
+            const token = getJWTToken();
+            const startedAt = Date.now();
+
+            while (Date.now() - startedAt < MIGRATION_POLL_TIMEOUT_MS) {
+                await sleep(MIGRATION_POLL_INTERVAL_MS);
+
+                let tenant = null;
+                try {
+                    const res = await fetch("/api/tenants/me", { headers: getAuthHeader() });
+                    const body = await res.json();
+                    if (res.ok && body.data) tenant = body.data;
+                } catch (err) {
+                }
+
+                if (!tenant) continue;
+
+                const status = String(tenant.Status || tenant.status || "").toUpperCase();
+                const statusEl = document.getElementById("migration-status");
+                if (status === "MIGRATING") {
+                    if (statusEl) statusEl.textContent = "Tenant is migrating. Please wait...";
+                    continue;
+                }
+
+                updateSessionTenant(token, tenant);
+                if (statusEl) statusEl.textContent = "Migration complete. Reloading page...";
+                closeMigrationDialog();
+                setTimeout(() => window.location.reload(), 500);
+                return;
+            }
+
+            closeMigrationDialog();
+            out.textContent += "\n\nMigration is taking longer than expected. Refresh the page to check the latest status.";
+            loadTenantAccess();
+        }
+
+        document.getElementById("dialog-migrating").addEventListener("cancel", function(e) {
+            e.preventDefault();
         });
 
         function escapeHtml(value) {

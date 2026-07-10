@@ -188,6 +188,23 @@ function saveJWTToken(token, tenantInfo, userRole) {
     }
 }
 
+function updateSessionTenant(token, tenantInfo) {
+    if (!token || !tenantInfo) return;
+    const sessions = getSavedSessions();
+    const session = sessions.find(s => s.token === token);
+    if (!session) return;
+
+    session.tenant_name = tenantInfo.Name || tenantInfo.name || session.tenant_name;
+    session.tenant_slug = tenantInfo.Slug || tenantInfo.slug || session.tenant_slug;
+    session.tenant_plan = tenantInfo.Plan || tenantInfo.plan || session.tenant_plan;
+    session.tenant_status = tenantInfo.Status || tenantInfo.status || session.tenant_status;
+    session.owner_name = tenantInfo.OwnerName || tenantInfo.owner_name || session.owner_name;
+    session.owner_email = tenantInfo.OwnerEmail || tenantInfo.owner_email || session.owner_email;
+    session.updated_at = new Date().toISOString();
+
+    localStorage.setItem(STORAGE_KEY_SESSIONS, JSON.stringify(sessions));
+}
+
 function switchActiveSession(token) {
     // The account switcher must ONLY change the active JWT pointer in
     // localStorage. It must NOT re-run saveJWTToken: without fresh

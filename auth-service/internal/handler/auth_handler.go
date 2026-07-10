@@ -44,9 +44,12 @@ type LoginResponse struct {
 	RequiresWorkspace bool            `json:"requires_workspace,omitempty"`
 	ExchangeToken     string          `json:"exchange_token,omitempty"`
 	Workspaces        []WorkspaceInfo `json:"workspaces,omitempty"`
-	AccessToken       string          `json:"access_token,omitempty"`
-	RefreshToken      string          `json:"refresh_token,omitempty"`
-	ExpiresIn         int             `json:"expires_in,omitempty"`
+}
+
+type TokenPairResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresIn    int    `json:"expires_in"`
 }
 
 type RefreshTokenRequest struct {
@@ -97,7 +100,7 @@ func (h *AuthHandler) SetupPassword(c *gin.Context) {
 		return
 	}
 
-	httputil.WriteSuccess(c, http.StatusOK, "Password setup successful", LoginResponse{
+	httputil.WriteSuccess(c, http.StatusOK, "Password setup successful", TokenPairResponse{
 		AccessToken:  pair.AccessToken,
 		RefreshToken: pair.RefreshToken,
 		ExpiresIn:    pair.ExpiresIn,
@@ -120,29 +123,24 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			httputil.WriteError(c, http.StatusUnauthorized, "invalid email or password")
 			return
 		}
+		if errors.Is(err, domain.ErrNoTenantMembership) {
+			httputil.WriteError(c, http.StatusUnauthorized, err.Error())
+			return
+		}
 		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	if res.Status == domain.LoginStatusSelectWorkspace {
-		workspaceResponses := make([]WorkspaceInfo, 0, len(res.Workspaces))
-		for _, ws := range res.Workspaces {
-			workspaceResponses = append(workspaceResponses, WorkspaceInfo{
-				TenantID: ws.TenantID,
-			})
-		}
-		httputil.WriteSuccess(c, http.StatusOK, "Multiple workspace accounts found. Please select a workspace.", LoginResponse{
-			RequiresWorkspace: true,
-			ExchangeToken:     res.ExchangeToken,
-			Workspaces:        workspaceResponses,
+	workspaceResponses := make([]WorkspaceInfo, 0, len(res.Workspaces))
+	for _, ws := range res.Workspaces {
+		workspaceResponses = append(workspaceResponses, WorkspaceInfo{
+			TenantID: ws.TenantID,
 		})
-		return
 	}
-
-	httputil.WriteSuccess(c, http.StatusOK, "Login successful", LoginResponse{
-		AccessToken:  res.TokenPair.AccessToken,
-		RefreshToken: res.TokenPair.RefreshToken,
-		ExpiresIn:    res.TokenPair.ExpiresIn,
+	httputil.WriteSuccess(c, http.StatusOK, "Multiple workspace accounts found. Please select a workspace.", LoginResponse{
+		RequiresWorkspace: true,
+		ExchangeToken:     res.ExchangeToken,
+		Workspaces:        workspaceResponses,
 	})
 }
 
@@ -170,7 +168,7 @@ func (h *AuthHandler) SelectTenant(c *gin.Context) {
 		return
 	}
 
-	httputil.WriteSuccess(c, http.StatusOK, "Workspace selection successful", LoginResponse{
+	httputil.WriteSuccess(c, http.StatusOK, "Workspace selection successful", TokenPairResponse{
 		AccessToken:  pair.AccessToken,
 		RefreshToken: pair.RefreshToken,
 		ExpiresIn:    pair.ExpiresIn,

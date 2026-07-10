@@ -12,16 +12,17 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
 +-----------------------------------------------------------------------------------+
 
 [ Client App ]
-      │  HTTP Requests (POST /auth/login, POST /api/register, POST/GET /api/orders)
+      │  HTTP Requests (POST /api/auth/login, POST /api/tenants/register, POST/GET /api/orders)
       ▼
 [ Traefik Gateway :8000 ]
       │
-      ├─────► POST /auth/login ───────────► [ auth-service :8085 ]
-      │       POST /auth/refresh                    │
+      ├─────► POST /api/auth/login ──────────► [ auth-service :8085 ]
+      │       POST /api/auth/select-tenant          │
+      │       POST /api/auth/refresh                │
       │                                             ▼
       │                                        [ authDB ] (Bcrypt & Refresh Tokens)
       │
-      ├─────► POST /api/register ─────────► [ tenant-service :8082 ]
+      ├─────► POST /api/tenants/register ────► [ tenant-service :8082 ]
       │                                             │ (Outbox Write)
       │                                             ▼
       │                                     [ tenantManagerDB ]
@@ -50,7 +51,7 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
 
 ## 2. Workflows & Sequences
 
-### 2.1 Microservice Boot & Domain Permission Registration (`POST /internal/permissions/register`)
+### 2.1 Microservice Boot & Domain Permission Registration (`POST /internal/auth/permissions/register`)
 
 ```text
 +-----------------------------------------------------------------------------------+
@@ -59,14 +60,15 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
 
 [ order-service Boot ]       [ notification-service Boot ]     [ user-service Boot ]
           │                               │                           │
-          │ POST /internal/permissions    │ POST /internal/permission │ POST /internal/permissions
+          │ POST /internal/auth/          │ POST /internal/auth/      │ POST /internal/auth/
+          │ permissions/register          │ permissions/register      │ permissions/register
           │ (X-Internal-Service-Token)    │ (X-Internal-Service-Token)│ (X-Internal-Service-Token)
           ▼                               ▼                           ▼
   ┌───────────────────────────────────────────────────────────────────────────┐
   │                         [ auth-service :8085 ]                            │
-  │  1. Receives domain permission declarations                             │
+  │  1. Receives domain permission declarations                               │
   │  2. Executes idempotent upsert: ON CONFLICT (name) DO UPDATE              │
-  │  3. Non-blocking HTTP semaphore prevents startup stampedes               │
+  │  3. Non-blocking HTTP semaphore prevents startup stampedes                │
   └─────────────────────────────────────┬─────────────────────────────────────┘
                                         ▼
                             [ auth_db.permissions ]
@@ -74,19 +76,19 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
 ```
 
 * **Domain-Driven Permission Ownership:** Domain services (`order-service`, `notification-service`, `user-service`) own their atomic capability strings (e.g. `orders:create`, `orders:read`).
-* **Non-Blocking Registration:** Services register capabilities at startup via an internal HTTP semaphore contract (`POST /internal/permissions/register`). `auth-service` persists them as opaque strings without needing compile-time knowledge of domain semantics.
+* **Non-Blocking Registration:** Services register capabilities at startup via an internal HTTP semaphore contract (`POST /internal/auth/permissions/register`). `auth-service` persists them as opaque strings without needing compile-time knowledge of domain semantics.
 
 ---
 
-### 2.2 Open Registration & Dynamic Infrastructure Provisioning (`POST /api/register`)
+### 2.2 Open Registration & Dynamic Infrastructure Provisioning (`POST /api/tenants/register`)
 
 ```text
 +-----------------------------------------------------------------------------------+
-|                            POST /api/register Workflow                            |
+|                            POST /api/tenants/register Workflow                    |
 +-----------------------------------------------------------------------------------+
 
 [ Client ] 
-    │  POST /api/register (email, name, plan)
+    │  POST /api/tenants/register (owner_email, owner_name, plan, tenant_name)
     ▼
 [ tenant-service ] 
     │  1. Save tenant metadata (status: pending)
@@ -106,7 +108,7 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
     ├─► Shared Plan:                                  │ Emits: user.created
     │   Pass-through metadata                         │
     ├─► Dedicated Plan:                               ▼
-    │   Create Docker container                       [ RabbitMQ Queue ]
+    │   Create Docker container                   [ RabbitMQ Queue ]
     │   (512MB RAM, 0.5 CPU limits)                   │
     │   Declaratively bootstrap domain DBs & roles    │
     │   Poll pg_isready health check                  │
@@ -129,7 +131,7 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
 
 ---
 
-### 2.3 Password Setup & Credential Initialization (`POST /auth/credentials/setup`)
+### 2.3 Password Setup & Credential Initialization (`POST /api/auth/credentials/setup`)
 
 ```text
 +-----------------------------------------------------------------------------------+
@@ -155,7 +157,7 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
     │  http://localhost:8000/setup-password?token=<RAW_TOKEN>
     ▼
 [ Client / User ]
-    │  POST /auth/credentials/setup { "token": "<RAW_TOKEN>", "password": "..." }
+    │  POST /api/auth/credentials/setup { "token": "<RAW_TOKEN>", "password": "..." }
     ▼
 [ auth-service ]
     │  1. Validates setup token hash, expiry & unused state
@@ -167,27 +169,49 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
 
 ---
 
-### 2.4 User Authentication & RS256 JWT Access Token Flow (`POST /auth/login`)
+### 2.4 User Login & Workspace Selection (`POST /api/auth/login` + `POST /api/auth/select-tenant`)
 
 ```text
 +-----------------------------------------------------------------------------------+
-|                        User Login & Token Issuance Flow                           |
+|                     User Login & Workspace Selection Flow                         |
 +-----------------------------------------------------------------------------------+
 
-[ Client ] ─────► POST /auth/login { "email": "...", "password": "..." }
+[ Client ] ─────► POST /api/auth/login { "email": "...", "password": "..." }
                         │
                         ▼
                 [ auth-service :8085 ]
                         │  1. Verify bcrypt password in auth_db.user_credentials
-                        │  2. Query assigned permissions & perm_version:
-                        │     user_roles ──► roles ──► role_permissions ──► permissions
-                        │  3. Sign RS256 Access Token:
-                        │     Claims: { sub, tenant_id, email, permissions: [...], perm_version: N }
-                        │  4. Save SHA-256(raw_refresh_token) to auth_db.refresh_tokens (7d TTL)
+                        │  2. Resolve memberships: user_tenant_memberships (user_id)
+                        │     ├─► 0 memberships ──► HTTP 401 Unauthorized
+                        │     └─► 1+ memberships
+                        │  3. Mint 256-bit single-use EXCHANGE TOKEN (10-min TTL,
+                        │     saved as SHA-256 in auth_db.password_setup_tokens)
+                        ▼
+[ Client ] ◄───── 200 OK (Always SELECT_WORKSPACE)
+                data: {
+                  requires_workspace: true,
+                  exchange_token: "<raw>",
+                  workspaces: [ { "tenant_id": "<tenant-a>" }, ... ]
+                }
+                        │
+                        ▼  (client exchanges silently for a single workspace,
+                        │    or presents a selection modal for multiple)
+[ Client ] ─────► POST /api/auth/select-tenant { "exchange_token", "tenant_id" }
                         │
                         ▼
-[ Client ] ◄───── Return { "access_token": "<JWT>", "refresh_token": "<raw>" }
+                [ auth-service :8085 ]
+                        │  1. Validate exchange token (hash / single-use / 10-min expiry)
+                        │  2. Verify tenant_id ∈ user_tenant_memberships(user_id)
+                        │  3. MarkTokenUsed()  (replay -> HTTP 400)
+                        │  4. Sign RS256 Access Token scoped to (userID, tenant_id):
+                        │     Claims: { sub, tenant_id, email, permissions: [...], perm_version: N }
+                        │  5. Save SHA-256(raw_refresh_token) to auth_db.refresh_tokens
+                        │     (7d TTL, tenant-bound)
+                        ▼
+[ Client ] ◄───── 200 OK  data: { "access_token": "<JWT>", "refresh_token": "<raw>", "expires_in": 900 }
 ```
+
+The login endpoint **always** returns the `SELECT_WORKSPACE` shape — even when the user belongs to exactly one workspace (the `workspaces` array then contains a single entry). No access/refresh tokens are ever issued by `POST /api/auth/login`; they are minted exclusively by `POST /api/auth/select-tenant` (or `POST /api/auth/credentials/setup`). Refresh tokens are bound to the selected tenant, so `POST /api/auth/refresh` preserves the workspace context without re-selection.
 
 ---
 
@@ -282,13 +306,11 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
 ```
 
 * **New Tenant Registration:** Every `order-service` replica experiences a natural cache miss on its first request and lazily resolves the routing metadata.
-* **Infrastructure Rebinding & Plan Changes:** If a dedicated DB container dies and is rescheduled on a new IP/port by Docker/K8s, or if a tenant undergoes a plan upgrade/downgrade, `tenant-service` broadcasts `tenant.infrastructure_changed` over the **`company.events` Topic Exchange** to exclusive anonymous queues, forcing all `order-service` replicas to purge their local `RoutingRegistry` and `PoolRegistry` connection caches in real-time.
+* **Infrastructure Rebinding & Plan Changes:** If a dedicated DB container dies and is rescheduled on a new IP/port by Docker/K8s, `tenant-service` broadcasts `tenant.infrastructure_changed` over the **`company.events` Topic Exchange** to exclusive anonymous queues, forcing all `order-service` replicas to purge their local `RoutingRegistry` and `PoolRegistry` connection caches in real-time. A **plan upgrade/downgrade** runs the full migration workflow described in [Section 2.10](#210-plan-switching--downtime-management-put-apitenantsmeplan) — it begins with a `tenant.infrastructure_locking` freeze (`MIGRATING` / HTTP 423 Locked) and only emits `tenant.infrastructure_changed` once the cutover completes or rolls back.
 
 ---
 
 ### 2.8 Unified Identity & Workspace Selection (`POST /api/auth/login` + `POST /api/auth/select-tenant`)
-
-**Data Model (Slack / GitHub / Vercel Paradigm):**
 
 ```text
  user_db.public.users                  auth_db.public.user_credentials        auth_db.public.user_tenant_memberships
@@ -318,44 +340,36 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
                       │ 3. GetUserMemberships(user_id)
                       │      SELECT tenant_id FROM user_tenant_memberships WHERE user_id = $1
                       │
-                      ├──────────────────────┬──────────────────────
-                      ▼                      ▼
-              0 memberships           1+ memberships
-                      │                      │
-                      ▼                      ▼
+                       ├──────────────────────┬──────────────────────
+                       ▼                      ▼
+               0 memberships           1+ memberships
+                       │                      │
+                       ▼                      ▼
                 401 No Tenant        create single-use EXCHANGE TOKEN
                   Membership          (10 min TTL, saved in password_setup_tokens)
-                                         │
-                                         ▼
-return { status: "SELECT_WORKSPACE",
-                                   exchange_token,
-                                   workspaces: [ {tenant_id}, ... ] }
-                                         │
-                                         ▼
-                             [ Client ] ──► POST /api/auth/select-tenant
-                                    { exchange_token, tenant_id }
-                                         │
-                                         ▼
-                                [ auth-service ]
-                                  • validate exchange token (hash / used / expiry)
-                                  • verify tenant_id ∈ GetUserMemberships(user_id)
-                                  • MarkTokenUsed()
-                                  • issuePair(tenant)
-                                         │
-                                         ▼
-                                return { access_token,
-                                  refresh_token (bound to tenant) }
+                 (Unauthorized)               │
+                                              ▼
+                                        return { requires_workspace: true,
+                                        exchange_token,
+                                        workspaces: [ { tenant_id }, ... ] }
+                                              │
+                                              ▼
+                                    [ Client ] ──► POST /api/auth/select-tenant
+                                     { exchange_token, tenant_id }
+                                              │
+                                              ▼
+                                      [ auth-service ]
+                                   • validate exchange token (hash / used / expiry)
+                                   • verify tenant_id ∈ GetUserMemberships(user_id)
+                                   • MarkTokenUsed()
+                                   • issuePair(tenant)
+                                              │
+                                              ▼
+                                    return { access_token,
+                                    refresh_token (bound to tenant) }
 ```
 
-The client completes the flow: with **one** workspace it exchanges the token silently; with **multiple** it presents a workspace-selection modal. Each workspace is identified by its `tenant_id`; the UI resolves a human-readable label from the browser's locally-saved tenant registry when available.
-
-**Why `user_credentials` has no `tenant_id` (intentional, not a bug):**
-
-* `user_credentials` is a **global identity row** (1 per email); the `tenant_id` column was deliberately removed in the Unified Identity migration.
-* Tenants live in `user_tenant_memberships`; the credential row itself is tenant-agnostic.
-* `Credential.TenantID` is a **working value set at issuance time**, never persisted. The source of truth is `GetUserMemberships()`.
-* Every issuance path must resolve the tenant before `issuePair()`: SelectWorkspace (explicit `tenant_id`, re-verified against memberships), RefreshToken (reads `refresh_tokens.tenant_id` bound at issuance), and SetupPassword. `Login` never issues directly — it always returns an exchange token for the client to exchange via `select-tenant`.
-* ⚠️ **Footgun:** any path that issues a token without resolving the tenant mints a tenant-less JWT — this was the refresh bug, now fixed by binding `tenant_id` onto the refresh-token row and by making `issuePair` take the tenant as an explicit parameter.
+The client completes the flow: with **one** workspace it exchanges the token silently; with **multiple** it presents a workspace-selection modal. Note that every successful login — single *or* multiple memberships — returns the `SELECT_WORKSPACE` shape (`requires_workspace: true` with a `workspaces` array of 1..N `{tenant_id}` entries); a single-workspace login simply yields a one-element array and is auto-exchanged by the client. Each workspace is identified by its `tenant_id`; the UI resolves a human-readable label from the browser's locally-saved tenant registry when available.
 
 ---
 
@@ -374,10 +388,77 @@ To let tenant admins pre-assign roles **before** a user ever sets a password, `a
         ▼
 [ auth_db.user_tenant_memberships ]  ← eventually consistent copy
 ```
+---
 
-* **Correctness backstop:** the password-setup write-through (`CredentialRepository.UpsertCredential → AddMembership`) remains the source-of-truth heal path, so a DLQ'd event is a "review during business hours" item, never a page.
-* **Poison-pill handling:** the queue declares a broker-native DLX topology (`company.events.dlx` → `auth_service_user_created_membership_dlq`) and a delivery-count cap (`x-delivery-count` / `x-death`); persistent failures are routed to the DLQ automatically.
-* **Non-fatal startup:** if RabbitMQ is unreachable at boot, auth-service logs a warning and the consumer stays disabled until restart; the HTTP surface is unaffected.
+### 2.10 Plan Switching & Downtime Management (`PUT /api/tenants/me/plan`)
+
+Upgrading/downgrading a workspace between **`shared`** (schema-per-tenant on the shared cluster) and **`dedicated`** (database-per-tenant container) is an **asynchronous, event-driven migration** coordinated through a `MIGRATING` status window that freezes the tenant's data plane while the cutover runs.
+
+```text
++-----------------------------------------------------------------------------------+
+|        Plan Switch, Maintenance Window & Cache Invalidation (PUT /me/plan)        |
++-----------------------------------------------------------------------------------+
+
+[ Client / Tenant Admin ]
+    │  PUT /api/tenants/me/plan { "plan": "shared" | "dedicated" }
+    │  (Bearer <JWT>, permission: tenants:write)
+    ▼
+[ tenant-service ]  ── Synchronous request (returns 200 OK immediately)
+    │  1. Validate plan ∈ {shared, dedicated}                       -> 400 on invalid
+    │  2. Persist new plan (UPDATE public.tenants SET plan = $2)
+    │  3. Freeze control plane: status = MIGRATING
+    │  4. Stage Outbox events (one DB call each):
+    │       a. tenant.infrastructure_locking  { event_id, tenant_id }
+    │       b. workspace.initiated            { event_id, tenant_id, plan, owner_email, owner_name }
+    │  5. outboxWorker.Poke()  ──► publishes both events to company.events
+    ▼
+    HTTP 200 OK  data: { "tenant_id": "...", "plan": "dedicated" }
+    │
+    ▼
+    ┌──────────────────────────────────────────  Async Cutover  ──────────────────────────────────────────┐
+    │                                                                                                     │
+    │  [ RabbitMQ Topic Exchange: company.events ]                                                        │
+    │       │                                                                                             │
+    │       ├─ tenant.infrastructure_locking (fanout) ──► [ order-service replicas ]                      │
+    │       │        RoutingRegistry.SetStatus(tenant_id, "MIGRATING")                                    │
+    │       │        ──► Data-plane traffic for that tenant returns HTTP 423 Locked                       │
+    │       │        ──► Outbox DDL guard skips the tenant's pending event writes                         │
+    │       │                                                                                             │
+    │       └─ workspace.initiated ──► [ infra-provisioner ]  (QoS = 1)                                   │
+    │            ├─► shared:    return shared-cluster DSN + per-tenant schema (no container, no copy)     │
+    │            └─► dedicated: ProvisionDedicatedContainer                                               │
+    │                 ├─ Existing shared schema? -> LockSchema + MigrateData (pg_dump | sed | psql)       │
+    │                 │  (on failure: restore schema, destroy container, publish tenant.migration_failed) │
+    │                 └─ Publish: infrastructure.provisioned  (no passwords)                              │
+    │                     │                                                                               │
+    │                     ▼                                                                               │
+    │            [ order-service ]  consume infrastructure.provisioned                                    │
+    │                 ├─ Run DDL migrations against the (new) tenant DB                                   │
+    │                 └─ Publish: tenant.order_db.ready  (routing metadata)                               │
+    │                     │                                                                               │
+    │                     ▼                                                                               │
+    │            [ tenant-service ]  consume tenant.order_db.ready  (TenantOrderDBReadyConsumer)          │
+    │                 ├─ Upsert tenant_infrastructures routing metadata                                   │
+    │                 └─ ActivateWorkspace(): status back to active                                       │
+    │                     ├─ Emit workspace.ready                                                         │
+    │                     └─ Emit tenant.infrastructure_changed  ──► unfreeze + purge order-service       │
+    │                        caches (423 Locked lifted, MIGRATING cleared)                                │
+    │                                                                                                     │
+    │  ┌─ Failure path ───────────────────────────────────────────────────────────────┐                   │
+    │  │ [ infra-provisioner ] publishes tenant.migration_failed                      │                   │
+    │  │ [ tenant-service ] MigrationFailedConsumer -> RollbackFailedMigration:       │                   │
+    │  │    status back to active + emit tenant.infrastructure_changed (unfreeze)     │                   │
+    │  └──────────────────────────────────────────────────────────────────────────────┘                   │
+    └─────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+Key properties of the maintenance window:
+
+* **Immediate plan persistence:** The new plan is written synchronously on request; only the *cutover* is asynchronous.
+* **Zero-downtime intent, bounded freeze:** While `MIGRATING`, the tenant's data-plane traffic is shielded with **HTTP 423 Locked** rather than serving stale/duplicated writes; the window ends when `tenant.infrastructure_changed` clears the flag (success *or* rollback).
+* **Sticky freeze:** `MIGRATING` persists on every order-service replica until a `tenant.infrastructure_changed` broadcast arrives — a network-split-safe guard against serving during an incomplete cutover.
+* **Failure isolation:** Any provisioning/migration failure restores the original schema, tears down the temporary container, and rolls the tenant back to `active` via `tenant.migration_failed` — the plan column may keep the requested value while infrastructure is reverted, forcing an explicit retry or further reconciliation.
+* **Both directions are symmetric:** shared → dedicated and dedicated → shared run the identical code path; the plan string simply drives infra-provisioner behavior.
 
 ---
 
@@ -536,11 +617,12 @@ microservice-api/
 | **tenant-service** | `POST /api/tenants/register` | None | Public | Register new workspace & initiate provisioner workflow |
 | **tenant-service** | `GET /api/tenants/me` | Bearer JWT | `tenants:read` | Retrieve authenticated tenant workspace profile metadata |
 | **tenant-service** | `PUT /api/tenants/me` | Bearer JWT | `tenants:write` | Update tenant metadata (name, slug, owner info) |
-| **tenant-service** | `PUT /api/tenants/me/plan` | Bearer JWT | `tenants:write` | Upgrade/downgrade tenant isolation plan (`shared` / `dedicated`) |
+| **tenant-service** | `PUT /api/tenants/me/plan` | Bearer JWT | `tenants:write` | Asynchronously upgrade/downgrade tenant isolation plan (`shared` / `dedicated`); sets status `MIGRATING`, freezes the data plane (HTTP 423), re-provisions the DB, then unfreezes via `tenant.infrastructure_changed` |
 | **auth-service** | `GET /.well-known/jwks.json` | None | Public | Public RSA key set for RS256 JWT signature verification |
-| **auth-service** | `POST /api/auth/credentials/setup` | None | Public | Setup user password via setup token |
-| **auth-service** | `POST /api/auth/login` | None | Public | User authentication & RS256 JWT access token issuance |
-| **auth-service** | `POST /api/auth/refresh` | None | Public | Refresh expired access tokens |
+| **auth-service** | `POST /api/auth/credentials/setup` | None | Public | Setup user password via setup token & return tenant-bound JWT pair |
+| **auth-service** | `POST /api/auth/login` | None | Public | Authenticate email/password; always returns workspace selection (`requires_workspace`, `exchange_token`, `workspaces`) — no tokens are issued here |
+| **auth-service** | `POST /api/auth/select-tenant` | None | Public | Exchange a login exchange token for a JWT pair bound to a selected member workspace |
+| **auth-service** | `POST /api/auth/refresh` | None | Public | Refresh expired access tokens (preserves tenant context) |
 | **auth-service** | `POST /api/auth/logout` | Bearer JWT | Authenticated | Revoke refresh token |
 | **auth-service** | `GET /api/auth/permissions` | Bearer JWT | `auth:roles:read` | List catalog of registered system permissions |
 | **auth-service** | `POST /api/auth/roles` | Bearer JWT | `auth:roles:manage` | Create tenant-scoped custom role |

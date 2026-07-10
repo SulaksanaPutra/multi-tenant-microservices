@@ -76,7 +76,7 @@ paths:
       x-service: auth-service
       x-source:
         - "auth-service/cmd/router.go:29"
-        - "auth-service/internal/handler/auth_handler.go:225"
+        - "auth-service/internal/handler/auth_handler.go:223"
       responses:
         "200":
           description: Successful response
@@ -100,7 +100,7 @@ paths:
       x-service: auth-service
       x-source:
         - "auth-service/cmd/router.go:33"
-        - "auth-service/internal/handler/auth_handler.go:78"
+        - "auth-service/internal/handler/auth_handler.go:81"
       requestBody:
         required: true
         content:
@@ -121,7 +121,7 @@ paths:
                   message:
                     type: string
                   data:
-                    "$ref": "#/components/schemas/auth_LoginResponse"
+                    "$ref": "#/components/schemas/auth_TokenPairResponse"
                 required:
                   - status
                   - data
@@ -147,7 +147,7 @@ paths:
       x-service: auth-service
       x-source:
         - "auth-service/cmd/router.go:33"
-        - "auth-service/internal/handler/auth_handler.go:107"
+        - "auth-service/internal/handler/auth_handler.go:110"
       requestBody:
         required: true
         content:
@@ -200,7 +200,7 @@ paths:
       x-service: auth-service
       x-source:
         - "auth-service/cmd/router.go:34"
-        - "auth-service/internal/handler/auth_handler.go:149"
+        - "auth-service/internal/handler/auth_handler.go:147"
       requestBody:
         required: true
         content:
@@ -221,7 +221,7 @@ paths:
                   message:
                     type: string
                   data:
-                    "$ref": "#/components/schemas/auth_LoginResponse"
+                    "$ref": "#/components/schemas/auth_TokenPairResponse"
                 required:
                   - status
                   - data
@@ -247,7 +247,7 @@ paths:
       x-service: auth-service
       x-source:
         - "auth-service/cmd/router.go:36"
-        - "auth-service/internal/handler/auth_handler.go:180"
+        - "auth-service/internal/handler/auth_handler.go:178"
       requestBody:
         required: true
         content:
@@ -303,7 +303,7 @@ paths:
       x-service: auth-service
       x-source:
         - "auth-service/cmd/router.go:39"
-        - "auth-service/internal/handler/auth_handler.go:208"
+        - "auth-service/internal/handler/auth_handler.go:206"
       requestBody:
         required: true
         content:
@@ -1682,22 +1682,9 @@ components:
       required:
         - token
         - password
-    auth_WorkspaceInfo:
+    auth_TokenPairResponse:
       type: object
       properties:
-        tenant_id:
-          type: string
-    auth_LoginResponse:
-      type: object
-      properties:
-        requires_workspace:
-          type: boolean
-        exchange_token:
-          type: string
-        workspaces:
-          type: array
-          items:
-            "$ref": "#/components/schemas/auth_WorkspaceInfo"
         access_token:
           type: string
         refresh_token:
@@ -1716,6 +1703,22 @@ components:
       required:
         - email
         - password
+    auth_WorkspaceInfo:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+    auth_LoginResponse:
+      type: object
+      properties:
+        requires_workspace:
+          type: boolean
+        exchange_token:
+          type: string
+        workspaces:
+          type: array
+          items:
+            "$ref": "#/components/schemas/auth_WorkspaceInfo"
     auth_SelectTenantRequest:
       type: object
       properties:

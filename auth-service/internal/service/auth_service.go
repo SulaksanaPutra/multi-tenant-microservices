@@ -63,7 +63,7 @@ type WorkspaceInfo struct {
 }
 
 type LoginOutput struct {
-	Status        string // domain.LoginStatusSuccess or domain.LoginStatusSelectWorkspace
+	Status        string // domain.LoginStatusSelectWorkspace (always; token pair requires SelectWorkspace)
 	TokenPair     *TokenPair
 	ExchangeToken string
 	Workspaces    []WorkspaceInfo
