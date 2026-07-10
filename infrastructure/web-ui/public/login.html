@@ -166,7 +166,7 @@
                 const data = await response.json();
 
                 if (response.ok && data.data) {
-                    if (data.data.status === "SELECT_WORKSPACE") {
+                    if (data.data.requires_workspace === true || data.data.status === "SELECT_WORKSPACE") {
                         pendingExchangeToken = data.data.exchange_token;
                         availableWorkspaces = data.data.workspaces || [];
 
@@ -181,8 +181,8 @@
                         return;
                     }
 
-                    // Legacy direct-token response (backend fallback).
-                    const tokenData = data.data.token_pair || data.data;
+                    // Direct-token response (backend fallback).
+                    const tokenData = data.data;
                     if (tokenData.access_token) {
                         finalizeLogin(data, tokenData);
                     }
