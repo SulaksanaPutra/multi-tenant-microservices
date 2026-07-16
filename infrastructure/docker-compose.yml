@@ -76,8 +76,9 @@ services:
     restart: always
     environment:
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-      SHARED_DB_HOST: postgres
+      SHARED_DB_HOST: ${SHARED_DB_HOST:-postgres}
       SHARED_DB_SECRET: ${SHARED_DB_SECRET:-default_shared_db_secret_key}
+      DEDICATED_ISOLATION_MODE: ${DEDICATED_ISOLATION_MODE:-container}
       DOCKER_NETWORK: microservice-network
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -107,6 +108,107 @@ services:
     networks:
       - microservice-network
 
+  # ---------------------------------------------------------------------------
+  # Premium tier (per-service-db profile): one dedicated postgres per service.
+  # Only started with: docker compose --profile per-service-db up
+  # Services point at these via <SERVICE>_DB_HOST (see scripts/up.sh).
+  # ---------------------------------------------------------------------------
+  auth-db:
+    image: postgres:16-alpine
+    container_name: auth-db
+    profiles: ["per-service-db"]
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: auth_db
+    volumes:
+      - auth_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d auth_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - microservice-network
+
+  user-db:
+    image: postgres:16-alpine
+    container_name: user-db
+    profiles: ["per-service-db"]
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: user_db
+    volumes:
+      - user_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d user_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - microservice-network
+
+  tenant-db:
+    image: postgres:16-alpine
+    container_name: tenant-db
+    profiles: ["per-service-db"]
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: tenant_manager_db
+    volumes:
+      - tenant_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d tenant_manager_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - microservice-network
+
+  notification-db:
+    image: postgres:16-alpine
+    container_name: notification-db
+    profiles: ["per-service-db"]
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: notification_db
+    volumes:
+      - notification_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d notification_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - microservice-network
+
+  # Hosts the order data plane's shared_db in the Premium tier.
+  data-plane-db:
+    image: postgres:16-alpine
+    container_name: data-plane-db
+    profiles: ["per-service-db"]
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: shared_db
+    volumes:
+      - data_plane_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d shared_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - microservice-network
+
 networks:
   microservice-network:
     name: microservice-network
@@ -114,3 +216,8 @@ networks:
 
 volumes:
   postgres_data:
+  auth_db_data:
+  user_db_data:
+  tenant_db_data:
+  notification_db_data:
+  data_plane_db_data:

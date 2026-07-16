@@ -1,6 +1,6 @@
 # Microservice API Workspace (Multi-Tenant Microservices Architecture)
 
-This workspace demonstrates a **Multi-Tenant Microservices Architecture** supporting both **Shared (Schema-per-Tenant)** and **Dedicated (Database-per-Tenant via Docker)** isolation models, powered by an isolated **`infra-provisioner`** pattern, **Declarative Bootstrapping**, and a **Zero-Trust Control Plane** for secure container orchestration and credential protection.
+This workspace demonstrates a **Multi-Tenant Microservices Architecture** supporting both **Shared (Schema-per-Tenant)** and **Dedicated (Database-per-Tenant)** isolation models — where "dedicated" is either a per-tenant PostgreSQL container or, on the lite tier, a per-tenant database + role inside the shared instance — powered by an isolated **`infra-provisioner`** pattern, **Declarative Bootstrapping**, and a **Zero-Trust Control Plane** for secure container orchestration and credential protection. See [Section 8](#8-deployment-tiers) for the three deployment tiers.
 
 ---
 
@@ -108,8 +108,11 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
     ├─► Shared Plan:                                  │ Emits: user.created
     │   Pass-through metadata                         │
     ├─► Dedicated Plan:                               ▼
-    │   Create Docker container                   [ RabbitMQ Queue ]
-    │   (512MB RAM, 0.5 CPU limits)                   │
+    │   container mode:      Create Docker container  [ RabbitMQ Queue ]
+    │                        (512MB RAM, 0.5 CPU)         │
+    │   same_instance mode:  Provision per-tenant         │
+    │                        database + role in the       │
+    │                        shared postgres instance     │
     │   Declaratively bootstrap domain DBs & roles    │
     │   Poll pg_isready health check                  │
     ▼                                                 │
@@ -392,7 +395,7 @@ To let tenant admins pre-assign roles **before** a user ever sets a password, `a
 
 ### 2.10 Plan Switching & Downtime Management (`PUT /api/tenants/me/plan`)
 
-Upgrading/downgrading a workspace between **`shared`** (schema-per-tenant on the shared cluster) and **`dedicated`** (database-per-tenant container) is an **asynchronous, event-driven migration** coordinated through a `MIGRATING` status window that freezes the tenant's data plane while the cutover runs.
+Upgrading/downgrading a workspace between **`shared`** (schema-per-tenant on the shared cluster) and **`dedicated`** (database-per-tenant) is an **asynchronous, event-driven migration** coordinated through a `MIGRATING` status window that freezes the tenant's data plane while the cutover runs. The "dedicated" target depends on the deployment tier ([Section 8](#8-deployment-tiers)): the default **standard** tier provisions a dedicated PostgreSQL container per tenant, while the **lite** tier provisions a per-tenant database + role inside the shared instance (`DEDICATED_ISOLATION_MODE=same_instance`).
 
 ```text
 +-----------------------------------------------------------------------------------+
@@ -425,10 +428,15 @@ Upgrading/downgrading a workspace between **`shared`** (schema-per-tenant on the
     │       │        ──► Outbox DDL guard skips the tenant's pending event writes                         │
     │       │                                                                                             │
     │       └─ workspace.initiated ──► [ infra-provisioner ]  (QoS = 1)                                   │
-    │            ├─► shared:    return shared-cluster DSN + per-tenant schema (no container, no copy)     │
-    │            └─► dedicated: ProvisionDedicatedContainer                                               │
-    │                 ├─ Existing shared schema? -> LockSchema + MigrateData (pg_dump | sed | psql)       │
-    │                 │  (on failure: restore schema, destroy container, publish tenant.migration_failed) │
+    │            ├─► shared:    return shared-cluster DSN + per-tenant schema (no copy)                   │
+    │            └─► dedicated: DEDICATED_ISOLATION_MODE                                                  │
+    │                 ├─ container:      ProvisionDedicatedContainer (postgres-tenant-<id>)               │
+    │                 │                  ├─ Existing shared schema? LockSchema + MigrateData              │
+    │                 │                  │  (pg_dump | sed | psql; on failure restore + destroy + fail)   │
+    │                 │                  └─ Migrate data into the new container's public schema           │
+    │                 └─ same_instance:  ProvisionTenantDatabase (per-tenant DB + role in shared instance)│
+    │                                    ├─ Existing shared schema? LockSchema + MigrateData              │
+    │                                    └─ Migrate data into the per-tenant database                     │
     │                 └─ Publish: infrastructure.provisioned  (no passwords)                              │
     │                     │                                                                               │
     │                     ▼                                                                               │
@@ -457,8 +465,8 @@ Key properties of the maintenance window:
 * **Immediate plan persistence:** The new plan is written synchronously on request; only the *cutover* is asynchronous.
 * **Zero-downtime intent, bounded freeze:** While `MIGRATING`, the tenant's data-plane traffic is shielded with **HTTP 423 Locked** rather than serving stale/duplicated writes; the window ends when `tenant.infrastructure_changed` clears the flag (success *or* rollback).
 * **Sticky freeze:** `MIGRATING` persists on every order-service replica until a `tenant.infrastructure_changed` broadcast arrives — a network-split-safe guard against serving during an incomplete cutover.
-* **Failure isolation:** Any provisioning/migration failure restores the original schema, tears down the temporary container, and rolls the tenant back to `active` via `tenant.migration_failed` — the plan column may keep the requested value while infrastructure is reverted, forcing an explicit retry or further reconciliation.
-* **Both directions are symmetric:** shared → dedicated and dedicated → shared run the identical code path; the plan string simply drives infra-provisioner behavior.
+* **Failure isolation:** Any provisioning/migration failure restores the original schema, tears down the temporary dedicated resource (container **or** same-instance database), and rolls the tenant back to `active` via `tenant.migration_failed` — the plan column may keep the requested value while infrastructure is reverted, forcing an explicit retry or further reconciliation.
+* **Both directions are symmetric:** shared → dedicated and dedicated → shared run the identical code path; the plan string (and `DEDICATED_ISOLATION_MODE`) simply drives infra-provisioner behavior. A downgrade migrates the data back into the shared schema and then releases the dedicated resource (purges the container or drops the per-tenant database).
 
 ---
 
@@ -473,7 +481,7 @@ This workspace enforces strict **Clean Architecture boundaries** across all micr
    - [`notification-service/README.md`](notification-service/README.md) - Archetype B: Barrier Sync pattern & Mailpit SMTP delivery outside tx.
    - [`tenant-service/README.md`](tenant-service/README.md) - Archetype A: Control-plane registry, Outbox worker & infrastructure routing update.
    - [`auth-service/README.md`](auth-service/README.md) - Archetype A: RS256 JWT key pair, refresh token hashing, permissions registration & `user.created` membership copy consumer.
-   - [`infra-provisioner/README.md`](infra-provisioner/README.md) - Archetype C: Isolated Docker container provisioner & QoS=1 AMQP worker.
+   - [`infra-provisioner/README.md`](infra-provisioner/README.md) - Archetype C: Isolated Docker container provisioner, same-instance tenant database provisioning & QoS=1 AMQP worker.
    - [`user-service/README.md`](user-service/README.md) - Archetype A: Identity profile management & `workspace.initiated` event listener.
 
 ---
@@ -578,9 +586,16 @@ microservice-api/
 │   └── Dockerfile
 │
 ├── infrastructure/               # Shared Infrastructure & Docker Topology
+│   ├── tier.env                  # Deployment tier selector (lite | standard | premium), read by scripts/up.sh
 │   ├── init.sql                  # One-shot database bootstrap (user_db, auth_db, tenant_manager_db, notification_db)
 │   ├── docker-compose.yml        # Postgres, RabbitMQ, Mailpit, Traefik, Infra-Provisioner, Web-UI
+│   │                             #   + premium per-service DBs behind the "per-service-db" profile
+│   │                             #     (auth-db, user-db, tenant-db, notification-db, data-plane-db)
 │   └── web-ui/                   # Functional Web UI
+│
+├── scripts/                      # Deployment launchers
+│   ├── up.sh                     # Tier-aware startup (docker compose up across all projects)
+│   └── down.sh                   # Tier-aware teardown (also purges runtime tenant containers)
 │
 ├── docs/                         # Architectural Deep-Dives & Technical Design Challenges (Docs 0 - 21)
 │   └── 21-how-do-we-implement-unified-identity-and-workspace-selection.md
@@ -602,9 +617,11 @@ microservice-api/
 | **user-service** | `8081` | `user-service:8081` | User profile service |
 | **auth-service** | `8085` | `http://localhost:8085` | RS256 JWT token issuer & authentication service |
 | **notification-service** | `8083` | `notification-service:8083` | Email notification worker |
-| **infra-provisioner** | *None* | *Internal Worker* | Docker container provisioner (QoS=1, isolated socket) |
+| **infra-provisioner** | *None* | *Internal Worker* | Docker container / tenant database provisioner (QoS=1, isolated socket) |
 | **RabbitMQ Management**| `15672` | `http://localhost:15672` | Queue dashboard (`guest` / `guest`) |
 | **Mailpit Dashboard** | `8025` | `http://localhost:8025` | Mock email inbox UI |
+
+> **Premium tier only:** the shared `postgres` container stays on `5432` (kept as an idle host so default compose behavior and `localhost:5432` debugging still work), while the control-plane services connect to their own `auth-db`, `user-db`, `tenant-db`, `notification-db` containers and the order data plane uses `data-plane-db` — all on `microservice-network`, none expose host ports.
 
 ---
 
@@ -661,9 +678,61 @@ microservice-api/
 
 ---
 
-## 8. How to Run & Stop the Application
+## 8. Deployment Tiers
 
-### Starting Infrastructure & Services
+The platform supports **three deployment tiers** selected once at startup. The tier is read from `infrastructure/tier.env` by [`scripts/up.sh`](scripts/up.sh). The default tier is **standard**.
+
+| Tier | Control-plane DBs (auth / user / tenant / notification) | `shared_db` (order data plane) | Dedicated tenant data plane | `DEDICATED_ISOLATION_MODE` |
+| :--- | :--- | :--- | :--- | :--- |
+| **lite** | shared `postgres` container | shared `postgres` container | per-tenant **database + role** inside the shared `postgres` container | `same_instance` |
+| **standard** (default) | shared `postgres` container | shared `postgres` container | dedicated **postgres container** per tenant (`postgres-tenant-<id>`) | `container` |
+| **premium** | one dedicated postgres per service (`auth-db`, `user-db`, `tenant-db`, `notification-db`) | dedicated `data-plane-db` container | dedicated **postgres container** per tenant | `container` |
+
+* **lite** — lowest cost and easiest to debug: everything shares one PostgreSQL instance. "Dedicated" tenants get their own database + role inside that instance (isolated credentials via `REVOKE CONNECT ON DATABASE ... FROM PUBLIC`).
+* **standard** — the default. The control plane is consolidated in one instance; each dedicated-plan tenant gets a hard-isolated PostgreSQL container (512MB RAM / 0.5 CPU).
+* **premium** — maximum isolation: every service gets its own PostgreSQL container (auto-migrated by its goose migrations on boot), the order data plane's `shared_db` lives in its own `data-plane-db` container, and dedicated tenants still get a per-tenant container.
+
+> The isolation mode applies to the **data plane**. Control-plane services always keep schema-separated databases; the tier decides whether they share one instance or get per-service containers.
+
+---
+
+## 9. How to Run & Stop the Application
+
+### Quick Start (recommended)
+
+```bash
+# Start the platform at the configured tier (defaults to standard)
+./scripts/up.sh
+
+# Stop the platform
+./scripts/down.sh
+
+# Stop and wipe all volumes / queues / tenant DB containers (clean state)
+./scripts/down.sh -v
+```
+
+`scripts/up.sh`:
+1. Reads the tier from `infrastructure/tier.env`; if it is missing it prompts once and saves the choice.
+2. Exports the tier-specific environment (`DEDICATED_ISOLATION_MODE`, `SHARED_DB_HOST`, per-service `*_DB_HOST`).
+3. Brings up the infrastructure (with `--profile per-service-db` on the **premium** tier) followed by all microservices, in dependency order.
+
+### Choosing a Tier
+
+```bash
+# Set the tier explicitly
+echo "TIER=lite" > infrastructure/tier.env && ./scripts/up.sh
+
+# Or delete the file and let the menu prompt you
+rm -f infrastructure/tier.env && ./scripts/up.sh
+```
+
+Switching tiers requires a fresh state — there is **no live tier-to-tier migration**:
+
+```bash
+./scripts/down.sh -v && ./scripts/up.sh
+```
+
+### Manual Start (equivalent to `standard`) — alternative to `scripts/up.sh`
 
 ```bash
 # 1. Start Shared Infrastructure, Infra Provisioner & Web UI
@@ -676,43 +745,25 @@ microservice-api/
 (cd order-service && docker compose up -d --build) && \
 (cd notification-service && docker compose up -d --build)
 
-# 3. Run E2E Integration Tests
+# 3. Run E2E Integration Tests (expects the standard tier)
 (cd e2e-tests && CGO_ENABLED=0 go test -v ./...)
-
-# 4. Clean up E2E test data (optional but recommended)
-(cd infrastructure/scripts && bash clean-e2e-data.sh)
 ```
 
 ### Stopping All Services
 
 ```bash
-(cd notification-service && docker compose down) && \
-(cd order-service && docker compose down) && \
-(cd user-service && docker compose down) && \
-(cd tenant-service && docker compose down) && \
-(cd auth-service && docker compose down) && \
-(cd infrastructure && docker compose down)
+./scripts/down.sh
 ```
 
 ### Resetting Database & Volumes (Clean State Reset)
 
-To completely wipe all databases, stored volumes, RabbitMQ queues/state, and dynamic dedicated tenant DB containers for a clean restart:
-
 ```bash
-# 1. Stop microservices and remove local volumes
-(cd notification-service && docker compose down -v) && \
-(cd order-service && docker compose down -v) && \
-(cd user-service && docker compose down -v) && \
-(cd tenant-service && docker compose down -v) && \
-(cd auth-service && docker compose down -v)
+# Stop everything and remove volumes, RabbitMQ state, dedicated tenant containers
+# and the premium per-service DB containers (auth-db, user-db, tenant-db,
+# notification-db, data-plane-db)
+./scripts/down.sh -v
 
-# 2. Stop infrastructure and wipe shared database/message broker volumes
-(cd infrastructure && docker compose down -v)
-
-# 3. Remove dynamically provisioned dedicated tenant DB containers & volumes (if any)
-docker rm -fv $(docker ps -aq --filter name=postgres-tenant-) 2>/dev/null || true
-
-# 4. Purge Mailpit inbox (mock email messages persist independently of containers)
+# Purge Mailpit inbox (mock email messages persist independently of containers)
 curl -s -X DELETE "http://localhost:${MAILPIT_DASHBOARD_PORT:-8025}/api/v1/messages" -o /dev/null || true
 ```
 

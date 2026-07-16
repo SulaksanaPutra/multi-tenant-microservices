@@ -6,7 +6,7 @@ services:
     container_name: order-service
     restart: always
     environment:
-      SHARED_DB_HOST: postgres
+      SHARED_DB_HOST: ${SHARED_DB_HOST:-postgres}
       SHARED_DB_PORT: 5432
       SHARED_DB_USER: postgres
       SHARED_DB_PASSWORD: postgres
