@@ -59,6 +59,7 @@ func main() {
 	}
 
 	sharedDBPass := getEnv("SHARED_DB_PASSWORD", getEnv("DB_PASSWORD", "postgres"))
+	isolationMode := getEnv("DEDICATED_ISOLATION_MODE", "container")
 
 	wiConsumer, err := consumer.NewWorkspaceInitiatedConsumer(consumer.Params{
 		Client:                     rmqClient,
@@ -69,6 +70,7 @@ func main() {
 		DomainSecrets:              domainSecrets,
 		SharedDBHost:               sharedDBHost,
 		SharedDBPass:               sharedDBPass,
+		IsolationMode:              isolationMode,
 	})
 	if err != nil {
 		log.Fatalf("Failed to initialize WorkspaceInitiated consumer: %v", err)

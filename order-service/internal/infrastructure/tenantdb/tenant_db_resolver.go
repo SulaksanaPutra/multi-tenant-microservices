@@ -102,8 +102,12 @@ func (r *Resolver) GetTenantDB(ctx context.Context, tenantID string) (Config, er
 	}
 
 	// 3. Shared Plan Duality Check:
-	// If DBHost is the shared Postgres cluster ("postgres" or "localhost"), return the single shared pool.
-	if isSharedHost(meta.DBHost) {
+	// Route through the single shared pool whenever the tenant's database is the
+	// shared_db database — regardless of which host it lives on (the shared
+	// cluster "postgres" in lite/standard, or the "data-plane-db" container in
+	// premium). A same-instance "dedicated" tenant uses a different database
+	// name, so it correctly falls through to the per-tenant pool path.
+	if meta.DBName == "shared_db" {
 		pool, err := r.getSharedPool(meta)
 		if err != nil {
 			return Config{}, fmt.Errorf("tenant db resolver: failed to get shared pool for tenant '%s': %w", tenantID, err)
@@ -128,10 +132,6 @@ func (r *Resolver) GetTenantDB(ctx context.Context, tenantID string) (Config, er
 		DB:         db,
 		SchemaName: schemaName,
 	}, nil
-}
-
-func isSharedHost(host string) bool {
-	return host == "postgres" || host == "localhost" || host == "127.0.0.1" || host == ""
 }
 
 func (r *Resolver) getSharedPool(meta registry.RoutingMetadata) (*sql.DB, error) {

@@ -6,7 +6,7 @@ services:
     container_name: tenant-service
     restart: always
     environment:
-      DB_HOST: postgres
+      DB_HOST: ${TENANT_DB_HOST:-postgres}
       DB_PORT: 5432
       DB_USER: postgres
       DB_PASSWORD: postgres

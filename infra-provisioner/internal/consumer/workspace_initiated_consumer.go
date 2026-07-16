@@ -32,6 +32,8 @@ type Migrator interface {
 	MigrateData(ctx context.Context, sourceHost string, sourcePort int, sourceUser, sourcePass, sourceDB, sourceSchema string, targetHost string, targetPort int, targetUser, targetPass, targetDB, targetSchema string) error
 	TableHasRows(ctx context.Context, dsn, schema, table string) (bool, error)
 	DropSchemaIfExists(ctx context.Context, dsn, schemaName string) error
+	ProvisionTenantDatabase(ctx context.Context, host string, port int, superUser, superPass, dbName, roleName, rolePass string) error
+	DropTenantDatabase(ctx context.Context, host string, port int, superUser, superPass, dbName, roleName string) error
 	DestroyContainer(ctx context.Context, containerName string) error
 }
 
@@ -44,6 +46,7 @@ type WorkspaceInitiatedConsumer struct {
 	domainSecrets                map[string]string
 	sharedDBHost                 string
 	sharedDBPass                 string
+	isolationMode                string
 }
 
 type WorkspaceInitiatedConsumerParams struct {
@@ -55,6 +58,7 @@ type WorkspaceInitiatedConsumerParams struct {
 	DomainSecrets              map[string]string
 	SharedDBHost               string
 	SharedDBPass               string
+	IsolationMode              string
 }
 
 type Params = WorkspaceInitiatedConsumerParams
@@ -76,6 +80,11 @@ func NewWorkspaceInitiatedConsumer(params WorkspaceInitiatedConsumerParams) (*Wo
 		}
 	}
 
+	isolationMode := params.IsolationMode
+	if isolationMode == "" {
+		isolationMode = "container"
+	}
+
 	consumer := &WorkspaceInitiatedConsumer{
 		client:                       params.Client,
 		infrastructureEventPublisher: params.InfrastructureEventHandler,
@@ -85,6 +94,7 @@ func NewWorkspaceInitiatedConsumer(params WorkspaceInitiatedConsumerParams) (*Wo
 		domainSecrets:                domainSec,
 		sharedDBHost:                 sharedHost,
 		sharedDBPass:                 sharedPass,
+		isolationMode:                isolationMode,
 	}
 
 	if err := consumer.setupTopology(); err != nil {
@@ -217,23 +227,45 @@ func (c *WorkspaceInitiatedConsumer) handleProvisioning(ctx context.Context, evt
 
 // handleSharedProvisioning returns routing to the shared cluster. When the
 // tenant previously ran on the dedicated plan, it first migrates the tenant's
-// data back from the dedicated container into the shared schema (downgrade path).
+// data back into the shared schema (downgrade path) and then releases the
+// dedicated resources (container or same-instance database).
 func (c *WorkspaceInitiatedConsumer) handleSharedProvisioning(ctx context.Context, evt domain.WorkspaceInitiatedEvent) (*domain.InfrastructureProvisionedEvent, error) {
 	schemaName := fmt.Sprintf("%s_order_db", sanitizeTenantID(evt.TenantID))
 	sharedDSN := fmt.Sprintf("host=%s port=5432 user=postgres password=%s dbname=shared_db sslmode=disable", c.sharedDBHost, c.sharedDBPass)
 
 	if c.migrator != nil {
-		containerName := fmt.Sprintf("postgres-tenant-%s", sanitizeTenantID(evt.TenantID))
-		dedicatedHost := containerName
-		dedicatedPass := crypto.DeriveTenantDBPassword(c.domainSecrets["order_db"], evt.TenantID)
-		dedicatedDSN := fmt.Sprintf("host=%s port=5432 user=order_user password=%s dbname=order_db sslmode=disable", dedicatedHost, dedicatedPass)
+		sameInstance := strings.EqualFold(c.isolationMode, "same_instance")
 
-		// If the dedicated container is reachable and holds order rows, copy them back.
-		hasRows, chkErr := c.migrator.TableHasRows(ctx, dedicatedDSN, "public", "orders")
+		// Dedicated source: a per-tenant database in the shared instance, or a dedicated container.
+		var sourceHost string
+		var sourcePort int
+		var sourceUser, sourcePass, sourceDB string
+		var cleanup func() error
+
+		if sameInstance {
+			roleName := fmt.Sprintf("%s_order_user", sanitizeTenantID(evt.TenantID))
+			rolePass := crypto.DeriveTenantDBPassword(c.domainSecrets["order_db"], evt.TenantID)
+			sourceHost, sourcePort, sourceUser, sourcePass, sourceDB = c.sharedDBHost, 5432, roleName, rolePass, schemaName
+			cleanup = func() error {
+				return c.migrator.DropTenantDatabase(ctx, c.sharedDBHost, 5432, "postgres", c.sharedDBPass, schemaName, roleName)
+			}
+		} else {
+			containerName := fmt.Sprintf("postgres-tenant-%s", sanitizeTenantID(evt.TenantID))
+			sourceHost, sourcePort, sourceUser, sourcePass, sourceDB = containerName, 5432, "order_user", crypto.DeriveTenantDBPassword(c.domainSecrets["order_db"], evt.TenantID), "order_db"
+			cleanup = func() error {
+				return c.migrator.DestroyContainer(ctx, containerName)
+			}
+		}
+
+		sourceDSN := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+			sourceHost, sourcePort, sourceUser, sourcePass, sourceDB)
+
+		// If the dedicated source is reachable and holds order rows, copy them back.
+		hasRows, chkErr := c.migrator.TableHasRows(ctx, sourceDSN, "public", "orders")
 		if chkErr == nil && hasRows {
 			log.Printf("WorkspaceInitiatedConsumer: Dedicated data detected for tenant='%s'. Migrating back to shared schema '%s'...", evt.TenantID, schemaName)
 			if migErr := c.migrator.MigrateData(ctx,
-				dedicatedHost, 5432, "order_user", dedicatedPass, "order_db", "public",
+				sourceHost, sourcePort, sourceUser, sourcePass, sourceDB, "public",
 				c.sharedDBHost, 5432, "postgres", c.sharedDBPass, "shared_db", schemaName,
 			); migErr != nil {
 				return nil, fmt.Errorf("failed to migrate data back to shared for tenant '%s': %w", evt.TenantID, migErr)
@@ -242,9 +274,11 @@ func (c *WorkspaceInitiatedConsumer) handleSharedProvisioning(ctx context.Contex
 			_ = c.migrator.DropSchemaIfExists(ctx, sharedDSN, schemaName+"_locked")
 		}
 
-		// The dedicated container is no longer the active data plane after a
-		// downgrade; release its resources once the shared provisioning succeeds.
-		_ = c.migrator.DestroyContainer(ctx, containerName)
+		// The dedicated resource is no longer the active data plane after a
+		// downgrade; release it once the shared provisioning succeeds.
+		if cleanup != nil {
+			_ = cleanup()
+		}
 	}
 
 	return &domain.InfrastructureProvisionedEvent{
@@ -259,34 +293,62 @@ func (c *WorkspaceInitiatedConsumer) handleSharedProvisioning(ctx context.Contex
 	}, nil
 }
 
-// handleDedicatedProvisioning provisions a dedicated container. When the tenant
-// has a shared schema (or a previously-locked schema from a redelivered event),
-// it locks the schema, migrates the data into the dedicated container, then
-// removes the locked schema (upgrade path).
+// handleDedicatedProvisioning provisions a dedicated database for the tenant —
+// either a separate container (container mode) or a per-tenant database inside
+// the shared instance (same_instance mode). When the tenant has a shared schema
+// (or a previously-locked schema from a redelivered event), it locks the schema,
+// migrates the data into the dedicated target, then removes the locked schema.
 func (c *WorkspaceInitiatedConsumer) handleDedicatedProvisioning(ctx context.Context, evt domain.WorkspaceInitiatedEvent) (*domain.InfrastructureProvisionedEvent, error) {
-	host, port, dbName, dbUser, err := c.provisioner.ProvisionDedicatedContainer(ctx, evt.TenantID, c.infraMasterSecret, c.domainSecrets)
-	if err != nil {
-		return nil, err
-	}
-
 	schemaName := fmt.Sprintf("%s_order_db", sanitizeTenantID(evt.TenantID))
 	lockedSchemaName := fmt.Sprintf("%s_locked", schemaName)
-	containerName := fmt.Sprintf("postgres-tenant-%s", sanitizeTenantID(evt.TenantID))
 	sharedDSN := fmt.Sprintf("host=%s port=5432 user=postgres password=%s dbname=shared_db sslmode=disable", c.sharedDBHost, c.sharedDBPass)
+	targetPass := crypto.DeriveTenantDBPassword(c.domainSecrets["order_db"], evt.TenantID)
+
+	var host string
+	var port int
+	var dbName, dbUser string
+
+	// Cleanup resource that must be destroyed on lock/migration failure.
+	var rollbackCleanup func()
+	rollbackCleanup = func() {}
+
+	sameInstance := strings.EqualFold(c.isolationMode, "same_instance")
+	if sameInstance {
+		roleName := fmt.Sprintf("%s_order_user", sanitizeTenantID(evt.TenantID))
+		host, port, dbName, dbUser = c.sharedDBHost, 5432, schemaName, roleName
+		if c.migrator != nil {
+			if err := c.migrator.ProvisionTenantDatabase(ctx, c.sharedDBHost, 5432, "postgres", c.sharedDBPass, schemaName, roleName, targetPass); err != nil {
+				return nil, fmt.Errorf("failed to provision tenant database for tenant '%s': %w", evt.TenantID, err)
+			}
+		}
+		rollbackCleanup = func() {
+			_ = c.migrator.DropTenantDatabase(ctx, c.sharedDBHost, 5432, "postgres", c.sharedDBPass, schemaName, roleName)
+		}
+	} else {
+		var err error
+		host, port, dbName, dbUser, err = c.provisioner.ProvisionDedicatedContainer(ctx, evt.TenantID, c.infraMasterSecret, c.domainSecrets)
+		if err != nil {
+			return nil, err
+		}
+		containerName := fmt.Sprintf("postgres-tenant-%s", sanitizeTenantID(evt.TenantID))
+		rollbackCleanup = func() {
+			_ = c.migrator.DestroyContainer(ctx, containerName)
+		}
+	}
 
 	if c.migrator != nil {
 		schemaExists, _ := c.migrator.CheckSchemaExists(ctx, sharedDSN, schemaName)
 		lockedExists, _ := c.migrator.CheckSchemaExists(ctx, sharedDSN, lockedSchemaName)
 
 		if schemaExists || lockedExists {
-			log.Printf("WorkspaceInitiatedConsumer: Shared schema detected for tenant='%s'. Initiating data migration to dedicated container...", evt.TenantID)
+			log.Printf("WorkspaceInitiatedConsumer: Shared schema detected for tenant='%s'. Initiating data migration to dedicated target...", evt.TenantID)
 
 			// Lock only if not already locked; an already-locked schema means a
 			// redelivered workspace.initiated is being resumed, so do not re-rename.
 			if !lockedExists {
 				if lockErr := c.migrator.LockSchema(ctx, sharedDSN, schemaName, lockedSchemaName); lockErr != nil {
 					log.Printf("WorkspaceInitiatedConsumer Error: Schema lock failed for tenant='%s': %v — executing compensating rollback", evt.TenantID, lockErr)
-					_ = c.migrator.DestroyContainer(ctx, containerName)
+					rollbackCleanup()
 					_ = c.infrastructureEventPublisher.PublishTenantMigrationFailed(ctx, domain.TenantMigrationFailedEvent{
 						EventID:  evt.EventID,
 						TenantID: evt.TenantID,
@@ -296,14 +358,13 @@ func (c *WorkspaceInitiatedConsumer) handleDedicatedProvisioning(ctx context.Con
 				}
 			}
 
-			targetPass := crypto.DeriveTenantDBPassword(c.domainSecrets["order_db"], evt.TenantID)
 			if migErr := c.migrator.MigrateData(ctx,
 				c.sharedDBHost, 5432, "postgres", c.sharedDBPass, "shared_db", lockedSchemaName,
 				host, port, dbUser, targetPass, dbName, "public",
 			); migErr != nil {
 				log.Printf("WorkspaceInitiatedConsumer Error: Data migration failed for tenant='%s': %v — executing schema restore & compensating rollback", evt.TenantID, migErr)
 				_ = c.migrator.RestoreSchema(ctx, sharedDSN, lockedSchemaName, schemaName)
-				_ = c.migrator.DestroyContainer(ctx, containerName)
+				rollbackCleanup()
 				_ = c.infrastructureEventPublisher.PublishTenantMigrationFailed(ctx, domain.TenantMigrationFailedEvent{
 					EventID:  evt.EventID,
 					TenantID: evt.TenantID,
@@ -312,7 +373,7 @@ func (c *WorkspaceInitiatedConsumer) handleDedicatedProvisioning(ctx context.Con
 				return nil, migErr
 			}
 
-			// Data now lives in the dedicated container; remove the leftover locked schema.
+			// Data now lives in the dedicated target; remove the leftover locked schema.
 			_ = c.migrator.DropSchemaIfExists(ctx, sharedDSN, lockedSchemaName)
 		}
 	}

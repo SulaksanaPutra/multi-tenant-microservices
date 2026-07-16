@@ -65,13 +65,15 @@ func (m *mockAcknowledger) Reject(tag uint64, requeue bool) error {
 }
 
 type mockMigrator struct {
-	checkSchemaExistsFn  func(ctx context.Context, dsn, schemaName string) (bool, error)
-	lockSchemaFn         func(ctx context.Context, sharedDSN, schemaName, lockedSchemaName string) error
-	restoreSchemaFn      func(ctx context.Context, sharedDSN, lockedSchemaName, originalSchemaName string) error
-	migrateDataFn        func(ctx context.Context, sourceHost string, sourcePort int, sourceUser, sourcePass, sourceDB, sourceSchema string, targetHost string, targetPort int, targetUser, targetPass, targetDB, targetSchema string) error
-	tableHasRowsFn       func(ctx context.Context, dsn, schema, table string) (bool, error)
-	dropSchemaIfExistsFn func(ctx context.Context, dsn, schemaName string) error
-	destroyContainerFn   func(ctx context.Context, containerName string) error
+	checkSchemaExistsFn     func(ctx context.Context, dsn, schemaName string) (bool, error)
+	lockSchemaFn            func(ctx context.Context, sharedDSN, schemaName, lockedSchemaName string) error
+	restoreSchemaFn         func(ctx context.Context, sharedDSN, lockedSchemaName, originalSchemaName string) error
+	migrateDataFn           func(ctx context.Context, sourceHost string, sourcePort int, sourceUser, sourcePass, sourceDB, sourceSchema string, targetHost string, targetPort int, targetUser, targetPass, targetDB, targetSchema string) error
+	tableHasRowsFn          func(ctx context.Context, dsn, schema, table string) (bool, error)
+	dropSchemaIfExistsFn    func(ctx context.Context, dsn, schemaName string) error
+	provisionTenantDBFn     func(ctx context.Context, host string, port int, superUser, superPass, dbName, roleName, rolePass string) error
+	dropTenantDBFn          func(ctx context.Context, host string, port int, superUser, superPass, dbName, roleName string) error
+	destroyContainerFn      func(ctx context.Context, containerName string) error
 }
 
 func (m *mockMigrator) CheckSchemaExists(ctx context.Context, dsn, schemaName string) (bool, error) {
@@ -112,6 +114,20 @@ func (m *mockMigrator) TableHasRows(ctx context.Context, dsn, schema, table stri
 func (m *mockMigrator) DropSchemaIfExists(ctx context.Context, dsn, schemaName string) error {
 	if m.dropSchemaIfExistsFn != nil {
 		return m.dropSchemaIfExistsFn(ctx, dsn, schemaName)
+	}
+	return nil
+}
+
+func (m *mockMigrator) ProvisionTenantDatabase(ctx context.Context, host string, port int, superUser, superPass, dbName, roleName, rolePass string) error {
+	if m.provisionTenantDBFn != nil {
+		return m.provisionTenantDBFn(ctx, host, port, superUser, superPass, dbName, roleName, rolePass)
+	}
+	return nil
+}
+
+func (m *mockMigrator) DropTenantDatabase(ctx context.Context, host string, port int, superUser, superPass, dbName, roleName string) error {
+	if m.dropTenantDBFn != nil {
+		return m.dropTenantDBFn(ctx, host, port, superUser, superPass, dbName, roleName)
 	}
 	return nil
 }
@@ -210,6 +226,138 @@ func TestWorkspaceInitiatedConsumer_SharedPlanDestroysDedicatedContainer(t *test
 		}
 		if destroyedName != "postgres-tenant-tenant_acme_corp" {
 			t.Errorf("expected best-effort destroy attempt for dedicated container, got name '%s'", destroyedName)
+		}
+	})
+}
+
+func TestWorkspaceInitiatedConsumer_SameInstanceMode(t *testing.T) {
+	evtShared := domain.WorkspaceInitiatedEvent{
+		EventID:  "evt-ws-shared-same",
+		TenantID: "tenant-acme-corp",
+		Plan:     "shared",
+	}
+	bodyShared, _ := json.Marshal(evtShared)
+
+	evtDedicated := domain.WorkspaceInitiatedEvent{
+		EventID:  "evt-ws-dedicated-same",
+		TenantID: "tenant-acme-corp",
+		Plan:     "dedicated",
+	}
+	bodyDedicated, _ := json.Marshal(evtDedicated)
+
+	t.Run("dedicated_provisions_tenant_database_in_shared_instance", func(t *testing.T) {
+		var provisionedDB, provisionedRole string
+		mig := &mockMigrator{
+			provisionTenantDBFn: func(_ context.Context, _ string, _ int, _, _, dbName, roleName, _ string) error {
+				provisionedDB = dbName
+				provisionedRole = roleName
+				return nil
+			},
+		}
+
+		var publishedEvt domain.InfrastructureProvisionedEvent
+		pub := &mockInfrastructureEventPublisher{
+			publishInfrastructureProvisionedFunc: func(_ context.Context, evt domain.InfrastructureProvisionedEvent) error {
+				publishedEvt = evt
+				return nil
+			},
+		}
+
+		c := &WorkspaceInitiatedConsumer{
+			infrastructureEventPublisher: pub,
+			migrator:                     mig,
+			sharedDBHost:                 "postgres-shared-host",
+			sharedDBPass:                 "postgres",
+			domainSecrets:                map[string]string{"order_db": "secret_key"},
+			isolationMode:                "same_instance",
+		}
+
+		mockAck := &mockAcknowledger{}
+		d := rabbitmq.Delivery{Acknowledger: mockAck, Body: bodyDedicated}
+
+		if err := c.handleDelivery(context.Background(), d); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if provisionedDB != "tenant_acme_corp_order_db" {
+			t.Errorf("expected tenant database to be provisioned, got '%s'", provisionedDB)
+		}
+		if provisionedRole != "tenant_acme_corp_order_user" {
+			t.Errorf("expected per-tenant role, got '%s'", provisionedRole)
+		}
+		if publishedEvt.DBHost != "postgres-shared-host" || publishedEvt.DBName != "tenant_acme_corp_order_db" ||
+			publishedEvt.DBUser != "tenant_acme_corp_order_user" || publishedEvt.SchemaName != "public" {
+			t.Errorf("unexpected provisioned event: %+v", publishedEvt)
+		}
+	})
+
+	t.Run("downgrade_migrates_back_and_drops_tenant_database", func(t *testing.T) {
+		var migrated bool
+		var droppedDB, droppedRole string
+		mig := &mockMigrator{
+			tableHasRowsFn: func(_ context.Context, _, _, _ string) (bool, error) { return true, nil },
+			migrateDataFn: func(_ context.Context, _ string, _ int, _, _, _, _ string, _ string, _ int, _, _, _, _ string) error {
+				migrated = true
+				return nil
+			},
+			dropTenantDBFn: func(_ context.Context, _ string, _ int, _, _, dbName, roleName string) error {
+				droppedDB = dbName
+				droppedRole = roleName
+				return nil
+			},
+		}
+
+		c := &WorkspaceInitiatedConsumer{
+			infrastructureEventPublisher: &mockInfrastructureEventPublisher{},
+			migrator:                     mig,
+			sharedDBHost:                 "postgres-shared-host",
+			sharedDBPass:                 "postgres",
+			domainSecrets:                map[string]string{"order_db": "secret_key"},
+			isolationMode:                "same_instance",
+		}
+
+		mockAck := &mockAcknowledger{}
+		d := rabbitmq.Delivery{Acknowledger: mockAck, Body: bodyShared}
+
+		if err := c.handleDelivery(context.Background(), d); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if !migrated {
+			t.Error("expected data to be migrated back to shared")
+		}
+		if droppedDB != "tenant_acme_corp_order_db" || droppedRole != "tenant_acme_corp_order_user" {
+			t.Errorf("expected tenant database to be dropped, got db='%s' role='%s'", droppedDB, droppedRole)
+		}
+	})
+
+	t.Run("downgrade_fresh_shared_drop_tenant_database_best_effort", func(t *testing.T) {
+		var droppedDB string
+		mig := &mockMigrator{
+			tableHasRowsFn: func(_ context.Context, _, _, _ string) (bool, error) {
+				return false, errors.New("connect: no such database")
+			},
+			dropTenantDBFn: func(_ context.Context, _ string, _ int, _, _, dbName, _ string) error {
+				droppedDB = dbName
+				return nil
+			},
+		}
+
+		c := &WorkspaceInitiatedConsumer{
+			infrastructureEventPublisher: &mockInfrastructureEventPublisher{},
+			migrator:                     mig,
+			sharedDBHost:                 "postgres-shared-host",
+			sharedDBPass:                 "postgres",
+			domainSecrets:                map[string]string{"order_db": "secret_key"},
+			isolationMode:                "same_instance",
+		}
+
+		mockAck := &mockAcknowledger{}
+		d := rabbitmq.Delivery{Acknowledger: mockAck, Body: bodyShared}
+
+		if err := c.handleDelivery(context.Background(), d); err != nil {
+			t.Fatalf("expected no error for fresh shared registration, got %v", err)
+		}
+		if droppedDB != "tenant_acme_corp_order_db" {
+			t.Errorf("expected best-effort drop of tenant database, got '%s'", droppedDB)
 		}
 	})
 }
