@@ -64,6 +64,156 @@ func (m *mockAcknowledger) Reject(tag uint64, requeue bool) error {
 	return nil
 }
 
+type mockMigrator struct {
+	checkSchemaExistsFn  func(ctx context.Context, dsn, schemaName string) (bool, error)
+	lockSchemaFn         func(ctx context.Context, sharedDSN, schemaName, lockedSchemaName string) error
+	restoreSchemaFn      func(ctx context.Context, sharedDSN, lockedSchemaName, originalSchemaName string) error
+	migrateDataFn        func(ctx context.Context, sourceHost string, sourcePort int, sourceUser, sourcePass, sourceDB, sourceSchema string, targetHost string, targetPort int, targetUser, targetPass, targetDB, targetSchema string) error
+	tableHasRowsFn       func(ctx context.Context, dsn, schema, table string) (bool, error)
+	dropSchemaIfExistsFn func(ctx context.Context, dsn, schemaName string) error
+	destroyContainerFn   func(ctx context.Context, containerName string) error
+}
+
+func (m *mockMigrator) CheckSchemaExists(ctx context.Context, dsn, schemaName string) (bool, error) {
+	if m.checkSchemaExistsFn != nil {
+		return m.checkSchemaExistsFn(ctx, dsn, schemaName)
+	}
+	return false, nil
+}
+
+func (m *mockMigrator) LockSchema(ctx context.Context, sharedDSN, schemaName, lockedSchemaName string) error {
+	if m.lockSchemaFn != nil {
+		return m.lockSchemaFn(ctx, sharedDSN, schemaName, lockedSchemaName)
+	}
+	return nil
+}
+
+func (m *mockMigrator) RestoreSchema(ctx context.Context, sharedDSN, lockedSchemaName, originalSchemaName string) error {
+	if m.restoreSchemaFn != nil {
+		return m.restoreSchemaFn(ctx, sharedDSN, lockedSchemaName, originalSchemaName)
+	}
+	return nil
+}
+
+func (m *mockMigrator) MigrateData(ctx context.Context, sourceHost string, sourcePort int, sourceUser, sourcePass, sourceDB, sourceSchema string, targetHost string, targetPort int, targetUser, targetPass, targetDB, targetSchema string) error {
+	if m.migrateDataFn != nil {
+		return m.migrateDataFn(ctx, sourceHost, sourcePort, sourceUser, sourcePass, sourceDB, sourceSchema, targetHost, targetPort, targetUser, targetPass, targetDB, targetSchema)
+	}
+	return nil
+}
+
+func (m *mockMigrator) TableHasRows(ctx context.Context, dsn, schema, table string) (bool, error) {
+	if m.tableHasRowsFn != nil {
+		return m.tableHasRowsFn(ctx, dsn, schema, table)
+	}
+	return false, nil
+}
+
+func (m *mockMigrator) DropSchemaIfExists(ctx context.Context, dsn, schemaName string) error {
+	if m.dropSchemaIfExistsFn != nil {
+		return m.dropSchemaIfExistsFn(ctx, dsn, schemaName)
+	}
+	return nil
+}
+
+func (m *mockMigrator) DestroyContainer(ctx context.Context, containerName string) error {
+	if m.destroyContainerFn != nil {
+		return m.destroyContainerFn(ctx, containerName)
+	}
+	return nil
+}
+
+func TestWorkspaceInitiatedConsumer_SharedPlanDestroysDedicatedContainer(t *testing.T) {
+	evtShared := domain.WorkspaceInitiatedEvent{
+		EventID:  "evt-ws-shared-downgrade",
+		TenantID: "tenant-acme-corp",
+		Plan:     "shared",
+	}
+	bodyShared, _ := json.Marshal(evtShared)
+
+	t.Run("migrates_back_then_destroys_container", func(t *testing.T) {
+		var destroyedName string
+		var migrated bool
+		mig := &mockMigrator{
+			tableHasRowsFn: func(_ context.Context, _, _, _ string) (bool, error) { return true, nil },
+			migrateDataFn: func(_ context.Context, _ string, _ int, _, _, _, _ string, _ string, _ int, _, _, _, _ string) error {
+				migrated = true
+				return nil
+			},
+			destroyContainerFn: func(_ context.Context, name string) error {
+				destroyedName = name
+				return nil
+			},
+		}
+
+		var publishedEvt domain.InfrastructureProvisionedEvent
+		pub := &mockInfrastructureEventPublisher{
+			publishInfrastructureProvisionedFunc: func(_ context.Context, evt domain.InfrastructureProvisionedEvent) error {
+				publishedEvt = evt
+				return nil
+			},
+		}
+
+		c := &WorkspaceInitiatedConsumer{
+			infrastructureEventPublisher: pub,
+			migrator:                     mig,
+			sharedDBHost:                 "postgres-shared-host",
+			sharedDBPass:                 "postgres",
+			domainSecrets:                map[string]string{"order_db": "secret_key"},
+		}
+
+		mockAck := &mockAcknowledger{}
+		d := rabbitmq.Delivery{Acknowledger: mockAck, Body: bodyShared}
+
+		if err := c.handleDelivery(context.Background(), d); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if !mockAck.ackCalled {
+			t.Error("expected message to be ACKed")
+		}
+		if !migrated {
+			t.Error("expected MigrateData to copy data back to shared")
+		}
+		if destroyedName != "postgres-tenant-tenant_acme_corp" {
+			t.Errorf("expected dedicated container to be destroyed, got name '%s'", destroyedName)
+		}
+		if publishedEvt.SchemaName != "tenant_acme_corp_order_db" {
+			t.Errorf("unexpected published provisioned event: %+v", publishedEvt)
+		}
+	})
+
+	t.Run("fresh_shared_registration_destroy_is_best_effort", func(t *testing.T) {
+		var destroyedName string
+		mig := &mockMigrator{
+			tableHasRowsFn: func(_ context.Context, _, _, _ string) (bool, error) {
+				return false, errors.New("connect: no such host")
+			},
+			destroyContainerFn: func(_ context.Context, name string) error {
+				destroyedName = name
+				return nil
+			},
+		}
+
+		c := &WorkspaceInitiatedConsumer{
+			infrastructureEventPublisher: &mockInfrastructureEventPublisher{},
+			migrator:                     mig,
+			sharedDBHost:                 "postgres-shared-host",
+			sharedDBPass:                 "postgres",
+			domainSecrets:                map[string]string{"order_db": "secret_key"},
+		}
+
+		mockAck := &mockAcknowledger{}
+		d := rabbitmq.Delivery{Acknowledger: mockAck, Body: bodyShared}
+
+		if err := c.handleDelivery(context.Background(), d); err != nil {
+			t.Fatalf("expected no error for fresh shared registration, got %v", err)
+		}
+		if destroyedName != "postgres-tenant-tenant_acme_corp" {
+			t.Errorf("expected best-effort destroy attempt for dedicated container, got name '%s'", destroyedName)
+		}
+	})
+}
+
 func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 	evtShared := domain.WorkspaceInitiatedEvent{
 		EventID:  "evt-ws-shared",

@@ -32,10 +32,11 @@
  *   - Must run serially (`go test -p 1`); the plan upgrade mutates shared broker/container state.
  *
  * Known Environment Caveat:
- *   The infra-provisioner runtime image is distroless (no pg_dump/psql/sed), so MigrateData silently no-ops and
- *   the pre-upgrade order is NOT copied into the dedicated container. This test therefore verifies the migration
- *   *contract* (lock -> migrate -> cutover -> functional) and intentionally does NOT assert pre-upgrade data
- *   survival. See E2E_SPECIFICATION_REPORT.md §5.1 for the tracking caveat.
+ *   The infra-provisioner runtime image is postgres:16-alpine (pg_dump/psql/sed present), so the
+ *   MigrateData pipeline actually copies rows between the shared schema and the dedicated container.
+ *   This test therefore additionally asserts pre-upgrade data survival after cutover, exercises the
+ *   dedicated -> shared downgrade path asserting the data is migrated back, and asserts the dedicated
+ *   container is purged after the downgrade.
  */
 
 package e2e_test
@@ -289,6 +290,121 @@ func TestE2E_TC_E2E_030_PlanUpgrade_MigrationContract(t *testing.T) {
 		t.Fatalf("GET /api/orders after cutover: expected HTTP 200, got %d", getCode)
 	}
 	t.Logf("9. TC-E2E-030 Passed: plan upgrade completed the full lock -> migrate -> cutover contract; data plane served post-cutover (plan='dedicated').")
+
+	// =========================================================================
+	// Step 9.5: Pre-Upgrade Data Survival (the migration pipeline must copy rows)
+	// Instruction: The order seeded before the plan upgrade must be queryable from
+	//              the new dedicated routing; otherwise the migration was a no-op.
+	// =========================================================================
+	customersAfterUpgrade := listOrderCustomerIDs(t, authHeader)
+	if !containsString(customersAfterUpgrade, "cust_pre_migration") {
+		t.Fatalf("Data migration failed: pre-upgrade order 'cust_pre_migration' not found after cutover to dedicated. Orders: %v", customersAfterUpgrade)
+	}
+	if !containsString(customersAfterUpgrade, "cust_post_cutover") {
+		t.Fatalf("Post-cutover order 'cust_post_cutover' not found after upgrade. Orders: %v", customersAfterUpgrade)
+	}
+	t.Logf("9.5 Pre-upgrade data survived cutover: orders %v visible on dedicated plan.", customersAfterUpgrade)
+
+	// =========================================================================
+	// Step 10: Downgrade (dedicated -> shared) — data must migrate back
+	// Instruction: PUT plan='shared'; the saga runs in reverse and the tenant's
+	//              orders must be migrated from the dedicated container back to the
+	//              shared schema and remain queryable.
+	// =========================================================================
+	downBody, _ := json.Marshal(map[string]string{"plan": "shared"})
+	downReq, _ := http.NewRequest(http.MethodPut, gatewayBaseURL+"/api/tenants/me/plan", bytes.NewBuffer(downBody))
+	downReq.Header.Set("Content-Type", "application/json")
+	downReq.Header.Set("Authorization", authHeader)
+	downResp, err := defaultHTTPClient.Do(downReq)
+	if err != nil {
+		t.Fatalf("PUT /api/tenants/me/plan (downgrade) failed: %v", err)
+	}
+	defer downResp.Body.Close()
+	if downResp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT /api/tenants/me/plan (downgrade) expected HTTP 200, got %d", downResp.StatusCode)
+	}
+	activatedDown := false
+	for i := 0; i < 360; i++ {
+		if status := currentTenantStatus(t, db, tenantID); status == "active" {
+			activatedDown = true
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if !activatedDown {
+		t.Fatalf("Downgrade failed: tenant '%s' did not return to ACTIVE on shared plan (final: '%s')",
+			tenantID, currentTenantStatus(t, db, tenantID))
+	}
+	downMe, _ := http.NewRequest(http.MethodGet, gatewayBaseURL+"/api/tenants/me", nil)
+	downMe.Header.Set("Authorization", authHeader)
+	downMeResp, err := defaultHTTPClient.Do(downMe)
+	if err != nil {
+		t.Fatalf("GET /api/tenants/me (downgrade) failed: %v", err)
+	}
+	defer downMeResp.Body.Close()
+	var downMeBody struct {
+		Data struct {
+			Status string `json:"status"`
+			Plan   string `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(downMeResp.Body).Decode(&downMeBody); err != nil {
+		t.Fatalf("Failed to decode GET /api/tenants/me (downgrade) response: %v", err)
+	}
+	if downMeBody.Data.Plan != "shared" {
+		t.Fatalf("Downgrade not persisted: expected plan 'shared', got '%s'", downMeBody.Data.Plan)
+	}
+	customersAfterDowngrade := listOrderCustomerIDs(t, authHeader)
+	if !containsString(customersAfterDowngrade, "cust_pre_migration") {
+		t.Fatalf("Downgrade data migration failed: pre-upgrade order 'cust_pre_migration' missing after downgrade to shared. Orders: %v", customersAfterDowngrade)
+	}
+	if !containsString(customersAfterDowngrade, "cust_post_cutover") {
+		t.Fatalf("Downgrade data migration failed: post-upgrade order 'cust_post_cutover' missing after downgrade to shared. Orders: %v", customersAfterDowngrade)
+	}
+
+	// The dedicated container must be purged once the tenant is back on shared.
+	afterOut, afterErr := exec.Command("docker", "inspect", "-f", "{{.State.Running}}", containerName).CombinedOutput()
+	if afterErr == nil && strings.TrimSpace(string(afterOut)) == "true" {
+		t.Fatalf("Dedicated container '%s' still running after downgrade to shared — expected it to be purged", containerName)
+	}
+	t.Logf("10. Downgrade passed: tenant back on shared plan with orders %v preserved and dedicated container '%s' purged.", customersAfterDowngrade, containerName)
+}
+
+// listOrderCustomerIDs GETs the tenant's orders and returns the customer_id values.
+func listOrderCustomerIDs(t *testing.T, authHeader string) []string {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, gatewayOrdersURL, nil)
+	req.Header.Set("Authorization", authHeader)
+	resp, err := defaultHTTPClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/orders failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/orders expected HTTP 200, got %d", resp.StatusCode)
+	}
+	var body struct {
+		Data []struct {
+			CustomerID string `json:"customer_id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("Failed to decode GET /api/orders response: %v", err)
+	}
+	ids := make([]string, 0, len(body.Data))
+	for _, o := range body.Data {
+		ids = append(ids, o.CustomerID)
+	}
+	return ids
+}
+
+func containsString(list []string, target string) bool {
+	for _, s := range list {
+		if s == target {
+			return true
+		}
+	}
+	return false
 }
 
 // currentTenantStatus reads the tenant status column without failing the test so callers

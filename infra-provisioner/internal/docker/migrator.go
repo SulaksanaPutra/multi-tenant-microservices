@@ -110,49 +110,65 @@ func (m *SchemaMigrator) RestoreSchema(ctx context.Context, sharedDSN, lockedSch
 	return nil
 }
 
-// MigrateData pipes pg_dump of lockedSourceSchema from shared DB into psql on target dedicated DB,
-// using sed to rewrite the schema name to public on the fly.
+// MigrateData pipes pg_dump of sourceSchema (in the source database) into psql on the
+// target database, using sed to rewrite the schema to targetSchema on the fly.
+// The target schema's orders/outbox tables are dropped first so re-runs under
+// RabbitMQ at-least-once delivery are idempotent.
 func (m *SchemaMigrator) MigrateData(
 	ctx context.Context,
-	sourceHost string, sourcePort int, sourceUser, sourcePass, sourceDB, lockedSourceSchema string,
-	targetHost string, targetPort int, targetUser, targetPass, targetDB string,
+	sourceHost string, sourcePort int, sourceUser, sourcePass, sourceDB, sourceSchema string,
+	targetHost string, targetPort int, targetUser, targetPass, targetDB, targetSchema string,
 ) error {
+	if err := ValidateIdentifier(sourceSchema); err != nil {
+		return fmt.Errorf("invalid source schema '%s': %w", sourceSchema, err)
+	}
+	if err := ValidateIdentifier(targetSchema); err != nil {
+		return fmt.Errorf("invalid target schema '%s': %w", targetSchema, err)
+	}
+
+	// 1. Pre-clean target tables so a redelivered migration re-applies cleanly.
+	if err := m.cleanTargetTables(ctx, targetHost, targetPort, targetUser, targetPass, targetDB, targetSchema); err != nil {
+		return err
+	}
+
+	// 2. Require the PostgreSQL client tooling; a missing binary is a hard error,
+	// never a silent no-op (otherwise tenants cut over with empty databases).
 	pgDumpPath, err := exec.LookPath("pg_dump")
 	if err != nil {
-		log.Printf("SchemaMigrator Warning: pg_dump not found in PATH; skipping shell pipeline execution in test env")
-		return nil
+		return fmt.Errorf("pg_dump not found in PATH: %w", err)
 	}
 	psqlPath, err := exec.LookPath("psql")
 	if err != nil {
-		log.Printf("SchemaMigrator Warning: psql not found in PATH; skipping shell pipeline execution in test env")
-		return nil
+		return fmt.Errorf("psql not found in PATH: %w", err)
+	}
+	sedPath, err := exec.LookPath("sed")
+	if err != nil {
+		return fmt.Errorf("sed not found in PATH: %w", err)
 	}
 
+	// 3. Pipe: pg_dump | sed | psql
 	dumpCmd := exec.CommandContext(ctx, pgDumpPath,
 		"-h", sourceHost,
 		"-p", fmt.Sprintf("%d", sourcePort),
 		"-U", sourceUser,
 		"-d", sourceDB,
-		"-n", lockedSourceSchema,
+		"-n", sourceSchema,
 		"--no-owner",
 		"--no-acl",
 	)
 	dumpCmd.Env = append(os.Environ(), "PGPASSWORD="+sourcePass)
 
-	sedCmd := exec.CommandContext(ctx, "sed",
-		fmt.Sprintf("s/SCHEMA \"%s\"/SCHEMA \"public\"/g; s/SCHEMA %s/SCHEMA public/g; s/SET search_path = \"%s\"/SET search_path = \"public\"/g; s/SET search_path = %s/SET search_path = public/g",
-			lockedSourceSchema, lockedSourceSchema, lockedSourceSchema, lockedSourceSchema),
-	)
+	sedCmd := exec.CommandContext(ctx, sedPath, buildSchemaRewriteSed(sourceSchema, targetSchema))
 
 	psqlCmd := exec.CommandContext(ctx, psqlPath,
 		"-h", targetHost,
 		"-p", fmt.Sprintf("%d", targetPort),
 		"-U", targetUser,
 		"-d", targetDB,
+		"-v", "ON_ERROR_STOP=1",
 	)
 	psqlCmd.Env = append(os.Environ(), "PGPASSWORD="+targetPass)
 
-	// Pipe: dumpCmd | sedCmd | psqlCmd
 	dumpOut, err := dumpCmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create dump stdout pipe: %w", err)
@@ -190,8 +206,98 @@ func (m *SchemaMigrator) MigrateData(
 		return fmt.Errorf("psql failed: %w (stderr: %s)", err, errBuf.String())
 	}
 
-	log.Printf("SchemaMigrator: Data successfully migrated from schema '%s' to public on %s:%d/%s",
-		lockedSourceSchema, targetHost, targetPort, targetDB)
+	log.Printf("SchemaMigrator: Data successfully migrated from schema '%s' to '%s' on %s:%d/%s",
+		sourceSchema, targetSchema, targetHost, targetPort, targetDB)
+	return nil
+}
+
+// buildSchemaRewriteSed produces a sed program rewriting every occurrence of
+// srcSchema to dstSchema in a pg_dump script: the CREATE SCHEMA statement, the
+// SET search_path clause, and every schema-qualified object reference.
+func buildSchemaRewriteSed(srcSchema, dstSchema string) string {
+	q := pq.QuoteIdentifier(srcSchema)
+	qd := pq.QuoteIdentifier(dstSchema)
+	return fmt.Sprintf(
+		"s/CREATE SCHEMA %s;/CREATE SCHEMA IF NOT EXISTS %s;/g;"+
+			"s/CREATE SCHEMA %s;/CREATE SCHEMA IF NOT EXISTS %s;/g;"+
+			"s/SET search_path = %s/SET search_path = %s/g;"+
+			"s/SET search_path = %s/SET search_path = %s/g;"+
+			"s/%s\\./%s./g",
+		q, qd,
+		srcSchema, dstSchema,
+		q, qd,
+		srcSchema, dstSchema,
+		srcSchema, dstSchema,
+	)
+}
+
+// cleanTargetTables drops the orders/outbox tables in the target schema so a
+// migration re-run starts from an empty target rather than failing or duplicating rows.
+func (m *SchemaMigrator) cleanTargetTables(ctx context.Context, host string, port int, user, pass, db, schema string) error {
+	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+		host, port, user, pass, db)
+
+	conn, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return fmt.Errorf("failed to open target db for pre-clean: %w", err)
+	}
+	defer conn.Close()
+
+	if err := conn.PingContext(ctx); err != nil {
+		return fmt.Errorf("failed to ping target db for pre-clean: %w", err)
+	}
+
+	q := pq.QuoteIdentifier(schema)
+	dropSQL := fmt.Sprintf("DROP TABLE IF EXISTS %s.orders; DROP TABLE IF EXISTS %s.outbox;", q, q)
+	if _, err := conn.ExecContext(ctx, dropSQL); err != nil {
+		return fmt.Errorf("failed to clean target tables in schema '%s': %w", schema, err)
+	}
+	return nil
+}
+
+// TableHasRows reports whether the given table exists in the given schema and contains at least one row.
+func (m *SchemaMigrator) TableHasRows(ctx context.Context, dsn, schema, table string) (bool, error) {
+	if err := ValidateIdentifier(schema); err != nil {
+		return false, fmt.Errorf("invalid schema '%s': %w", schema, err)
+	}
+	if err := ValidateIdentifier(table); err != nil {
+		return false, fmt.Errorf("invalid table '%s': %w", table, err)
+	}
+
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return false, fmt.Errorf("failed to open db for table check: %w", err)
+	}
+	defer db.Close()
+
+	query := fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s.%s LIMIT 1);",
+		pq.QuoteIdentifier(schema), pq.QuoteIdentifier(table))
+
+	var hasRows bool
+	if err := db.QueryRowContext(ctx, query).Scan(&hasRows); err != nil {
+		return false, err
+	}
+	return hasRows, nil
+}
+
+// DropSchemaIfExists drops a schema and all its objects, used to clean up the
+// leftover "_locked" schema after a successful cutover.
+func (m *SchemaMigrator) DropSchemaIfExists(ctx context.Context, dsn, schemaName string) error {
+	if err := ValidateIdentifier(schemaName); err != nil {
+		return err
+	}
+
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return fmt.Errorf("failed to open db for schema drop: %w", err)
+	}
+	defer db.Close()
+
+	if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE;", pq.QuoteIdentifier(schemaName))); err != nil {
+		return fmt.Errorf("failed to drop schema '%s': %w", schemaName, err)
+	}
+
+	log.Printf("SchemaMigrator: Dropped schema '%s'", schemaName)
 	return nil
 }
 

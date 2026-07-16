@@ -30,7 +30,6 @@ import (
 	"testing"
 	"time"
 
-	"auth-service/internal/handler"
 	"auth-service/internal/httputil"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -172,6 +171,16 @@ func loginAndGetTokenPair(t *testing.T, email, password string) (accessToken, re
 func loginAndGetTokenWithTenant(t *testing.T, tenantID, email, password string) (accessToken, refreshToken string) {
 	t.Helper()
 
+	type loginResponse struct {
+		RequiresWorkspace bool `json:"requires_workspace,omitempty"`
+		ExchangeToken     string `json:"exchange_token,omitempty"`
+		Workspaces        []struct {
+			TenantID string `json:"tenant_id"`
+		} `json:"workspaces,omitempty"`
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+
 	body, _ := json.Marshal(map[string]string{
 		"email":    email,
 		"password": password,
@@ -187,7 +196,7 @@ func loginAndGetTokenWithTenant(t *testing.T, tenantID, email, password string) 
 		t.Fatalf("[Auth] POST /api/auth/login returned status %d", resp.StatusCode)
 	}
 
-	var raw httputil.StandardResponse[handler.LoginResponse]
+	var raw httputil.StandardResponse[loginResponse]
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		t.Fatalf("[Auth] failed to decode login response: %v", err)
 	}
@@ -213,7 +222,7 @@ func loginAndGetTokenWithTenant(t *testing.T, tenantID, email, password string) 
 			t.Fatalf("[Auth] POST /api/auth/select-tenant returned status %d", selectResp.StatusCode)
 		}
 
-		var selectTokenResp httputil.StandardResponse[handler.LoginResponse]
+		var selectTokenResp httputil.StandardResponse[loginResponse]
 		if err := json.NewDecoder(selectResp.Body).Decode(&selectTokenResp); err != nil {
 			t.Fatalf("[Auth] failed to decode select-tenant response: %v", err)
 		}
