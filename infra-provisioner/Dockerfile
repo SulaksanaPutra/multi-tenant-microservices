@@ -9,8 +9,10 @@ COPY . .
 
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o infra-provisioner ./cmd/main.go
 
-# Scratch / Distroless Minimal Image (Zero Shell, Zero OS Utilities, Non-Root)
-FROM gcr.io/distroless/static-debian12:nonroot
+# Runtime image is postgres:16-alpine so pg_dump/psql/sed are available for
+# the shared <-> dedicated data migration pipelines. The postgres entrypoint
+# is overridden below; only the client binaries are used.
+FROM postgres:16-alpine
 
 WORKDIR /
 
