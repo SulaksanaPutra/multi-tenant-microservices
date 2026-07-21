@@ -594,9 +594,9 @@ microservice-api/
 │   │                             #     (auth-db, user-db, tenant-db, notification-db, data-plane-db)
 │   └── web-ui/                   # Functional Web UI
 │
-├── scripts/                      # Deployment launchers
-│   ├── up.sh                     # Tier-aware startup (docker compose up across all projects)
-│   └── down.sh                   # Tier-aware teardown (also purges runtime tenant containers)
+├── scripts/                      # Step-by-step deploy / test wizards
+│   ├── up.sh                     # Wizard: choose tier -> deploy -> run unit / e2e tests? (optional)
+│   └── down.sh                   # Wizard: purge mail/queues? -> stop services -> wipe volumes?
 │
 ├── docs/                         # Architectural Deep-Dives & Technical Design Challenges (Docs 0 - 21)
 │   └── 21-how-do-we-implement-unified-identity-and-workspace-selection.md
@@ -699,91 +699,21 @@ The platform supports **three deployment tiers** selected once at startup. The t
 
 ## 9. How to Run & Stop the Application
 
-### Quick Start (recommended)
+### Interactive launcher
 
 ```bash
-# Start the platform at the configured tier (defaults to standard)
 ./scripts/up.sh
-
-# Stop the platform
-./scripts/down.sh
-
-# Stop and wipe all volumes / queues / tenant DB containers (clean state)
-./scripts/down.sh -v
 ```
 
-`scripts/up.sh`:
-1. Reads the tier from `TIER=` in `infrastructure/.env`; if it is missing it prompts once and saves the choice.
-2. Exports the tier-specific environment (`DEDICATED_ISOLATION_MODE`, `SHARED_DB_HOST`, per-service `*_DB_HOST`).
-3. Brings up the infrastructure (with `--profile per-service-db` on the **premium** tier) followed by all microservices, in dependency order.
-
-### Choosing a Tier
-
-```bash
-# Set the tier explicitly (adds/replaces TIER= in infrastructure/.env)
-echo "TIER=lite" >> infrastructure/.env && ./scripts/up.sh
-
-# Or delete the TIER line and let the menu prompt you
-sed -i '' '/^TIER=/d' infrastructure/.env && ./scripts/up.sh
-```
-
-> `infrastructure/.env` is gitignored; `infrastructure/.env.example` is the committed template and includes `TIER=standard`. On a fresh clone the menu prompts for the tier on first `./scripts/up.sh`.
-
-Switching tiers requires a fresh state — there is **no live tier-to-tier migration**:
-
-```bash
-./scripts/down.sh -v && ./scripts/up.sh
-```
-
-### Manual Start (equivalent to `standard`) — alternative to `scripts/up.sh`
-
-```bash
-# 1. Start Shared Infrastructure, Infra Provisioner & Web UI
-(cd infrastructure && docker compose up -d --build)
-
-# 2. Start Microservices
-(cd auth-service && docker compose up -d --build) && \
-(cd tenant-service && docker compose up -d --build) && \
-(cd user-service && docker compose up -d --build) && \
-(cd order-service && docker compose up -d --build) && \
-(cd notification-service && docker compose up -d --build)
-
-# 3. Run E2E Integration Tests (expects the standard tier)
-(cd e2e-tests && CGO_ENABLED=0 go test -v ./...)
-```
-
-### Running the E2E Tests on Other Tiers
-
-The e2e suite is tier-aware via a single `TIER` env var (default `standard`). Deploy the matching tier with `scripts/up.sh`, then:
-
-```bash
-# Lite (same_instance data plane) — dedicated tenants live as databases inside the shared postgres
-(cd infrastructure && ./scripts/up.sh)          # with TIER=lite in infrastructure/.env
-(cd e2e-tests && TIER=lite go test -p 1 -run 'TestE2E_TC_E2E_030|TestE2E_TC_E2E_032|TestE2E_TC_E2E_033' -v ./...)
-
-# Premium (per-service postgres containers) — DB lookups are remapped to the
-# per-service host ports (tenant-db:5433, user-db:5434, data-plane-db:5435, ...)
-(cd e2e-tests && TIER=premium go test -p 1 -run 'TestE2E_TC_E2E_030|TestE2E_TC_E2E_032|TestE2E_TC_E2E_033' -v ./...)
-```
-
-`TestE2E_TC_E2E_030` runs the full plan-upgrade/downgrade contract on every tier:
-container mode asserts the dedicated `postgres-tenant-<id>` container is provisioned and then purged, while `TIER=lite` asserts the same-instance `{tenant}_order_db` database is created with the data and then dropped.
-
-### Stopping All Services
+`scripts/up.sh` reads `TIER=` from `infrastructure/.env` (default `standard`); see [Section 8](#8-deployment-tiers) for what each tier provisions. 
 
 ```bash
 ./scripts/down.sh
 ```
 
-### Resetting Database & Volumes (Clean State Reset)
+`scripts/down.sh` purges Mailpit messages and RabbitMQ queues first (while the containers are still up), then stops the platform, and finally asks whether to wipe volumes for a fresh state.
 
-```bash
-# Stop everything and remove volumes, RabbitMQ state, dedicated tenant containers
-# and the premium per-service DB containers (auth-db, user-db, tenant-db,
-# notification-db, data-plane-db)
-./scripts/down.sh -v
+Switching tiers requires a fresh state — there is **no live tier-to-tier migration** (i will develop it in the future, maybe)  — so answer "yes" to the wipe-volume prompt when switching:
 
-# Purge Mailpit inbox (mock email messages persist independently of containers)
-curl -s -X DELETE "http://localhost:${MAILPIT_DASHBOARD_PORT:-8025}/api/v1/messages" -o /dev/null || true
-```
+> **Manual alternative:** direct `docker compose` per service still works and deploys the standard topology — `(cd infrastructure && docker compose up -d --build)` then the five service dirs in dependency order. The full e2e suite (`cd e2e-tests && go test -p 1 ./...`) is only safe on a fresh standard deployment; several tests stop/restart containers and leave the stack degraded afterwards.
 
