@@ -47,6 +47,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -222,17 +223,35 @@ func TestE2E_TC_E2E_030_PlanUpgrade_MigrationContract(t *testing.T) {
 	t.Logf("6.5 Received infrastructure.provisioned broadcast for tenant '%s' (success path confirmed).", tenantID)
 
 	// =========================================================================
-	// Step 6.6: Assert the Dedicated Container Is Running
-	// Instruction: infra-provisioner names the dedicated container postgres-tenant-<id>. It must
-	//              still be running after cutover (DestroyContainer is reserved for rollback).
+	// Step 6.6: Assert the Dedicated Target Is Live
+	// Instruction: container mode provisions postgres-tenant-<id>; same_instance
+	//              (lite tier) creates a {tenant}_order_db database inside the
+	//              shared postgres container. Assert the pre-upgrade order lives
+	//              in whichever dedicated target was provisioned.
 	// =========================================================================
-	containerName := "postgres-tenant-" + strings.ReplaceAll(strings.ToLower(tenantID), "-", "_")
-	inspect := exec.Command("docker", "inspect", "-f", "{{.State.Running}}", containerName)
-	out, err := inspect.CombinedOutput()
-	if err != nil || strings.TrimSpace(string(out)) != "true" {
-		t.Fatalf("Dedicated container '%s' not running after plan upgrade (out='%s', err=%v) — migration pipeline did not complete", containerName, string(out), err)
+	sanitizedTenantID := strings.ReplaceAll(strings.ToLower(tenantID), "-", "_")
+	if isSameInstanceMode() {
+		dbName := sanitizedTenantID + "_order_db"
+		out, err := exec.Command("docker", "exec", "postgres", "psql", "-U", "postgres", "-d", "postgres",
+			"-tAc", "SELECT 1 FROM pg_database WHERE datname='"+dbName+"'").CombinedOutput()
+		if err != nil || strings.TrimSpace(string(out)) != "1" {
+			t.Fatalf("same-instance tenant database '%s' not created after plan upgrade (out='%s', err=%v)", dbName, string(out), err)
+		}
+		ordOut, err := exec.Command("docker", "exec", "postgres", "psql", "-U", "postgres", "-d", dbName,
+			"-tAc", "SELECT count(*) FROM public.orders WHERE customer_id='cust_pre_migration'").CombinedOutput()
+		if err != nil || strings.TrimSpace(string(ordOut)) != "1" {
+			t.Fatalf("same-instance tenant database '%s' missing the pre-upgrade order (out='%s', err=%v)", dbName, string(ordOut), err)
+		}
+		t.Logf("6.6 Same-instance tenant database '%s' holds the pre-upgrade order.", dbName)
+	} else {
+		containerName := "postgres-tenant-" + sanitizedTenantID
+		inspect := exec.Command("docker", "inspect", "-f", "{{.State.Running}}", containerName)
+		out, err := inspect.CombinedOutput()
+		if err != nil || strings.TrimSpace(string(out)) != "true" {
+			t.Fatalf("Dedicated container '%s' not running after plan upgrade (out='%s', err=%v) — migration pipeline did not complete", containerName, string(out), err)
+		}
+		t.Logf("6.6 Dedicated container '%s' is running (512MB RAM / 0.5 CPU).", containerName)
 	}
-	t.Logf("6.6 Dedicated container '%s' is running (512MB RAM / 0.5 CPU).", containerName)
 
 	// =========================================================================
 	// Step 7: Assert tenant.infrastructure_changed Unfreeze Broadcast
@@ -362,12 +381,36 @@ func TestE2E_TC_E2E_030_PlanUpgrade_MigrationContract(t *testing.T) {
 		t.Fatalf("Downgrade data migration failed: post-upgrade order 'cust_post_cutover' missing after downgrade to shared. Orders: %v", customersAfterDowngrade)
 	}
 
-	// The dedicated container must be purged once the tenant is back on shared.
-	afterOut, afterErr := exec.Command("docker", "inspect", "-f", "{{.State.Running}}", containerName).CombinedOutput()
-	if afterErr == nil && strings.TrimSpace(string(afterOut)) == "true" {
-		t.Fatalf("Dedicated container '%s' still running after downgrade to shared — expected it to be purged", containerName)
+	// The dedicated resource must be released once the tenant is back on shared:
+	// container mode purges the container; same_instance drops the tenant database.
+	if isSameInstanceMode() {
+		dbName := sanitizedTenantID + "_order_db"
+		out, err := exec.Command("docker", "exec", "postgres", "psql", "-U", "postgres", "-d", "postgres",
+			"-tAc", "SELECT 1 FROM pg_database WHERE datname='"+dbName+"'").CombinedOutput()
+		if err == nil && strings.TrimSpace(string(out)) == "1" {
+			t.Fatalf("same-instance tenant database '%s' still exists after downgrade to shared", dbName)
+		}
+		ordOut, err := exec.Command("docker", "exec", "postgres", "psql", "-U", "postgres", "-d", "shared_db",
+			"-tAc", "SELECT count(*) FROM "+dbName+".orders").CombinedOutput()
+		if err != nil || strings.TrimSpace(string(ordOut)) == "0" {
+			t.Fatalf("pre-upgrade order missing from shared schema after downgrade (out='%s', err=%v)", string(ordOut), err)
+		}
+		t.Logf("10. Downgrade passed (same_instance): tenant database '%s' dropped, orders %v back in shared schema.", dbName, customersAfterDowngrade)
+	} else {
+		containerName := "postgres-tenant-" + sanitizedTenantID
+		afterOut, afterErr := exec.Command("docker", "inspect", "-f", "{{.State.Running}}", containerName).CombinedOutput()
+		if afterErr == nil && strings.TrimSpace(string(afterOut)) == "true" {
+			t.Fatalf("Dedicated container '%s' still running after downgrade to shared — expected it to be purged", containerName)
+		}
+		t.Logf("10. Downgrade passed: tenant back on shared plan with orders %v preserved and dedicated container '%s' purged.", customersAfterDowngrade, containerName)
 	}
-	t.Logf("10. Downgrade passed: tenant back on shared plan with orders %v preserved and dedicated container '%s' purged.", customersAfterDowngrade, containerName)
+}
+
+// isSameInstanceMode reports whether the deployment uses same_instance data-plane
+// isolation (the lite tier), where "dedicated" tenants get a database inside the
+// shared postgres container rather than a separate postgres container.
+func isSameInstanceMode() bool {
+	return os.Getenv("TIER") == "lite"
 }
 
 // listOrderCustomerIDs GETs the tenant's orders and returns the customer_id values.

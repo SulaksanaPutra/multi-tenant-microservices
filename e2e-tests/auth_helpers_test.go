@@ -41,12 +41,31 @@ const (
 	authServiceURL = "http://localhost:8085"
 	authLoginURL   = authServiceURL + "/api/auth/login"
 	authRefreshURL = authServiceURL + "/api/auth/refresh"
+)
 
+// Direct-DB DSNs are vars so init() can remap them for the premium tier, where
+// each service owns a dedicated postgres container exposed on its own host port.
+var (
 	// userDBDSN is the local DSN for the user_db used as a fallback to resolve
 	// user_id when the registration response does not include it.
-	userDBDSN         = "host=localhost port=5432 user=postgres password=postgres dbname=user_db sslmode=disable"
+	userDBDSN = "host=localhost port=5432 user=postgres password=postgres dbname=user_db sslmode=disable"
+	// notificationDBDSN is the local DSN for the notification_db.
 	notificationDBDSN = "host=localhost port=5432 user=postgres password=postgres dbname=notification_db sslmode=disable"
 )
+
+// init remaps the direct-DB DSNs for the premium tier. The e2e suite runs on the
+// host: standard/lite keep the shared postgres on 5432, while premium exposes the
+// per-service postgres containers on dedicated host ports (see infrastructure/
+// docker-compose.yml, per-service-db profile). Run: TIER=premium go test ./...
+func init() {
+	if os.Getenv("TIER") != "premium" {
+		return
+	}
+	tenantDBDSN = "host=localhost port=5433 user=postgres password=postgres dbname=tenant_manager_db sslmode=disable"
+	userDBDSN = "host=localhost port=5434 user=postgres password=postgres dbname=user_db sslmode=disable"
+	sharedDBDSN = "host=localhost port=5435 user=postgres password=postgres dbname=shared_db sslmode=disable"
+	notificationDBDSN = "host=localhost port=5437 user=postgres password=postgres dbname=notification_db sslmode=disable"
+}
 
 // internalServiceToken resolves the inter-service bearer token (X-Internal-Service-Token)
 // from the environment, falling back to the documented docker-compose default when unset.

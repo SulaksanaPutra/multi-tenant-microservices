@@ -8,16 +8,24 @@
 #   premium  -> dedicated postgres per service (auth-db/user-db/tenant-db/notification-db
 #               + data-plane-db for shared_db); dedicated container per tenant
 #
-# The tier is read from infrastructure/tier.env. If it is missing or invalid the
-# script prompts once, writes the choice, and proceeds.
+# The tier is read from infrastructure/.env (TIER=...). If it is missing or
+# invalid the script prompts once, writes the choice, and proceeds.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TIER_FILE="$ROOT/infrastructure/tier.env"
+ENV_FILE="$ROOT/infrastructure/.env"
+
+set_tier() {
+  local tier="$1"
+  if [ -f "$ENV_FILE" ]; then
+    grep -v '^TIER=' "$ENV_FILE" > "$ENV_FILE.tmp" && mv "$ENV_FILE.tmp" "$ENV_FILE"
+  fi
+  printf 'TIER=%s\n' "$tier" >> "$ENV_FILE"
+}
 
 TIER="${TIER:-}"
-if [ -z "$TIER" ] && [ -f "$TIER_FILE" ]; then
-  TIER="$(sed -n 's/^TIER=//p' "$TIER_FILE" | tr -d '[:space:]' | tail -1)"
+if [ -z "$TIER" ] && [ -f "$ENV_FILE" ]; then
+  TIER="$(sed -n 's/^TIER=//p' "$ENV_FILE" | tr -d '[:space:]' | tail -1)"
 fi
 
 if [ -z "$TIER" ]; then
@@ -26,8 +34,8 @@ if [ -z "$TIER" ]; then
   select TIER in lite standard premium; do
     if [ -n "$TIER" ]; then break; fi
   done
-  printf 'TIER=%s\n' "$TIER" > "$TIER_FILE"
-  echo "Saved TIER=$TIER to $TIER_FILE"
+  set_tier "$TIER"
+  echo "Saved TIER=$TIER to $ENV_FILE"
 fi
 
 case "$TIER" in
@@ -47,7 +55,7 @@ case "$TIER" in
     export AUTH_DB_HOST=auth-db USER_DB_HOST=user-db TENANT_DB_HOST=tenant-db NOTIFICATION_DB_HOST=notification-db
     ;;
   *)
-    echo "Unknown tier '$TIER' (expected lite|standard|premium). Edit $TIER_FILE and re-run." >&2
+    echo "Unknown tier '$TIER' (expected lite|standard|premium). Edit TIER= in $ENV_FILE and re-run." >&2
     exit 1
     ;;
 esac

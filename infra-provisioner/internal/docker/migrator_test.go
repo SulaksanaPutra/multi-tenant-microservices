@@ -6,6 +6,98 @@ import (
 	"testing"
 )
 
+func TestProvisionTenantDatabaseStatements(t *testing.T) {
+	t.Run("fresh_provision_creates_role_and_database", func(t *testing.T) {
+		stmts, err := provisionTenantDatabaseStatements("tnt_acme_order_db", "tnt_acme_order_user", "pg_secret", false, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		join := strings.Join(stmts.maintenance, " ")
+		want := []string{
+			`CREATE ROLE "tnt_acme_order_user" LOGIN PASSWORD 'pg_secret';`,
+			`CREATE DATABASE "tnt_acme_order_db" OWNER "tnt_acme_order_user";`,
+			`REVOKE CONNECT ON DATABASE "tnt_acme_order_db" FROM PUBLIC;`,
+			`GRANT CONNECT ON DATABASE "tnt_acme_order_db" TO "tnt_acme_order_user";`,
+		}
+		for _, w := range want {
+			if !strings.Contains(join, w) {
+				t.Errorf("expected maintenance statements to contain %q, got: %s", w, join)
+			}
+		}
+		if got := strings.Join(stmts.target, " "); !strings.Contains(got, `GRANT ALL ON SCHEMA public TO "tnt_acme_order_user";`) {
+			t.Errorf("expected target schema grant, got: %s", got)
+		}
+	})
+
+	t.Run("existing_role_alters_password", func(t *testing.T) {
+		stmts, err := provisionTenantDatabaseStatements("tnt_acme_order_db", "tnt_acme_order_user", "pg_secret", true, true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		join := strings.Join(stmts.maintenance, " ")
+		if !strings.Contains(join, `ALTER ROLE "tnt_acme_order_user" WITH PASSWORD 'pg_secret';`) {
+			t.Errorf("expected ALTER ROLE for existing role, got: %s", join)
+		}
+		if strings.Contains(join, "CREATE ROLE") {
+			t.Errorf("should not CREATE ROLE when it already exists: %s", join)
+		}
+		if strings.Contains(join, "CREATE DATABASE") {
+			t.Errorf("should not CREATE DATABASE when it already exists: %s", join)
+		}
+	})
+
+	t.Run("invalid_identifiers_rejected", func(t *testing.T) {
+		if _, err := provisionTenantDatabaseStatements("bad-name!order_db", "role", "pass", false, false); err == nil {
+			t.Error("expected error for invalid database name")
+		}
+		if _, err := provisionTenantDatabaseStatements("db", "bad;role", "pass", false, false); err == nil {
+			t.Error("expected error for invalid role name")
+		}
+	})
+}
+
+func TestDropTenantDatabaseStatements(t *testing.T) {
+	t.Run("drops_database_owned_and_role", func(t *testing.T) {
+		stmts, err := dropTenantDatabaseStatements("tnt_acme_order_db", "tnt_acme_order_user", true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		join := strings.Join(stmts, " ")
+		for _, w := range []string{
+			`DROP DATABASE IF EXISTS "tnt_acme_order_db" WITH (FORCE);`,
+			`DROP OWNED BY "tnt_acme_order_user";`,
+			`DROP ROLE IF EXISTS "tnt_acme_order_user";`,
+		} {
+			if !strings.Contains(join, w) {
+				t.Errorf("expected statements to contain %q, got: %s", w, join)
+			}
+		}
+	})
+
+	t.Run("skips_drop_owned_when_role_missing", func(t *testing.T) {
+		stmts, err := dropTenantDatabaseStatements("tnt_acme_order_db", "tnt_acme_order_user", false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		join := strings.Join(stmts, " ")
+		if strings.Contains(join, "DROP OWNED") {
+			t.Errorf("should not emit DROP OWNED for a missing role: %s", join)
+		}
+		if !strings.Contains(join, "DROP ROLE IF EXISTS") {
+			t.Errorf("expected DROP ROLE IF EXISTS: %s", join)
+		}
+	})
+
+	t.Run("invalid_identifiers_rejected", func(t *testing.T) {
+		if _, err := dropTenantDatabaseStatements("bad-name!db", "role", true); err == nil {
+			t.Error("expected error for invalid database name")
+		}
+		if _, err := dropTenantDatabaseStatements("db", "bad;role", true); err == nil {
+			t.Error("expected error for invalid role name")
+		}
+	})
+}
+
 func TestBuildSchemaRewriteSed_UpgradeLockedToPublic(t *testing.T) {
 	if _, err := exec.LookPath("sed"); err != nil {
 		t.Skip("sed not available in test environment")
