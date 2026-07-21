@@ -586,7 +586,8 @@ microservice-api/
 │   └── Dockerfile
 │
 ├── infrastructure/               # Shared Infrastructure & Docker Topology
-│   ├── tier.env                  # Deployment tier selector (lite | standard | premium), read by scripts/up.sh
+│   ├── .env.example              # Committed env template (incl. TIER=standard default)
+│   ├── .env                      # Local infra config — TIER= (lite | standard | premium), DB/queue ports
 │   ├── init.sql                  # One-shot database bootstrap (user_db, auth_db, tenant_manager_db, notification_db)
 │   ├── docker-compose.yml        # Postgres, RabbitMQ, Mailpit, Traefik, Infra-Provisioner, Web-UI
 │   │                             #   + premium per-service DBs behind the "per-service-db" profile
@@ -680,7 +681,7 @@ microservice-api/
 
 ## 8. Deployment Tiers
 
-The platform supports **three deployment tiers** selected once at startup. The tier is read from `infrastructure/tier.env` by [`scripts/up.sh`](scripts/up.sh). The default tier is **standard**.
+The platform supports **three deployment tiers** selected once at startup. The tier is read from `TIER=` in `infrastructure/.env` by [`scripts/up.sh`](scripts/up.sh). The default tier is **standard**.
 
 | Tier | Control-plane DBs (auth / user / tenant / notification) | `shared_db` (order data plane) | Dedicated tenant data plane | `DEDICATED_ISOLATION_MODE` |
 | :--- | :--- | :--- | :--- | :--- |
@@ -712,19 +713,21 @@ The platform supports **three deployment tiers** selected once at startup. The t
 ```
 
 `scripts/up.sh`:
-1. Reads the tier from `infrastructure/tier.env`; if it is missing it prompts once and saves the choice.
+1. Reads the tier from `TIER=` in `infrastructure/.env`; if it is missing it prompts once and saves the choice.
 2. Exports the tier-specific environment (`DEDICATED_ISOLATION_MODE`, `SHARED_DB_HOST`, per-service `*_DB_HOST`).
 3. Brings up the infrastructure (with `--profile per-service-db` on the **premium** tier) followed by all microservices, in dependency order.
 
 ### Choosing a Tier
 
 ```bash
-# Set the tier explicitly
-echo "TIER=lite" > infrastructure/tier.env && ./scripts/up.sh
+# Set the tier explicitly (adds/replaces TIER= in infrastructure/.env)
+echo "TIER=lite" >> infrastructure/.env && ./scripts/up.sh
 
-# Or delete the file and let the menu prompt you
-rm -f infrastructure/tier.env && ./scripts/up.sh
+# Or delete the TIER line and let the menu prompt you
+sed -i '' '/^TIER=/d' infrastructure/.env && ./scripts/up.sh
 ```
+
+> `infrastructure/.env` is gitignored; `infrastructure/.env.example` is the committed template and includes `TIER=standard`. On a fresh clone the menu prompts for the tier on first `./scripts/up.sh`.
 
 Switching tiers requires a fresh state — there is **no live tier-to-tier migration**:
 
@@ -748,6 +751,23 @@ Switching tiers requires a fresh state — there is **no live tier-to-tier migra
 # 3. Run E2E Integration Tests (expects the standard tier)
 (cd e2e-tests && CGO_ENABLED=0 go test -v ./...)
 ```
+
+### Running the E2E Tests on Other Tiers
+
+The e2e suite is tier-aware via a single `TIER` env var (default `standard`). Deploy the matching tier with `scripts/up.sh`, then:
+
+```bash
+# Lite (same_instance data plane) — dedicated tenants live as databases inside the shared postgres
+(cd infrastructure && ./scripts/up.sh)          # with TIER=lite in infrastructure/.env
+(cd e2e-tests && TIER=lite go test -p 1 -run 'TestE2E_TC_E2E_030|TestE2E_TC_E2E_032|TestE2E_TC_E2E_033' -v ./...)
+
+# Premium (per-service postgres containers) — DB lookups are remapped to the
+# per-service host ports (tenant-db:5433, user-db:5434, data-plane-db:5435, ...)
+(cd e2e-tests && TIER=premium go test -p 1 -run 'TestE2E_TC_E2E_030|TestE2E_TC_E2E_032|TestE2E_TC_E2E_033' -v ./...)
+```
+
+`TestE2E_TC_E2E_030` runs the full plan-upgrade/downgrade contract on every tier:
+container mode asserts the dedicated `postgres-tenant-<id>` container is provisioned and then purged, while `TIER=lite` asserts the same-instance `{tenant}_order_db` database is created with the data and then dropped.
 
 ### Stopping All Services
 

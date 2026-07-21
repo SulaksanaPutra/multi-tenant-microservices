@@ -247,10 +247,23 @@ func TestWorkspaceInitiatedConsumer_SameInstanceMode(t *testing.T) {
 
 	t.Run("dedicated_provisions_tenant_database_in_shared_instance", func(t *testing.T) {
 		var provisionedDB, provisionedRole string
+		var migrated bool
+		var migTargetHost, migTargetUser, migTargetDB, migTargetSchema string
 		mig := &mockMigrator{
+			checkSchemaExistsFn: func(_ context.Context, _, schema string) (bool, error) {
+				return schema == "tenant_acme_corp_order_db", nil
+			},
 			provisionTenantDBFn: func(_ context.Context, _ string, _ int, _, _, dbName, roleName, _ string) error {
 				provisionedDB = dbName
 				provisionedRole = roleName
+				return nil
+			},
+			migrateDataFn: func(_ context.Context, _ string, _ int, _, _, _, _ string, targetHost string, _ int, targetUser, _, targetDB, targetSchema string) error {
+				migrated = true
+				migTargetHost = targetHost
+				migTargetUser = targetUser
+				migTargetDB = targetDB
+				migTargetSchema = targetSchema
 				return nil
 			},
 		}
@@ -283,6 +296,14 @@ func TestWorkspaceInitiatedConsumer_SameInstanceMode(t *testing.T) {
 		}
 		if provisionedRole != "tenant_acme_corp_order_user" {
 			t.Errorf("expected per-tenant role, got '%s'", provisionedRole)
+		}
+		if !migrated {
+			t.Error("expected data migration to run into the same-instance database")
+		}
+		if migTargetHost != "postgres-shared-host" || migTargetDB != "tenant_acme_corp_order_db" ||
+			migTargetUser != "tenant_acme_corp_order_user" || migTargetSchema != "public" {
+			t.Errorf("expected migration to target the per-tenant database, got host='%s' db='%s' user='%s' schema='%s'",
+				migTargetHost, migTargetDB, migTargetUser, migTargetSchema)
 		}
 		if publishedEvt.DBHost != "postgres-shared-host" || publishedEvt.DBName != "tenant_acme_corp_order_db" ||
 			publishedEvt.DBUser != "tenant_acme_corp_order_user" || publishedEvt.SchemaName != "public" {
@@ -360,6 +381,52 @@ func TestWorkspaceInitiatedConsumer_SameInstanceMode(t *testing.T) {
 			t.Errorf("expected best-effort drop of tenant database, got '%s'", droppedDB)
 		}
 	})
+}
+
+func TestWorkspaceInitiatedConsumer_ContainerModeDoesNotProvisionTenantDatabase(t *testing.T) {
+	evtDedicated := domain.WorkspaceInitiatedEvent{
+		EventID:  "evt-ws-dedicated-container",
+		TenantID: "tenant-acme-corp",
+		Plan:     "dedicated",
+	}
+	bodyDedicated, _ := json.Marshal(evtDedicated)
+
+	provisionedCalled := false
+	mig := &mockMigrator{
+		provisionTenantDBFn: func(_ context.Context, _ string, _ int, _, _, _, _, _ string) error {
+			provisionedCalled = true
+			return nil
+		},
+	}
+
+	prov := &mockProvisioner{
+		provisionDedicatedContainerFunc: func(_ context.Context, _, _ string, _ map[string]string) (string, int, string, string, error) {
+			return "172.20.0.30", 5432, "tenant_db", "order_user", nil
+		},
+	}
+
+	c := &WorkspaceInitiatedConsumer{
+		infrastructureEventPublisher: &mockInfrastructureEventPublisher{},
+		provisioner:                  prov,
+		migrator:                     mig,
+		sharedDBHost:                 "postgres-shared-host",
+		sharedDBPass:                 "postgres",
+		domainSecrets:                map[string]string{"order_db": "secret_key"},
+		isolationMode:                "container",
+	}
+
+	mockAck := &mockAcknowledger{}
+	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: bodyDedicated}
+
+	if err := c.handleDelivery(context.Background(), d); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if provisionedCalled {
+		t.Error("container mode must not provision a same-instance tenant database")
+	}
+	if !mockAck.ackCalled {
+		t.Error("expected message to be ACKed")
+	}
 }
 
 func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {

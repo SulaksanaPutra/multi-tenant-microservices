@@ -301,18 +301,73 @@ func (m *SchemaMigrator) DropSchemaIfExists(ctx context.Context, dsn, schemaName
 	return nil
 }
 
+// provisionStatements holds the SQL produced for a same-instance tenant
+// database provisioning, split by which database each statement runs against.
+type provisionStatements struct {
+	maintenance []string // executed on the maintenance (postgres) database
+	target      []string // executed on the tenant's own database
+}
+
+// provisionTenantDatabaseStatements builds the DDL/grants for creating a
+// per-tenant role and database. The existence flags let callers pick CREATE vs
+// ALTER for the role and skip the database creation when it already exists.
+func provisionTenantDatabaseStatements(dbName, roleName, rolePass string, roleExists, dbExists bool) (provisionStatements, error) {
+	if err := ValidateIdentifier(dbName); err != nil {
+		return provisionStatements{}, fmt.Errorf("invalid database name '%s': %w", dbName, err)
+	}
+	if err := ValidateIdentifier(roleName); err != nil {
+		return provisionStatements{}, fmt.Errorf("invalid role name '%s': %w", roleName, err)
+	}
+
+	q := pq.QuoteIdentifier(dbName)
+	r := pq.QuoteIdentifier(roleName)
+
+	maintenance := []string{}
+	if roleExists {
+		maintenance = append(maintenance, fmt.Sprintf("ALTER ROLE %s WITH PASSWORD %s;", r, pq.QuoteLiteral(rolePass)))
+	} else {
+		maintenance = append(maintenance, fmt.Sprintf("CREATE ROLE %s LOGIN PASSWORD %s;", r, pq.QuoteLiteral(rolePass)))
+	}
+	if !dbExists {
+		maintenance = append(maintenance, fmt.Sprintf("CREATE DATABASE %s OWNER %s;", q, r))
+	}
+	maintenance = append(maintenance,
+		fmt.Sprintf("REVOKE CONNECT ON DATABASE %s FROM PUBLIC;", q),
+		fmt.Sprintf("GRANT CONNECT ON DATABASE %s TO %s;", q, r),
+	)
+
+	return provisionStatements{
+		maintenance: maintenance,
+		target:      []string{fmt.Sprintf("GRANT ALL ON SCHEMA public TO %s;", r)},
+	}, nil
+}
+
+// dropTenantDatabaseStatements builds the DDL that removes a per-tenant database
+// and role. DROP OWNED is only emitted when the role still exists.
+func dropTenantDatabaseStatements(dbName, roleName string, roleExists bool) ([]string, error) {
+	if err := ValidateIdentifier(dbName); err != nil {
+		return nil, fmt.Errorf("invalid database name '%s': %w", dbName, err)
+	}
+	if err := ValidateIdentifier(roleName); err != nil {
+		return nil, fmt.Errorf("invalid role name '%s': %w", roleName, err)
+	}
+
+	q := pq.QuoteIdentifier(dbName)
+	r := pq.QuoteIdentifier(roleName)
+
+	stmts := []string{fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE);", q)}
+	if roleExists {
+		stmts = append(stmts, fmt.Sprintf("DROP OWNED BY %s;", r))
+	}
+	stmts = append(stmts, fmt.Sprintf("DROP ROLE IF EXISTS %s;", r))
+	return stmts, nil
+}
+
 // ProvisionTenantDatabase creates a per-tenant database and role inside the
 // shared PostgreSQL instance (same_instance isolation mode). The role is the
 // database owner and PUBLIC connect is revoked so tenants cannot reach each
 // other's databases.
 func (m *SchemaMigrator) ProvisionTenantDatabase(ctx context.Context, host string, port int, superUser, superPass, dbName, roleName, rolePass string) error {
-	if err := ValidateIdentifier(dbName); err != nil {
-		return fmt.Errorf("invalid database name '%s': %w", dbName, err)
-	}
-	if err := ValidateIdentifier(roleName); err != nil {
-		return fmt.Errorf("invalid role name '%s': %w", roleName, err)
-	}
-
 	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=postgres sslmode=disable",
 		host, port, superUser, superPass)
 	db, err := sql.Open("postgres", dsn)
@@ -325,44 +380,30 @@ func (m *SchemaMigrator) ProvisionTenantDatabase(ctx context.Context, host strin
 		return fmt.Errorf("failed to ping maintenance db: %w", err)
 	}
 
-	quotedDB := pq.QuoteIdentifier(dbName)
-	quotedRole := pq.QuoteIdentifier(roleName)
-
-	// Create the role if missing, otherwise refresh its password.
 	var roleExists bool
 	_ = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1);", roleName).Scan(&roleExists)
-	if !roleExists {
-		if _, err := db.ExecContext(ctx, fmt.Sprintf("CREATE ROLE %s LOGIN PASSWORD %s;", quotedRole, pq.QuoteLiteral(rolePass))); err != nil {
-			return fmt.Errorf("failed to create role %s: %w", roleName, err)
-		}
-	} else {
-		if _, err := db.ExecContext(ctx, fmt.Sprintf("ALTER ROLE %s WITH PASSWORD %s;", quotedRole, pq.QuoteLiteral(rolePass))); err != nil {
-			return fmt.Errorf("failed to update role %s password: %w", roleName, err)
-		}
-	}
-
-	// Create the database owned by the role (missing DB is created, existing is reused).
 	var dbExists bool
 	_ = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1);", dbName).Scan(&dbExists)
-	if !dbExists {
-		if _, err := db.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s OWNER %s;", quotedDB, quotedRole)); err != nil {
-			return fmt.Errorf("failed to create database %s: %w", dbName, err)
+
+	stmts, err := provisionTenantDatabaseStatements(dbName, roleName, rolePass, roleExists, dbExists)
+	if err != nil {
+		return err
+	}
+
+	for _, stmt := range stmts.maintenance {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("failed to execute %s: %w", stmt, err)
 		}
 	}
 
-	// Block other tenants from connecting and give the owner full rights on public.
-	if _, err := db.ExecContext(ctx, fmt.Sprintf("REVOKE CONNECT ON DATABASE %s FROM PUBLIC;", quotedDB)); err != nil {
-		return fmt.Errorf("failed to revoke public connect on %s: %w", dbName, err)
-	}
-	if _, err := db.ExecContext(ctx, fmt.Sprintf("GRANT CONNECT ON DATABASE %s TO %s;", quotedDB, quotedRole)); err != nil {
-		return fmt.Errorf("failed to grant connect on %s: %w", dbName, err)
-	}
-
+	// The schema grant must run against the tenant's own database.
 	domainDSN := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
 		host, port, superUser, superPass, dbName)
 	domainDB, dErr := sql.Open("postgres", domainDSN)
 	if dErr == nil {
-		_, _ = domainDB.ExecContext(ctx, fmt.Sprintf("GRANT ALL ON SCHEMA public TO %s;", quotedRole))
+		for _, stmt := range stmts.target {
+			_, _ = domainDB.ExecContext(ctx, stmt)
+		}
 		_ = domainDB.Close()
 	}
 
@@ -374,13 +415,6 @@ func (m *SchemaMigrator) ProvisionTenantDatabase(ctx context.Context, host strin
 // PostgreSQL instance (same_instance isolation mode). Used to purge the
 // dedicated database on downgrade or rollback.
 func (m *SchemaMigrator) DropTenantDatabase(ctx context.Context, host string, port int, superUser, superPass, dbName, roleName string) error {
-	if err := ValidateIdentifier(dbName); err != nil {
-		return fmt.Errorf("invalid database name '%s': %w", dbName, err)
-	}
-	if err := ValidateIdentifier(roleName); err != nil {
-		return fmt.Errorf("invalid role name '%s': %w", roleName, err)
-	}
-
 	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=postgres sslmode=disable",
 		host, port, superUser, superPass)
 	db, err := sql.Open("postgres", dsn)
@@ -389,21 +423,18 @@ func (m *SchemaMigrator) DropTenantDatabase(ctx context.Context, host string, po
 	}
 	defer db.Close()
 
-	quotedDB := pq.QuoteIdentifier(dbName)
-	quotedRole := pq.QuoteIdentifier(roleName)
-
-	// FORCE terminates any lingering connections (e.g. an order-service pool).
-	if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE);", quotedDB)); err != nil {
-		return fmt.Errorf("failed to drop database %s: %w", dbName, err)
-	}
-
 	var roleExists bool
 	_ = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1);", roleName).Scan(&roleExists)
-	if roleExists {
-		_, _ = db.ExecContext(ctx, fmt.Sprintf("DROP OWNED BY %s;", quotedRole))
+
+	stmts, err := dropTenantDatabaseStatements(dbName, roleName, roleExists)
+	if err != nil {
+		return err
 	}
-	if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", quotedRole)); err != nil {
-		return fmt.Errorf("failed to drop role %s: %w", roleName, err)
+
+	for _, stmt := range stmts {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("failed to execute %s: %w", stmt, err)
+		}
 	}
 
 	log.Printf("SchemaMigrator: Dropped tenant database '%s' (role '%s')", dbName, roleName)

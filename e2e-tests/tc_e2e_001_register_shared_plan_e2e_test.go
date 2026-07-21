@@ -29,10 +29,15 @@ const (
 	gatewayRegisterURL = "http://localhost:8000/api/tenants/register"
 	gatewayOrdersURL   = "http://localhost:8000/api/orders"
 	gatewayNotifsURL   = "http://localhost:8000/api/notifications"
-	tenantDBDSN        = "host=localhost port=5432 user=postgres password=postgres dbname=tenant_manager_db sslmode=disable"
-	sharedDBDSN        = "host=localhost port=5432 user=postgres password=postgres dbname=shared_db sslmode=disable"
 	rabbitmqDSN        = "amqp://guest:guest@localhost:5672/"
 	mailpitAPIURL      = "http://localhost:8025/api/v1/messages"
+)
+
+// tenantDBDSN and sharedDBDSN are vars so init() (auth_helpers_test.go) can
+// remap them to the premium per-service postgres containers.
+var (
+	tenantDBDSN = "host=localhost port=5432 user=postgres password=postgres dbname=tenant_manager_db sslmode=disable"
+	sharedDBDSN = "host=localhost port=5432 user=postgres password=postgres dbname=shared_db sslmode=disable"
 )
 
 type OrderRequest struct {
