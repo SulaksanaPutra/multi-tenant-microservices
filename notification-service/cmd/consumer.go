@@ -49,9 +49,10 @@ func registerConsumers(
 	}
 
 	orderCreatedConsumer, err := consumer.NewOrderCreatedConsumer(consumer.OrderCreatedConsumerParams{
-		TxManager:    txManager,
-		Client:       rmqClient,
-		InboxService: inboxService,
+		TxManager:           txManager,
+		Client:              rmqClient,
+		InboxService:        inboxService,
+		NotificationService: notifService,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize OrderCreatedConsumer: %w", err)

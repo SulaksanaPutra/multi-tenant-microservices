@@ -25,6 +25,7 @@ func (m *mockTxManager) WithTransaction(ctx context.Context, fn func(txCtx conte
 type mockNotificationService struct {
 	processEventAndTrySendWelcomeFunc func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error)
 	updateNotificationStatusFunc      func(ctx context.Context, logID string, status string) error
+	createOrderNotificationFunc       func(ctx context.Context, evt domain.OrderCreatedEvent) error
 }
 
 func (m *mockNotificationService) ProcessEventAndTrySendWelcome(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
@@ -37,6 +38,13 @@ func (m *mockNotificationService) ProcessEventAndTrySendWelcome(ctx context.Cont
 func (m *mockNotificationService) UpdateNotificationStatus(ctx context.Context, logID string, status string) error {
 	if m.updateNotificationStatusFunc != nil {
 		return m.updateNotificationStatusFunc(ctx, logID, status)
+	}
+	return nil
+}
+
+func (m *mockNotificationService) CreateOrderNotification(ctx context.Context, evt domain.OrderCreatedEvent) error {
+	if m.createOrderNotificationFunc != nil {
+		return m.createOrderNotificationFunc(ctx, evt)
 	}
 	return nil
 }
