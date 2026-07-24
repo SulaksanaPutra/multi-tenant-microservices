@@ -78,6 +78,58 @@ func NewNotificationService(
 	}
 }
 
+// CreateOrderNotification persists a notification audit log for an order.created
+// event. No email is dispatched for this case; the log is recorded directly as
+// "sent" to surface it in the notifications list.
+func (s *NotificationService) CreateOrderNotification(ctx context.Context, evt domain.OrderCreatedEvent) error {
+	if strings.TrimSpace(evt.TenantID) == "" {
+		return domain.ErrTenantIDRequired
+	}
+
+	userID := evt.CustomerID
+	if strings.TrimSpace(userID) == "" {
+		userID = "usr_unknown"
+	}
+
+	subject := "Order created"
+	if strings.TrimSpace(evt.OrderID) != "" {
+		subject = fmt.Sprintf("Order %s created", evt.OrderID)
+	}
+
+	body := buildOrderBody(evt)
+
+	_, err := s.notificationRepository.CreateNotificationLog(ctx, repository.CreateNotificationLogInput{
+		UserID:         userID,
+		TenantID:       evt.TenantID,
+		RecipientEmail: "customer@company.com",
+		Subject:        subject,
+		Body:           body,
+		Status:         "sent",
+	})
+	if err != nil {
+		return fmt.Errorf("failed to persist order notification audit log: %w", err)
+	}
+
+	return nil
+}
+
+// buildOrderBody renders the plain-text body shown in the notifications list for
+// an order.created event.
+func buildOrderBody(evt domain.OrderCreatedEvent) string {
+	body := "A new order has been created."
+	if strings.TrimSpace(evt.OrderID) != "" {
+		body += fmt.Sprintf("\nOrder ID: %s", evt.OrderID)
+	}
+	if strings.TrimSpace(evt.CustomerID) != "" {
+		body += fmt.Sprintf("\nCustomer ID: %s", evt.CustomerID)
+	}
+	body += fmt.Sprintf("\nAmount: %.2f", evt.Amount)
+	if strings.TrimSpace(evt.Status) != "" {
+		body += fmt.Sprintf("\nStatus: %s", evt.Status)
+	}
+	return body
+}
+
 func (s *NotificationService) UpdateNotificationStatus(ctx context.Context, logID string, status string) error {
 	if strings.TrimSpace(logID) == "" {
 		return fmt.Errorf("invalid notification log id: %s", logID)

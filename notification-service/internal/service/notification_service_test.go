@@ -367,6 +367,106 @@ func TestNotificationService_ListNotifications(t *testing.T) {
 	})
 }
 
+func TestNotificationService_CreateOrderNotification(t *testing.T) {
+	t.Run("persists notification with order details", func(t *testing.T) {
+		var captured repository.CreateNotificationLogInput
+		notifRepo := &mockNotificationRepo{
+			createNotificationLogFunc: func(ctx context.Context, input repository.CreateNotificationLogInput) (string, error) {
+				captured = input
+				return "ntf_order_1", nil
+			},
+		}
+		svc := NewNotificationService(notifRepo)
+
+		err := svc.CreateOrderNotification(context.Background(), domain.OrderCreatedEvent{
+			EventID:    "evt-1",
+			TenantID:   "tenant-1",
+			OrderID:    "order-1",
+			CustomerID: "customer-1",
+			Amount:     99.5,
+			Status:     "pending",
+		})
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		if captured.TenantID != "tenant-1" {
+			t.Errorf("expected tenant_id 'tenant-1', got '%s'", captured.TenantID)
+		}
+		if captured.UserID != "customer-1" {
+			t.Errorf("expected user_id 'customer-1', got '%s'", captured.UserID)
+		}
+		if captured.Status != "sent" {
+			t.Errorf("expected status 'sent', got '%s'", captured.Status)
+		}
+		if !strings.Contains(captured.Subject, "order-1") {
+			t.Errorf("expected subject to reference order-1, got '%s'", captured.Subject)
+		}
+		if !strings.Contains(captured.Body, "99.50") {
+			t.Errorf("expected body to contain amount, got '%s'", captured.Body)
+		}
+	})
+
+	t.Run("missing tenant_id returns ErrTenantIDRequired", func(t *testing.T) {
+		svc := newSvc()
+		err := svc.CreateOrderNotification(context.Background(), domain.OrderCreatedEvent{
+			EventID:  "evt-1",
+			OrderID:  "order-1",
+			Amount:   10,
+			Status:   "pending",
+		})
+		if !errors.Is(err, domain.ErrTenantIDRequired) {
+			t.Errorf("expected ErrTenantIDRequired, got %v", err)
+		}
+	})
+
+	t.Run("falls back to usr_unknown when customer_id empty", func(t *testing.T) {
+		var captured repository.CreateNotificationLogInput
+		notifRepo := &mockNotificationRepo{
+			createNotificationLogFunc: func(ctx context.Context, input repository.CreateNotificationLogInput) (string, error) {
+				captured = input
+				return "ntf_order_2", nil
+			},
+		}
+		svc := NewNotificationService(notifRepo)
+
+		err := svc.CreateOrderNotification(context.Background(), domain.OrderCreatedEvent{
+			EventID:   "evt-2",
+			TenantID:  "tenant-1",
+			OrderID:   "order-2",
+			Amount:    10,
+			Status:    "pending",
+		})
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if captured.UserID != "usr_unknown" {
+			t.Errorf("expected fallback user_id 'usr_unknown', got '%s'", captured.UserID)
+		}
+	})
+
+	t.Run("repo error propagates", func(t *testing.T) {
+		expectedErr := errors.New("db down")
+		notifRepo := &mockNotificationRepo{
+			createNotificationLogFunc: func(ctx context.Context, input repository.CreateNotificationLogInput) (string, error) {
+				return "", expectedErr
+			},
+		}
+		svc := NewNotificationService(notifRepo)
+
+		err := svc.CreateOrderNotification(context.Background(), domain.OrderCreatedEvent{
+			EventID:  "evt-3",
+			TenantID: "tenant-1",
+			OrderID:  "order-3",
+			Amount:   10,
+			Status:   "pending",
+		})
+		if !errors.Is(err, expectedErr) {
+			t.Errorf("expected %v, got %v", expectedErr, err)
+		}
+	})
+}
+
 func TestNotificationService_ErrorContractInvariants(t *testing.T) {
 	fset := token.NewFileSet()
 	node, err := parser.ParseFile(fset, "../domain/errors.go", nil, parser.ParseComments)

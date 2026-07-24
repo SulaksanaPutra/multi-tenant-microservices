@@ -157,17 +157,32 @@ wizard() {
 
   # Step 1 — deployment tier
   echo "Step 1/3 — Choose a deployment tier (press Enter for standard):"
-  PS3="Tier: "
+  echo "  1) lite"
+  echo "  2) standard"
+  echo "  3) premium"
+
   local tier=""
-  select tier in lite standard premium; do
-    if [ -z "${REPLY:-}" ]; then
-      tier=standard
-    elif [ -z "$tier" ]; then
-      echo "  -> Invalid choice: $REPLY (pick 1-3 or press Enter for standard)."
-      continue
-    fi
-    break
+  while true; do
+    read -r -p "Tier: " REPLY
+    case "${REPLY}" in
+      1|lite)
+        tier="lite"
+        break
+        ;;
+      2|standard|"")
+        tier="standard"
+        break
+        ;;
+      3|premium)
+        tier="premium"
+        break
+        ;;
+      *)
+        echo "  -> Invalid choice: $REPLY (pick 1-3 or press Enter for standard)."
+        ;;
+    esac
   done
+
   [ -z "${tier:-}" ] && { echo "Aborted."; exit 0; }
   set_tier "$tier"
   echo "  -> $(tier_description "$tier")"

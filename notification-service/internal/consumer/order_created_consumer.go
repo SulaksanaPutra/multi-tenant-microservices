@@ -12,27 +12,38 @@ import (
 	"notification-service/internal/service"
 )
 
+// OrderNotificationService is the consumer-side interface expected by OrderCreatedConsumer.
+type OrderNotificationService interface {
+	CreateOrderNotification(ctx context.Context, evt domain.OrderCreatedEvent) error
+}
+
 type OrderCreatedConsumerParams struct {
-	TxManager    TxManager
-	Client       *rabbitmq.Client
-	InboxService InboxService
+	TxManager           TxManager
+	Client              *rabbitmq.Client
+	InboxService        InboxService
+	NotificationService OrderNotificationService
 }
 
 type OrderCreatedConsumer struct {
-	txManager    TxManager
-	client       *rabbitmq.Client
-	inboxService InboxService
+	txManager           TxManager
+	client              *rabbitmq.Client
+	inboxService        InboxService
+	notificationService OrderNotificationService
 }
 
 func NewOrderCreatedConsumer(params OrderCreatedConsumerParams) (*OrderCreatedConsumer, error) {
 	if params.InboxService == nil {
 		return nil, errors.New("inboxService is required")
 	}
+	if params.NotificationService == nil {
+		return nil, errors.New("notificationService is required")
+	}
 
 	consumer := &OrderCreatedConsumer{
-		txManager:    params.TxManager,
-		client:       params.Client,
-		inboxService: params.InboxService,
+		txManager:           params.TxManager,
+		client:              params.Client,
+		inboxService:        params.InboxService,
+		notificationService: params.NotificationService,
 	}
 
 	if err := consumer.setupTopology(); err != nil {
@@ -156,6 +167,12 @@ func (c *OrderCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.De
 
 		log.Printf("OrderCreatedConsumer: Processed order created event_id='%s' order_id='%s' amount=%.2f status='%s'",
 			evt.EventID, evt.OrderID, evt.Amount, evt.Status)
+
+		if err := c.notificationService.CreateOrderNotification(txCtx, evt); err != nil {
+			return fmt.Errorf("failed to persist order notification: %w", err)
+		}
+		log.Printf("OrderCreatedConsumer: Recorded notification for order_id='%s' tenant_id='%s'", evt.OrderID, evt.TenantID)
+
 		return nil
 	})
 

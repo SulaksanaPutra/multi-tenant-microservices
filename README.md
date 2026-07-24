@@ -101,35 +101,35 @@ This workspace demonstrates a **Multi-Tenant Microservices Architecture** suppor
     ▼
 [ RabbitMQ Queue ] ──► (workspace.initiated)
     │
-    ├─────────────────────────────────────────────────┐
-    ▼                                                 ▼
-[ infra-provisioner ]                             [ user-service ]
-    │  Prefetch QoS = 1                               │ Create user profile in userDB
-    ├─► Shared Plan:                                  │ Emits: user.created
-    │   Pass-through metadata                         │
-    ├─► Dedicated Plan:                               ▼
+    ├─────────────────────────────────────────────────────┐
+    ▼                                                     ▼
+[ infra-provisioner ]                              [ user-service ]
+    │  Prefetch QoS = 1                                   │ Create user profile in userDB
+    ├─► Shared Plan:                                      │ Emits: user.created
+    │   Pass-through metadata                             │
+    ├─► Dedicated Plan:                                   ▼
     │   container mode:      Create Docker container  [ RabbitMQ Queue ]
     │                        (512MB RAM, 0.5 CPU)         │
     │   same_instance mode:  Provision per-tenant         │
     │                        database + role in the       │
     │                        shared postgres instance     │
-    │   Declaratively bootstrap domain DBs & roles    │
-    │   Poll pg_isready health check                  │
-    ▼                                                 │
-  Publish: infrastructure.provisioned (No Passwords)  │
-    ▼                                                 │
-[ order-service ]                                     │
-    │  Derive DB password via ORDER_SERVICE_SECRET    │
-    │  Execute SQL migrations (001_create_orders.sql) │
-    ▼                                                 │
-  Publish: tenant.order_db.ready (Routing Metadata)   │
-    ▼                                                 │
-[ tenant-service ]                                    │
-    │  Passively updates status -> ACTIVE             │
-    │  Stores routing metadata (NO PASSWORDS)         │
-    │  Emits: workspace.ready                         │
-    ▼                                                 │
-[ RabbitMQ Queue ] ───────────────────────────────────┘
+    │   Declaratively bootstrap domain DBs & roles        │
+    │   Poll pg_isready health check                      │
+    ▼                                                     │
+  Publish: infrastructure.provisioned (No Passwords)      │
+    ▼                                                     │
+[ order-service ]                                         │
+    │  Derive DB password via ORDER_SERVICE_SECRET        │
+    │  Execute SQL migrations (001_create_orders.sql)     │
+    ▼                                                     │
+  Publish: tenant.order_db.ready (Routing Metadata)       │
+    ▼                                                     │
+[ tenant-service ]                                        │
+    │  Passively updates status -> ACTIVE                 │
+    │  Stores routing metadata (NO PASSWORDS)             │
+    │  Emits: workspace.ready                             │
+    ▼                                                     │
+[ RabbitMQ Queue ] ───────────────────────────────────────┘
 ```
 
 ---
