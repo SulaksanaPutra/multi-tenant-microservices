@@ -9,13 +9,12 @@ import (
 
 func TestNotificationLog_Struct(t *testing.T) {
 	log := domain.NotificationLog{
-		ID:             "ntf_abc",
-		UserID:         "usr_123",
-		TenantID:       "tenant_abc",
-		RecipientEmail: "owner@company.com",
-		Subject:        "Welcome",
-		Body:           "Hello World",
-		Status:         "sent",
+		ID:          "ntf_abc",
+		UserID:      "usr_123",
+		TenantID:    "tenant_abc",
+		Description: "Welcome",
+		Body:        "Hello World",
+		Status:      "sent",
 	}
 
 	if log.ID != "ntf_abc" || log.UserID != "usr_123" || log.TenantID != "tenant_abc" {
@@ -33,18 +32,5 @@ func TestGenerateNotificationID(t *testing.T) {
 	}
 	if id == domain.GenerateNotificationID() {
 		t.Error("expected generated notification ids to be unique")
-	}
-}
-
-func TestInboxMessage_Struct(t *testing.T) {
-	msg := domain.InboxMessage{
-		EventID:   "evt_100",
-		TenantID:  "tnt_1",
-		EventType: "user.created",
-		Payload:   []byte(`{"user_id":"usr_1"}`),
-	}
-
-	if msg.EventID != "evt_100" || string(msg.Payload) != `{"user_id":"usr_1"}` {
-		t.Errorf("unexpected InboxMessage struct values: %+v", msg)
 	}
 }

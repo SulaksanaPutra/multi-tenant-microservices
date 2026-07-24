@@ -27,12 +27,11 @@ func TestNotificationRepository_CreateNotificationLog_Error(t *testing.T) {
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	input := CreateNotificationLogInput{
-		UserID:         "usr-1",
-		TenantID:       "tenant-1",
-		RecipientEmail: "user@example.com",
-		Subject:        "Welcome",
-		Body:           "Hello World",
-		Status:         "sent",
+		UserID:      "usr-1",
+		TenantID:    "tenant-1",
+		Description: "Welcome",
+		Body:        "Hello World",
+		Status:      "sent",
 	}
 
 	id, err := repo.CreateNotificationLog(ctx, input)

@@ -8,22 +8,14 @@ import (
 )
 
 type NotificationLog struct {
-	ID             string
-	UserID         string
-	TenantID       string
-	RecipientEmail string
-	Subject        string
-	Body           string
-	Status         string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-}
-
-type InboxMessage struct {
-	EventID   string
-	TenantID  string
-	EventType string
-	Payload   []byte
+	ID          string
+	UserID      string
+	TenantID    string
+	Description string
+	Body        string
+	Status      string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 const (

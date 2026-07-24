@@ -50,11 +50,10 @@ func TestNotificationCenterE2E(t *testing.T) {
 
 	var notificationsResp struct {
 		Data []struct {
-			ID             string `json:"id"`
-			TenantID       string `json:"tenant_id"`
-			RecipientEmail string `json:"recipient_email"`
-			Subject        string `json:"subject"`
-			Status         string `json:"status"`
+			ID          string `json:"id"`
+			TenantID    string `json:"tenant_id"`
+			Description string `json:"description"`
+			Status      string `json:"status"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&notificationsResp); err != nil {
