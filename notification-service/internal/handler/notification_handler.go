@@ -15,15 +15,14 @@ import (
 )
 
 type NotificationLogResponse struct {
-	ID             string    `json:"id"`
-	UserID         string    `json:"user_id"`
-	TenantID       string    `json:"tenant_id"`
-	RecipientEmail string    `json:"recipient_email"`
-	Subject        string    `json:"subject"`
-	Body           string    `json:"body"`
-	Status         string    `json:"status"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID          string    `json:"id"`
+	UserID      string    `json:"user_id"`
+	TenantID    string    `json:"tenant_id"`
+	Description string    `json:"description"`
+	Body        string    `json:"body"`
+	Status      string    `json:"status"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // NotificationService is the consumer-side interface expected by NotificationHandler.
@@ -59,15 +58,14 @@ func (h *NotificationHandler) ListNotifications(c *gin.Context) {
 	resp := make([]NotificationLogResponse, len(logs))
 	for i, l := range logs {
 		resp[i] = NotificationLogResponse{
-			ID:             l.ID,
-			UserID:         l.UserID,
-			TenantID:       l.TenantID,
-			RecipientEmail: l.RecipientEmail,
-			Subject:        l.Subject,
-			Body:           l.Body,
-			Status:         l.Status,
-			CreatedAt:      l.CreatedAt,
-			UpdatedAt:      l.UpdatedAt,
+			ID:          l.ID,
+			UserID:      l.UserID,
+			TenantID:    l.TenantID,
+			Description: l.Description,
+			Body:        l.Body,
+			Status:      l.Status,
+			CreatedAt:   l.CreatedAt,
+			UpdatedAt:   l.UpdatedAt,
 		}
 	}
 

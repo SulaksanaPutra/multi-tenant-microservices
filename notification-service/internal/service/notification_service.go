@@ -33,28 +33,26 @@ type ProcessEventOutput struct {
 }
 
 type NotificationLogOutput struct {
-	ID             string
-	UserID         string
-	TenantID       string
-	RecipientEmail string
-	Subject        string
-	Body           string
-	Status         string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID          string
+	UserID      string
+	TenantID    string
+	Description string
+	Body        string
+	Status      string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 func toNotificationLogOutput(l domain.NotificationLog) NotificationLogOutput {
 	return NotificationLogOutput{
-		ID:             l.ID,
-		UserID:         l.UserID,
-		TenantID:       l.TenantID,
-		RecipientEmail: l.RecipientEmail,
-		Subject:        l.Subject,
-		Body:           l.Body,
-		Status:         l.Status,
-		CreatedAt:      l.CreatedAt,
-		UpdatedAt:      l.UpdatedAt,
+		ID:          l.ID,
+		UserID:      l.UserID,
+		TenantID:    l.TenantID,
+		Description: l.Description,
+		Body:        l.Body,
+		Status:      l.Status,
+		CreatedAt:   l.CreatedAt,
+		UpdatedAt:   l.UpdatedAt,
 	}
 }
 
@@ -91,20 +89,19 @@ func (s *NotificationService) CreateOrderNotification(ctx context.Context, evt d
 		userID = "usr_unknown"
 	}
 
-	subject := "Order created"
+	description := "Order created"
 	if strings.TrimSpace(evt.OrderID) != "" {
-		subject = fmt.Sprintf("Order %s created", evt.OrderID)
+		description = fmt.Sprintf("Order %s created", evt.OrderID)
 	}
 
 	body := buildOrderBody(evt)
 
 	_, err := s.notificationRepository.CreateNotificationLog(ctx, repository.CreateNotificationLogInput{
-		UserID:         userID,
-		TenantID:       evt.TenantID,
-		RecipientEmail: "customer@company.com",
-		Subject:        subject,
-		Body:           body,
-		Status:         "sent",
+		UserID:      userID,
+		TenantID:    evt.TenantID,
+		Description: description,
+		Body:        body,
+		Status:      "sent",
 	})
 	if err != nil {
 		return fmt.Errorf("failed to persist order notification audit log: %w", err)
@@ -238,21 +235,20 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(
 		displayName = input.TenantID
 	}
 
-	subject := "Welcome! Your Tenant Workspace is Ready"
+	description := "Welcome! Your Tenant Workspace is Ready"
 	if strings.TrimSpace(tenantName) != "" {
-		subject = fmt.Sprintf("Welcome to %s!", tenantName)
+		description = fmt.Sprintf("Welcome to %s!", tenantName)
 	}
 	bodyText := buildWelcomeBody(displayName, tenantSlug, ownerName)
 
 	// Write an audit log with the status "pending" inside the caller's transaction.
 	// The consumer updates this to "sent" after the SMTP call succeeds post-commit.
 	auditLogInput := repository.CreateNotificationLogInput{
-		UserID:         userID,
-		TenantID:       input.TenantID,
-		RecipientEmail: recipientEmail,
-		Subject:        subject,
-		Body:           bodyText,
-		Status:         "pending",
+		UserID:      userID,
+		TenantID:    input.TenantID,
+		Description: description,
+		Body:        bodyText,
+		Status:      "pending",
 	}
 	logID, dbErr := s.notificationRepository.CreateNotificationLog(ctx, auditLogInput)
 	if dbErr != nil {

@@ -10,12 +10,11 @@ import (
 )
 
 type CreateNotificationLogInput struct {
-	UserID         string
-	TenantID       string
-	RecipientEmail string
-	Subject        string
-	Body           string
-	Status         string
+	UserID      string
+	TenantID    string
+	Description string
+	Body        string
+	Status      string
 }
 
 type NotificationRepository struct {
@@ -30,12 +29,12 @@ func (r *NotificationRepository) CreateNotificationLog(ctx context.Context, inpu
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	id := domain.GenerateNotificationID()
 	query := `
-		INSERT INTO public.notifications (id, user_id, tenant_id, recipient_email, subject, body, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO public.notifications (id, user_id, tenant_id, description, body, status)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id;
 	`
 	var insertedID string
-	err := exec.QueryRowContext(ctx, query, id, input.UserID, input.TenantID, input.RecipientEmail, input.Subject, input.Body, input.Status).Scan(&insertedID)
+	err := exec.QueryRowContext(ctx, query, id, input.UserID, input.TenantID, input.Description, input.Body, input.Status).Scan(&insertedID)
 	if err != nil {
 		return "", fmt.Errorf("failed to insert notification log: %w", err)
 	}
@@ -84,7 +83,7 @@ func (r *NotificationRepository) ListNotifications(ctx context.Context, tenantID
 
 	if tenantID != "" {
 		query = `
-			SELECT id, user_id, tenant_id, recipient_email, subject, body, status, created_at, updated_at
+			SELECT id, user_id, tenant_id, description, body, status, created_at, updated_at
 			FROM public.notifications
 			WHERE tenant_id = $1
 			ORDER BY created_at DESC;
@@ -92,7 +91,7 @@ func (r *NotificationRepository) ListNotifications(ctx context.Context, tenantID
 		args = append(args, tenantID)
 	} else {
 		query = `
-			SELECT id, user_id, tenant_id, recipient_email, subject, body, status, created_at, updated_at
+			SELECT id, user_id, tenant_id, description, body, status, created_at, updated_at
 			FROM public.notifications
 			ORDER BY created_at DESC
 			LIMIT 50;
@@ -108,7 +107,7 @@ func (r *NotificationRepository) ListNotifications(ctx context.Context, tenantID
 	var logs []domain.NotificationLog
 	for rows.Next() {
 		var l domain.NotificationLog
-		if err := rows.Scan(&l.ID, &l.UserID, &l.TenantID, &l.RecipientEmail, &l.Subject, &l.Body, &l.Status, &l.CreatedAt, &l.UpdatedAt); err != nil {
+		if err := rows.Scan(&l.ID, &l.UserID, &l.TenantID, &l.Description, &l.Body, &l.Status, &l.CreatedAt, &l.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan notification row: %w", err)
 		}
 		logs = append(logs, l)

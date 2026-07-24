@@ -33,14 +33,13 @@ func TestNotificationHandler_ListNotifications(t *testing.T) {
 			}
 			return []service.NotificationLogOutput{
 				{
-					ID:             "ntf_1",
-					UserID:         "usr_123",
-					TenantID:       "ten_test123",
-					RecipientEmail: "user@example.com",
-					Subject:        "Welcome",
-					Body:           "Welcome to the platform",
-					Status:         "sent",
-					CreatedAt:      time.Now(),
+					ID:          "ntf_1",
+					UserID:      "usr_123",
+					TenantID:    "ten_test123",
+					Description: "Welcome",
+					Body:        "Welcome to the platform",
+					Status:      "sent",
+					CreatedAt:   time.Now(),
 				},
 			}, nil
 		},

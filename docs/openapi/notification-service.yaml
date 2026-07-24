@@ -51,7 +51,7 @@ paths:
       x-service: notification-service
       x-source:
         - "notification-service/cmd/router.go:30"
-        - "notification-service/internal/handler/notification_handler.go:42"
+        - "notification-service/internal/handler/notification_handler.go:41"
       responses:
         "200":
           description: Successful response
@@ -106,9 +106,7 @@ components:
           type: string
         tenant_id:
           type: string
-        recipient_email:
-          type: string
-        subject:
+        description:
           type: string
         body:
           type: string

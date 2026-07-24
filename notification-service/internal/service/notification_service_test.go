@@ -237,8 +237,11 @@ func TestProcessEventAndTrySendWelcome_PayloadFallback(t *testing.T) {
 	if details == nil {
 		t.Fatal("expected non-nil ProcessEventOutput")
 	}
-	if capturedLog.UserID != "usr_explicit" || capturedLog.RecipientEmail != "explicit@domain.com" {
+	if capturedLog.UserID != "usr_explicit" {
 		t.Errorf("expected fallback to input values, got %+v", capturedLog)
+	}
+	if details.RecipientEmail != "explicit@domain.com" {
+		t.Errorf("expected fallback recipient email, got '%s'", details.RecipientEmail)
 	}
 }
 
@@ -272,8 +275,8 @@ func TestProcessEventAndTrySendWelcome_BarrierMet_IncludesTenantInfo(t *testing.
 	if details.TenantName != "Acme Corp" || details.TenantSlug != "acme-corp" || details.OwnerName != "Bob Jones" {
 		t.Errorf("unexpected tenant info in output: %+v", details)
 	}
-	if capturedLog.Subject != "Welcome to Acme Corp!" {
-		t.Errorf("expected subject 'Welcome to Acme Corp!', got '%s'", capturedLog.Subject)
+	if capturedLog.Description != "Welcome to Acme Corp!" {
+		t.Errorf("expected description 'Welcome to Acme Corp!', got '%s'", capturedLog.Description)
 	}
 	if !strings.Contains(capturedLog.Body, "Hello Bob Jones,") {
 		t.Errorf("expected body to greet 'Hello Bob Jones,', got:\n%s", capturedLog.Body)
@@ -317,8 +320,8 @@ func TestProcessEventAndTrySendWelcome_TenantInfoFallback(t *testing.T) {
 	if details.TenantName != "" || details.TenantSlug != "" || details.OwnerName != "" {
 		t.Errorf("expected empty tenant info for legacy payload, got: %+v", details)
 	}
-	if capturedLog.Subject != "Welcome! Your Tenant Workspace is Ready" {
-		t.Errorf("expected generic fallback subject, got '%s'", capturedLog.Subject)
+	if capturedLog.Description != "Welcome! Your Tenant Workspace is Ready" {
+		t.Errorf("expected generic fallback description, got '%s'", capturedLog.Description)
 	}
 	if !strings.Contains(capturedLog.Body, "Hello,") {
 		t.Errorf("expected generic greeting fallback, got:\n%s", capturedLog.Body)
@@ -331,12 +334,12 @@ func TestProcessEventAndTrySendWelcome_TenantInfoFallback(t *testing.T) {
 func TestNotificationService_ListNotifications(t *testing.T) {
 	t.Run("returns notifications list", func(t *testing.T) {
 		expectedLogs := []NotificationLogOutput{
-			{ID: "ntf_1", TenantID: "t-1", RecipientEmail: "a@b.com"},
+			{ID: "ntf_1", TenantID: "t-1", Description: "Welcome"},
 		}
 		notifRepo := &mockNotificationRepo{
 			listNotificationsFunc: func(ctx context.Context, tenantID string) ([]domain.NotificationLog, error) {
 				return []domain.NotificationLog{
-					{ID: "ntf_1", TenantID: "t-1", RecipientEmail: "a@b.com"},
+					{ID: "ntf_1", TenantID: "t-1", Description: "Welcome"},
 				}, nil
 			},
 		}
@@ -399,8 +402,8 @@ func TestNotificationService_CreateOrderNotification(t *testing.T) {
 		if captured.Status != "sent" {
 			t.Errorf("expected status 'sent', got '%s'", captured.Status)
 		}
-		if !strings.Contains(captured.Subject, "order-1") {
-			t.Errorf("expected subject to reference order-1, got '%s'", captured.Subject)
+		if !strings.Contains(captured.Description, "order-1") {
+			t.Errorf("expected description to reference order-1, got '%s'", captured.Description)
 		}
 		if !strings.Contains(captured.Body, "99.50") {
 			t.Errorf("expected body to contain amount, got '%s'", captured.Body)

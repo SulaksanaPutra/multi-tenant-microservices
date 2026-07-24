@@ -65,19 +65,17 @@
                     }
 
                     let html = "<div class='table-responsive'><table border='1' cellpadding='8' cellspacing='0' style='width:100%; border-collapse:collapse;'>";
-                    html += "<thead><tr><th>ID</th><th>Recipient Email</th><th>Subject</th><th>Status</th><th>Dispatched At</th></tr></thead><tbody>";
+                    html += "<thead><tr><th>ID</th><th>Description</th><th>Status</th><th>Dispatched At</th></tr></thead><tbody>";
 
                     data.data.forEach(n => {
                         const id = n.ID || n.id || n.notification_id;
-                        const recipient = n.RecipientEmail || n.recipient_email || n.to || "N/A";
-                        const subject = n.Subject || n.subject || "N/A";
+                        const description = n.Description || n.description || "N/A";
                         const status = n.Status || n.status || "delivered";
                         const created = n.CreatedAt || n.created_at || "N/A";
 
                         html += `<tr>
                             <td><code>${id}</code></td>
-                            <td>${recipient}</td>
-                            <td>${subject}</td>
+                            <td>${description}</td>
                             <td><span>${status}</span></td>
                             <td>${created}</td>
                         </tr>`;
