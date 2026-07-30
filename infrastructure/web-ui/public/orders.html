@@ -85,6 +85,14 @@
             return new Promise(resolve => setTimeout(resolve, ms));
         }
 
+        function escapeHtml(value) {
+            return String(value == null ? "" : value)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;");
+        }
+
         function showMigrationBlocker(message) {
             const statusEl = document.getElementById("migration-status");
             if (statusEl) statusEl.textContent = message;
@@ -159,6 +167,11 @@
                     container.innerHTML = `<p style="color:#b58100;"><strong>Tenant is migrating.</strong> Orders are temporarily locked while tenant infrastructure is being migrated. Please wait and try again.</p>`;
                     showMigrationBlocker("Tenant is migrating. Please wait...");
                     pollUntilActive();
+                    return;
+                }
+
+                if (res.status === 401) {
+                    container.innerHTML = `<pre style="background:#f4f4f4; padding:8px;">${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
                     return;
                 }
 
