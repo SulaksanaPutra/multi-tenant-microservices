@@ -113,7 +113,7 @@ run_e2e() {
 
   echo ""
   echo "==> Cleaning up e2e test data..."
-  if bash "$ROOT/infrastructure/scripts/clean-e2e-data.sh"; then
+  if bash "$ROOT/infrastructure/scripts/clean-e2e-data.sh" --tier "$tier"; then
     echo "==> E2E test data cleaned."
   else
     echo "==> Warning: e2e cleanup failed." >&2

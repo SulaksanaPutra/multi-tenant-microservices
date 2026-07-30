@@ -7,6 +7,17 @@
 # containers. Run this after `(cd e2e-tests && CGO_ENABLED=0 go test -v ./...)`
 # to leave the platform in a pristine, repeatable state.
 #
+# Tier-aware: the deployment tier determines which postgres instance hosts each
+# database. Lite/standard share the control-plane `postgres` container on the
+# host port PGPORT (5432), while premium runs one dedicated container per
+# service, each exposed on its own host port:
+#   tenant_manager_db -> tenant-db     (5433)
+#   user_db           -> user-db       (5434)
+#   shared_db         -> data-plane-db (5435)
+#   auth_db           -> auth-db       (5436)
+#   notification_db   -> notification-db (5437)
+# The tier is taken from --tier <tier>, else $TIER, else infrastructure/.env.
+#
 # What it clears:
 #   * auth_db            -> credentials, memberships, refresh tokens, setup
 #                           tokens, roles, role_permissions, user_roles,
@@ -16,14 +27,17 @@
 #   * tenant_manager_db  -> tenants, tenant_infrastructures, outbox, inbox
 #   * shared_db          -> all dynamically provisioned tnt_*_order_db schemas
 #   * dedicated tenant DB containers (postgres-tenant-*)
+#   * RabbitMQ queues
 #   * Mailpit inbox
-#   * RabbitMQ queues (best-effort, via Management HTTP API)
 #
 # It does NOT touch the `permissions` catalog in auth_db: domain services
 # re-register those capabilities at boot, and no E2E test mutates them.
 # ---------------------------------------------------------------------------
 
 set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ENV_FILE="$ROOT/infrastructure/.env"
 
 PGHOST="${PGHOST:-localhost}"
 PGPORT="${PGPORT:-5432}"
@@ -36,13 +50,47 @@ RABBITMQ_PASS="${RABBITMQ_PASS:-guest}"
 
 export PGPASSWORD
 
-psql_cmd() { # psql_cmd <dbname> <sql>
-  local db="$1" sql="$2"
-  psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$db" -v ON_ERROR_STOP=1 -c "$sql" >/dev/null
+# ---------------------------------------------------------------------------
+# Tier detection
+# ---------------------------------------------------------------------------
+
+tier="${TIER:-}"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --tier) tier="$2"; shift 2 ;;
+    *) echo "[clean-e2e-data] Unknown argument: $1" >&2; exit 1 ;;
+  esac
+done
+
+if [ -z "$tier" ] && [ -f "$ENV_FILE" ]; then
+  tier="$(sed -n 's/^TIER=//p' "$ENV_FILE" | tr -d '[:space:]' | tail -1)"
+fi
+tier="${tier:-standard}"
+
+# Resolve the host port each database listens on for the active tier.
+# Lite/standard: every service DB lives inside the shared postgres container.
+# Premium: one dedicated container per service (see infrastructure/docker-compose.yml,
+# per-service-db profile).
+db_port() {
+  case "$1" in
+    auth_db)           [ "$tier" = "premium" ] && echo 5436 || echo "$PGPORT" ;;
+    user_db)           [ "$tier" = "premium" ] && echo 5434 || echo "$PGPORT" ;;
+    tenant_manager_db) [ "$tier" = "premium" ] && echo 5433 || echo "$PGPORT" ;;
+    notification_db)   [ "$tier" = "premium" ] && echo 5437 || echo "$PGPORT" ;;
+    shared_db)         [ "$tier" = "premium" ] && echo 5435 || echo "$PGPORT" ;;
+    *) echo "$PGPORT" ;;
+  esac
+}
+
+echo "[clean-e2e-data] Tier '$tier' — cleaning data-plane, control-plane and broker artifacts."
+
+psql_cmd() { # psql_cmd <port> <dbname> <sql>
+  local port="$1" db="$2" sql="$3"
+  psql -h "$PGHOST" -p "$port" -U "$PGUSER" -d "$db" -v ON_ERROR_STOP=1 -c "$sql" >/dev/null
 }
 
 echo "[clean-e2e-data] 1/6 Cleaning auth_db ..."
-psql_cmd auth_db '
+psql_cmd "$(db_port auth_db)" auth_db '
   TRUNCATE TABLE public.user_credentials,
                    public.user_tenant_memberships,
                    public.refresh_tokens,
@@ -55,7 +103,7 @@ psql_cmd auth_db '
 '
 
 echo "[clean-e2e-data] 2/6 Cleaning user_db ..."
-psql_cmd user_db '
+psql_cmd "$(db_port user_db)" user_db '
   TRUNCATE TABLE public.users,
                    public.user_tenant_memberships,
                    public.inbox,
@@ -63,13 +111,13 @@ psql_cmd user_db '
 '
 
 echo "[clean-e2e-data] 3/6 Cleaning notification_db ..."
-psql_cmd notification_db '
+psql_cmd "$(db_port notification_db)" notification_db '
   TRUNCATE TABLE public.notifications,
                    public.inbox RESTART IDENTITY CASCADE;
 '
 
 echo "[clean-e2e-data] 4/6 Cleaning tenant_manager_db ..."
-psql_cmd tenant_manager_db '
+psql_cmd "$(db_port tenant_manager_db)" tenant_manager_db '
   TRUNCATE TABLE public.tenants,
                    public.tenant_infrastructures,
                    public.outbox,
@@ -77,7 +125,7 @@ psql_cmd tenant_manager_db '
 '
 
 echo "[clean-e2e-data] 5/6 Dropping dynamic shared_db tenant schemas ..."
-psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d shared_db -v ON_ERROR_STOP=1 -c "
+psql -h "$PGHOST" -p "$(db_port shared_db)" -U "$PGUSER" -d shared_db -v ON_ERROR_STOP=1 -c "
 DO \$\$
 DECLARE
     s text;
@@ -96,11 +144,9 @@ echo "[clean-e2e-data] Removing dedicated tenant DB containers ..."
 # Best-effort: no containers may exist on a clean system.
 docker rm -fv $(docker ps -aq --filter name=postgres-tenant-) 2>/dev/null || true
 
-echo "[clean-e2e-data] Purging Mailpit inbox ..."
-curl -s -X DELETE "http://localhost:${MAILPIT_DASHBOARD_PORT}/api/v1/messages" -o /dev/null || true
-
 echo "[clean-e2e-data] Purging RabbitMQ queues (best-effort) ..."
-# Best-effort: the Management API may be unavailable/disabled.
+# Purging the broker BEFORE Mailpit closes the race where in-flight
+# notification events re-populate the inbox right after we wipe it.
 rabbit_purge() {
   local queue="$1" encoded
   encoded=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$queue" 2>/dev/null || echo "$queue")
@@ -118,5 +164,8 @@ for q in infra_provisioner_workspace_initiated \
          auth_service_user_created_membership_dlq; do
   rabbit_purge "$q"
 done
+
+echo "[clean-e2e-data] Purging Mailpit inbox ..."
+curl -s -X DELETE "http://localhost:${MAILPIT_DASHBOARD_PORT}/api/v1/messages" -o /dev/null || true
 
 echo "[clean-e2e-data] Done. Platform is clean and ready for the next run."
