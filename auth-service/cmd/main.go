@@ -88,6 +88,7 @@ func main() {
 	authService := service.NewAuthService(credentialRepository, tokenRepository, setupTokenRepository, jwtManager, roleRepository, internalPermissionService)
 	inboxService := service.NewInboxService(inboxRepository)
 	membershipService := service.NewMembershipService(credentialRepository)
+	invitationService := service.NewInvitationService(membershipService, roleRepository, setupTokenRepository)
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authService, jwtManager)
@@ -95,9 +96,10 @@ func main() {
 	internalPermissionHandler := handler.NewInternalPermissionHandler(internalPermissionService)
 	permissionHandler := handler.NewPermissionHandler(internalPermissionService)
 	roleHandler := handler.NewRoleHandler(roleService)
+	inviteHandler := handler.NewInviteHandler(invitationService)
 
 	// Start HTTP server
-	httpRouter := newRouter(authHandler, internalAuthHandler, internalPermissionHandler, permissionHandler, roleHandler, jwtManager, internalServiceToken)
+	httpRouter := newRouter(authHandler, internalAuthHandler, internalPermissionHandler, permissionHandler, roleHandler, inviteHandler, jwtManager, internalServiceToken)
 	httpServer := &http.Server{
 		Addr:    ":" + httpPort,
 		Handler: httpRouter,

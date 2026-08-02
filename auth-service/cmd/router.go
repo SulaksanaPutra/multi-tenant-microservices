@@ -18,6 +18,7 @@ func newRouter(
 	internalPermissionHandler *handler.InternalPermissionHandler,
 	permissionHandler *handler.PermissionHandler,
 	roleHandler *handler.RoleHandler,
+	inviteHandler *handler.InviteHandler,
 	jwtManager *crypto.JWTManager,
 	internalToken string,
 ) http.Handler {
@@ -64,6 +65,7 @@ func newRouter(
 		api.PUT("/roles/:id/permissions", middleware.RequirePermission("auth:roles:manage"), roleHandler.UpdateRolePermissions)
 		api.DELETE("/roles/:id", middleware.RequirePermission("auth:roles:manage"), roleHandler.DeleteRole)
 		api.PUT("/users/:user_id/role", middleware.RequirePermission("auth:roles:manage"), roleHandler.AssignUserRole)
+		api.POST("/users/invite", middleware.RequirePermission("auth:roles:manage"), inviteHandler.Invite)
 	}
 
 	// Internal endpoints (authenticated via X-Internal-Service-Token)
