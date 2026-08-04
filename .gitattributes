@@ -1,0 +1,89 @@
+# Normalize line endings for text files
+* text=auto eol=lf
+
+# Go
+*.go text eol=lf
+go.mod text eol=lf
+go.sum text eol=lf
+
+# Documentation
+*.md text eol=lf
+*.txt text eol=lf
+*.mdx text eol=lf
+
+# Config files
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.ini text eol=lf
+*.cfg text eol=lf
+*.conf text eol=lf
+*.env text eol=lf
+.env.example text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# Docker
+Dockerfile text eol=lf
+Dockerfile.* text eol=lf
+docker-compose*.yml text eol=lf
+*.dockerignore text eol=lf
+
+# Shell scripts
+*.sh text eol=lf
+*.bash text eol=lf
+*.zsh text eol=lf
+
+# SQL migrations
+*.sql text eol=lf
+
+# Web assets
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.jsx text eol=lf
+*.vue text eol=lf
+*.svg text eol=lf
+
+# Build/CI configs
+Makefile text eol=lf
+*.mk text eol=lf
+*.gradle text eol=lf
+*.gradle.kts text eol=lf
+*.csproj text eol=lf
+*.props text eol=lf
+*.targets text eol=lf
+
+# Binary files - mark as binary to prevent text conversion
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tgz binary
+*.tar binary
+*.jar binary
+*.war binary
+*.so binary
+*.dll binary
+*.exe binary
+*.dylib binary
+*.class binary
+*.pem binary
+*.key binary
+*.pfx binary
+*.p12 binary
+*.keystore binary
+*.jks binary
+*.db binary
+*.sqlite binary
+*.sqlite3 binary
+*.proto binary
