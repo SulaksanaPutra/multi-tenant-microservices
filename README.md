@@ -1,6 +1,6 @@
 # Microservice API Workspace (Multi-Tenant Microservices Architecture)
 
-This workspace demonstrates a **Multi-Tenant Microservices Architecture** supporting both **Shared (Schema-per-Tenant)** and **Dedicated (Database-per-Tenant)** isolation models — where "dedicated" is either a per-tenant PostgreSQL container or, on the lite tier, a per-tenant database + role inside the shared instance — powered by an isolated **`infra-provisioner`** pattern, **Declarative Bootstrapping**, and a **Zero-Trust Control Plane** for secure container orchestration and credential protection. See [Section 8](#8-deployment-tiers) for the three deployment tiers.
+> This workspace demonstrates a **Multi-Tenant Microservices Architecture** supporting both **Shared (Schema-per-Tenant)** and **Dedicated (Database-per-Tenant)** isolation models — where "dedicated" is either a per-tenant PostgreSQL container or, on the lite tier, a per-tenant database + role inside the shared instance — powered by an isolated **`infra-provisioner`** pattern, **Declarative Bootstrapping**, and a **Zero-Trust Control Plane** for secure container orchestration and credential protection.
 
 ---
 
@@ -716,4 +716,13 @@ The platform supports **three deployment tiers** selected once at startup. The t
 Switching tiers requires a fresh state — there is **no live tier-to-tier migration** (i will develop it in the future, maybe)  — so answer "yes" to the wipe-volume prompt when switching:
 
 > **Manual alternative:** direct `docker compose` per service still works and deploys the standard topology — `(cd infrastructure && docker compose up -d --build)` then the five service dirs in dependency order. The full e2e suite (`cd e2e-tests && go test -p 1 ./...`) is only safe on a fresh standard deployment; several tests stop/restart containers and leave the stack degraded afterwards.
+
+---
+
+## Developer & Contact
+
+- **Developer:** [Bayu Aksana](https://bayuaksana.com/)
+- **Website:** [bayuaksana.com](https://bayuaksana.com/)
+- **Email:** [info@bayuaksana.com](mailto:info@bayuaksana.com)
+- **GitHub Profile:** [github.com/SulaksanaPutra](https://github.com/SulaksanaPutra)
 
