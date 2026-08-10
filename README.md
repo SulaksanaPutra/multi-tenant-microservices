@@ -456,33 +456,9 @@ Upgrading/downgrading a workspace between **`shared`** (schema-per-tenant on the
     │  │ [ infra-provisioner ] publishes tenant.migration_failed                      │                   │
     │  │ [ tenant-service ] MigrationFailedConsumer -> RollbackFailedMigration:       │                   │
     │  │    status back to active + emit tenant.infrastructure_changed (unfreeze)     │                   │
-    │  └──────────────────────────────────────────────────────────────────────────────┘                   │
-    └─────────────────────────────────────────────────────────────────────────────────────────────────────┘
-```
-
-Key properties of the maintenance window:
-
-* **Immediate plan persistence:** The new plan is written synchronously on request; only the *cutover* is asynchronous.
-* **Zero-downtime intent, bounded freeze:** While `MIGRATING`, the tenant's data-plane traffic is shielded with **HTTP 423 Locked** rather than serving stale/duplicated writes; the window ends when `tenant.infrastructure_changed` clears the flag (success *or* rollback).
-* **Sticky freeze:** `MIGRATING` persists on every order-service replica until a `tenant.infrastructure_changed` broadcast arrives — a network-split-safe guard against serving during an incomplete cutover.
-* **Failure isolation:** Any provisioning/migration failure restores the original schema, tears down the temporary dedicated resource (container **or** same-instance database), and rolls the tenant back to `active` via `tenant.migration_failed` — the plan column may keep the requested value while infrastructure is reverted, forcing an explicit retry or further reconciliation.
-* **Both directions are symmetric:** shared → dedicated and dedicated → shared run the identical code path; the plan string (and `DEDICATED_ISOLATION_MODE`) simply drives infra-provisioner behavior. A downgrade migrates the data back into the shared schema and then releases the dedicated resource (purges the container or drops the per-tenant database).
-
----
-
-## 3. Microservice Layer Hierarchy & Documentation Topology
-
-This workspace enforces strict **Clean Architecture boundaries** across all microservices. The documentation follows a **2-Tier Macro/Micro Model**:
-
-1. **Macro System Mesh (Root Documentation):** Focuses on global orchestration, cross-cutting distributed workflows, security boundaries, and AMQP contracts (see Sections 1, 2 & 4).
-2. **Clean Architecture Standards ([docs/00-clean-architecture-standards-and-layer-hierarchy.md](docs/00-clean-architecture-standards-and-layer-hierarchy.md)):** Comprehensive documentation of Layer 1 (Adapters), Layer 2 (Service Core), Layer 3 (Persistence), transaction ownership rules (`txManager.WithTransaction`), and flow diagrams.
-3. **Micro Domain Services (Service READMEs):** Each microservice maintains its local domain contracts, archetype declaration, and local exception rationale:
-   - [`order-service/README.md`](order-service/README.md) - Archetype A: Dynamic DSN resolution, PoolRegistry & `MigrationService` exemption.
-   - [`notification-service/README.md`](notification-service/README.md) - Archetype B: Barrier Sync pattern & Mailpit SMTP delivery outside tx.
-   - [`tenant-service/README.md`](tenant-service/README.md) - Archetype A: Control-plane registry, Outbox worker & infrastructure routing update.
-   - [`auth-service/README.md`](auth-service/README.md) - Archetype A: RS256 JWT key pair, refresh token hashing, permissions registration & `user.created` membership copy consumer.
-   - [`infra-provisioner/README.md`](infra-provisioner/README.md) - Archetype C: Isolated Docker container provisioner, same-instance tenant database provisioning & QoS=1 AMQP worker.
-   - [`user-service/README.md`](user-service/README.md) - Archetype A: Identity profile management & `workspace.initiated` event listener.
+    │  └──────────────────────────────────────────────────────────────────────    - [`infra-provisioner/README.md`](infra-provisioner/README.md) - Archetype C: Isolated Docker container provisioner, same-instance tenant database provisioning & QoS=1 AMQP worker.
+    - [`user-service/README.md`](user-service/README.md) - Archetype A: Identity profile management & `workspace.initiated` event listener.
+    - [`payment-service/README.md`](payment-service/README.md) - Archetype A: Provider Adapter pattern, async payment instructions (VA/QRIS), multi-provider fallback, and webhook idempotency.
 
 ---
 
@@ -514,8 +490,11 @@ This repository contains comprehensive technical design deep-dives located in th
 | 19 | [How Do We Achieve Instant Revocation in Stateless RS256 JWTs via Version Caching?](docs/19-how-do-we-achieve-instant-jwt-revocation-with-perm-version-caching.md) | Stateless JWT Claims, Token Bloat Math, `perm_version` Claim & Local In-Memory VersionCache Enforcement |
 | 20 | [How Do We Design User-Tenant Session Binding and Zero-Trust Token Context Derivation?](docs/20-how-do-we-design-user-tenant-session-binding-and-zero-trust-token-context-derivation.md) | 1-to-1 Active Session Claims, Eliminating Client-Side tenant_id Exposure, IDOR Protection & Future Multi-Workspace Switching |
 | 21 | [How Do We Implement Unified Identity and Workspace Selection?](docs/21-how-do-we-implement-unified-identity-and-workspace-selection.md) | Global Identity per Email, `user_tenant_memberships`, Exchange-Token Workspace Selection & Tenant-Bound Refresh Tokens |
+| 22 | [How Do We Safely Migrate a Shared-Schema Tenant to a Dedicated Container Without Losing Writes?](docs/22-how-do-we-safely-migrate-a-shared-schema-tenant-to-a-dedicated-container-without-lost-writes.md) | Read-Only Pause Saga, Transactional Outbox, Fanout Freeze & Compensating Rollbacks |
+| 23 | [How Do We Design a Resilient Multi-Tenant Payment Adapter with Automatic Fallback?](docs/23-how-do-we-design-a-resilient-multi-tenant-payment-adapter-with-automatic-fallback.md) | Provider Adapter Pattern, Async Payment Instructions (VA/QRIS), Phantom Session Cancellation & Webhook Concurrency Row Locking |
 
 ---
+
 
 ## 5. Directory Structure
 
