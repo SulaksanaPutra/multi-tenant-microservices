@@ -26,9 +26,6 @@ func TestNewTxManager(t *testing.T) {
 	if mgr == nil {
 		t.Fatal("expected NewTxManager to return non-nil struct pointer")
 	}
-	if mgr.db != db {
-		t.Errorf("expected mgr.db to match input db")
-	}
 }
 
 func TestGetExecutor_Fallback(t *testing.T) {

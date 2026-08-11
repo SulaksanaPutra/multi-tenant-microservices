@@ -18,7 +18,7 @@ paths:
             x-category: public
             x-service: order-service
             x-source:
-                - order-service/cmd/router.go:22
+                - order-service/cmd/router.go:24
             responses:
                 "200":
                     description: Successful response
@@ -31,7 +31,7 @@ paths:
             x-category: public
             x-service: order-service
             x-source:
-                - order-service/cmd/router.go:42
+                - order-service/cmd/router.go:64
             responses:
                 "200":
                     description: Successful response
@@ -43,7 +43,7 @@ paths:
             x-category: public
             x-service: order-service
             x-source:
-                - order-service/cmd/router.go:43
+                - order-service/cmd/router.go:65
             responses:
                 "200":
                     description: Successful response

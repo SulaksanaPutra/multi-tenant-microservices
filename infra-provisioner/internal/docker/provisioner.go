@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
@@ -79,7 +78,7 @@ func (p *DockerProvisioner) ProvisionDedicatedContainer(
 		log.Printf("DockerProvisioner: Dedicated container '%s' already exists (State: %s).", containerName, inspect.State.Status)
 		if !inspect.State.Running {
 			log.Printf("DockerProvisioner: Starting stopped container '%s'...", containerName)
-			if err := p.cli.ContainerStart(ctx, inspect.ID, types.ContainerStartOptions{}); err != nil {
+			if err := p.cli.ContainerStart(ctx, inspect.ID, container.StartOptions{}); err != nil {
 				return "", 0, "", "", fmt.Errorf("failed to start existing container '%s': %w", containerName, err)
 			}
 		}
@@ -116,7 +115,7 @@ func (p *DockerProvisioner) ProvisionDedicatedContainer(
 		}
 
 		log.Printf("DockerProvisioner: Container '%s' created (ID: %s). Starting...", containerName, created.ID[:12])
-		if err := p.cli.ContainerStart(ctx, created.ID, types.ContainerStartOptions{}); err != nil {
+		if err := p.cli.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
 			return "", 0, "", "", fmt.Errorf("failed to start container '%s': %w", containerName, err)
 		}
 	}

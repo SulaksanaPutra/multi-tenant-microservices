@@ -29,3 +29,7 @@ infrastructure/web-ui/air.log
 
 .opencode
 .agents
+
+# Go Workspaces (local multi-module development)
+go.work
+go.work.sum

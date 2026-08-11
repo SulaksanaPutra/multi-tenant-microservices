@@ -28,11 +28,7 @@ func TestGetExecutor_ContextFallback(t *testing.T) {
 
 	// 2. With tx in context -> returns tx executor
 	txExec := &testutil.MockDBExecutor{}
-	ctxWithTx := WithTx(ctx, (*sql.Tx)(nil))
-	_ = ctxWithTx // WithTx stores nil *sql.Tx cast as DBExecutor
-
-	// Using mock executor directly in context
-	ctxWithMock := context.WithValue(ctx, execKey{}, DBExecutor(txExec))
+	ctxWithMock := WithExecutor(ctx, txExec)
 	execFromCtx := GetExecutor(ctxWithMock, fallback)
 	if execFromCtx != txExec {
 		t.Error("expected GetExecutor to return DBExecutor from context when present")

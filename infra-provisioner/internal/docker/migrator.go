@@ -10,7 +10,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/lib/pq"
 )
@@ -449,7 +449,7 @@ func (m *SchemaMigrator) DestroyContainer(ctx context.Context, containerName str
 	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	err := m.dockerCli.ContainerRemove(timeoutCtx, containerName, types.ContainerRemoveOptions{
+	err := m.dockerCli.ContainerRemove(timeoutCtx, containerName, container.RemoveOptions{
 		Force: true,
 	})
 	if err != nil {
