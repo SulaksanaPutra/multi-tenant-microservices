@@ -408,8 +408,8 @@ func checkFile(fset *token.FileSet, file *ast.File, service, relPath string, isT
 			}
 		}
 
-		// Rule 3.4 — Abbreviated identifiers (only when --strict is set)
-		if strict {
+		// Rule 3.4 — Abbreviated identifiers (in production code by default; in tests only when --strict is set)
+		if !isTest || strict {
 			checkAbbrev(n, relPath, add)
 		}
 
@@ -482,6 +482,7 @@ var (
 	reAbbrevCons = regexp.MustCompile(`\b\w*[cC]ons\b`)
 	reAbbrevHnd  = regexp.MustCompile(`\b\w*[hH]nd\b`)
 	reAbbrevMig  = regexp.MustCompile(`\bmig\b`)
+	reAbbrevMgr  = regexp.MustCompile(`\b\w*[mM]gr\b`)
 )
 
 func checkAbbrev(node ast.Node, relPath string, add func(token.Pos, string, string, string)) {
@@ -501,6 +502,8 @@ func checkAbbrev(node ast.Node, relPath string, add func(token.Pos, string, stri
 			add(ident.Pos(), "3.4", "abbrev-hnd", "abbreviated handler identifier (`hnd` / `*Hnd`) — use a full word like `orderHandler`")
 		} else if reAbbrevMig.MatchString(name) {
 			add(ident.Pos(), "3.4", "abbrev-mig", "abbreviated migration identifier (`mig`) — use `migration`")
+		} else if reAbbrevMgr.MatchString(name) {
+			add(ident.Pos(), "3.4", "abbrev-mgr", "abbreviated manager identifier (`mgr` / `*Mgr`) — use a full word like `txManager`")
 		}
 	}
 }

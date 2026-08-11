@@ -19,16 +19,16 @@ type OutboxRepository interface {
 }
 
 type OutboxWorker struct {
-	outboxRepo   OutboxRepository
-	publisher    EventPublisher
-	pollInterval time.Duration
-	batchSize    int
-	logger       *slog.Logger
-	stopChan     chan struct{}
+	outboxRepository OutboxRepository
+	publisher        EventPublisher
+	pollInterval     time.Duration
+	batchSize        int
+	logger           *slog.Logger
+	stopChan         chan struct{}
 }
 
 func NewOutboxWorker(
-	outboxRepo OutboxRepository,
+	outboxRepository OutboxRepository,
 	publisher EventPublisher,
 	pollInterval time.Duration,
 	batchSize int,
@@ -44,12 +44,12 @@ func NewOutboxWorker(
 		logger = slog.Default()
 	}
 	return &OutboxWorker{
-		outboxRepo:   outboxRepo,
-		publisher:    publisher,
-		pollInterval: pollInterval,
-		batchSize:    batchSize,
-		logger:       logger,
-		stopChan:     make(chan struct{}),
+		outboxRepository: outboxRepository,
+		publisher:        publisher,
+		pollInterval:     pollInterval,
+		batchSize:        batchSize,
+		logger:           logger,
+		stopChan:         make(chan struct{}),
 	}
 }
 
@@ -78,7 +78,7 @@ func (w *OutboxWorker) Stop() {
 }
 
 func (w *OutboxWorker) processOutboxBatch(ctx context.Context) {
-	messages, err := w.outboxRepo.FetchPending(ctx, w.batchSize)
+	messages, err := w.outboxRepository.FetchPending(ctx, w.batchSize)
 	if err != nil {
 		w.logger.Error("failed to fetch outbox pending events", "err", err)
 		return
@@ -91,9 +91,9 @@ func (w *OutboxWorker) processOutboxBatch(ctx context.Context) {
 	for _, msg := range messages {
 		if err := w.publisher.PublishEvent(ctx, msg.RoutingKey, msg.Payload); err != nil {
 			w.logger.Error("failed to publish outbox event", "event_id", msg.EventID, "routing_key", msg.RoutingKey, "err", err)
-			_ = w.outboxRepo.MarkFailed(ctx, msg.EventID, err.Error())
+			_ = w.outboxRepository.MarkFailed(ctx, msg.EventID, err.Error())
 		} else {
-			_ = w.outboxRepo.MarkPublished(ctx, msg.EventID)
+			_ = w.outboxRepository.MarkPublished(ctx, msg.EventID)
 		}
 	}
 }

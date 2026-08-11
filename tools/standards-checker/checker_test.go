@@ -191,3 +191,26 @@ func main() {
 	}
 }
 
+func TestCheckFile_Rule3_4_AbbrevMgr(t *testing.T) {
+	src := `package main
+
+type TestStruct struct {
+	txMgr string
+}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "main.go", src, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse Go source: %v", err)
+	}
+
+	violations := checkFile(fset, file, "payment-service", "cmd/main.go", false, false)
+	if len(violations) != 1 {
+		t.Fatalf("Expected 1 violation for abbrev-mgr, got %d", len(violations))
+	}
+	if violations[0].ID != "abbrev-mgr" {
+		t.Errorf("Expected violation ID 'abbrev-mgr', got '%s'", violations[0].ID)
+	}
+}
+
+

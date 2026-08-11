@@ -9,15 +9,15 @@ import (
 )
 
 type PostgresTenantPSPResolver struct {
-	mu            sync.RWMutex
-	repo          *repository.PSPConfigRepository
-	masterKey     []byte
-	defaultChain  []domain.ProviderType
-	inMemoryCache map[string]*domain.TenantPSPConfig
+	mu                  sync.RWMutex
+	pspConfigRepository *repository.PSPConfigRepository
+	masterKey           []byte
+	defaultChain        []domain.ProviderType
+	inMemoryCache       map[string]*domain.TenantPSPConfig
 }
 
 func NewPostgresTenantPSPResolver(
-	repo *repository.PSPConfigRepository,
+	pspConfigRepository *repository.PSPConfigRepository,
 	masterKey []byte,
 	defaultChain []domain.ProviderType,
 ) *PostgresTenantPSPResolver {
@@ -28,10 +28,10 @@ func NewPostgresTenantPSPResolver(
 		}
 	}
 	return &PostgresTenantPSPResolver{
-		repo:          repo,
-		masterKey:     masterKey,
-		defaultChain:  defaultChain,
-		inMemoryCache: make(map[string]*domain.TenantPSPConfig),
+		pspConfigRepository: pspConfigRepository,
+		masterKey:           masterKey,
+		defaultChain:        defaultChain,
+		inMemoryCache:       make(map[string]*domain.TenantPSPConfig),
 	}
 }
 
@@ -44,8 +44,8 @@ func (r *PostgresTenantPSPResolver) ResolveConfig(ctx context.Context, tenantID 
 		return cached, nil
 	}
 
-	if r.repo != nil {
-		cfg, err := r.repo.GetConfig(ctx, tenantID, r.masterKey)
+	if r.pspConfigRepository != nil {
+		cfg, err := r.pspConfigRepository.GetConfig(ctx, tenantID, r.masterKey)
 		if err == nil && cfg != nil {
 			if len(cfg.PriorityChain) == 0 {
 				cfg.PriorityChain = r.defaultChain

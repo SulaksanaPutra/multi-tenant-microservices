@@ -140,12 +140,12 @@ drainLoop:
 func (w *OutboxWorker) recoverAndProcess(ctx context.Context) {
 	for _, eventType := range []string{domain.RoutingKeyOrderCreated} {
 		w.forEachActiveTenant(ctx, func(cfg tenantdb.Config) {
-			repo := w.repoFactory(cfg)
+			outboxRepository := w.repoFactory(cfg)
 
-			if err := repo.RecoverStuckClaims(ctx, eventType); err != nil {
+			if err := outboxRepository.RecoverStuckClaims(ctx, eventType); err != nil {
 				log.Printf("OutboxWorker Warning: Stuck-claim recovery failed for '%s': %v", eventType, err)
 			}
-			w.processTenantBatch(ctx, repo, eventType)
+			w.processTenantBatch(ctx, outboxRepository, eventType)
 		})
 	}
 }
@@ -180,8 +180,8 @@ func (w *OutboxWorker) forEachActiveTenant(ctx context.Context, fn func(cfg tena
 	}
 }
 
-func (w *OutboxWorker) processTenantBatch(ctx context.Context, repo OutboxRepository, eventType string) {
-	messages, err := repo.FetchAndClaimBatch(ctx, eventType, w.batchSize)
+func (w *OutboxWorker) processTenantBatch(ctx context.Context, outboxRepository OutboxRepository, eventType string) {
+	messages, err := outboxRepository.FetchAndClaimBatch(ctx, eventType, w.batchSize)
 	if err != nil {
 		log.Printf("OutboxWorker Error: Failed to claim outbox batch for '%s': %v", eventType, err)
 		return
@@ -200,7 +200,7 @@ func (w *OutboxWorker) processTenantBatch(ctx context.Context, repo OutboxReposi
 			var evt domain.OrderCreatedEvent
 			if err := json.Unmarshal(msg.Payload, &evt); err != nil {
 				log.Printf("OutboxWorker Error: Bad payload for id='%s': %v", msg.ID, err)
-				_ = repo.MarkFailed(ctx, msg.ID, err)
+				_ = outboxRepository.MarkFailed(ctx, msg.ID, err)
 				continue
 			}
 
@@ -209,7 +209,7 @@ func (w *OutboxWorker) processTenantBatch(ctx context.Context, repo OutboxReposi
 			// The message will be re-claimed on the next poll cycle after the lock clears.
 			if w.routingStatus != nil && w.routingStatus.GetStatus(evt.TenantID) == "MIGRATING" {
 				log.Printf("OutboxWorker: Skipping event id='%s' for tenant='%s' — tenant is MIGRATING.", msg.ID, evt.TenantID)
-				_ = repo.MarkFailed(ctx, msg.ID, migratingErr(evt.TenantID))
+				_ = outboxRepository.MarkFailed(ctx, msg.ID, migratingErr(evt.TenantID))
 				continue
 			}
 
@@ -222,9 +222,9 @@ func (w *OutboxWorker) processTenantBatch(ctx context.Context, repo OutboxReposi
 
 		if pubErr != nil {
 			log.Printf("OutboxWorker Warning: Publish failed for id='%s': %v", msg.ID, pubErr)
-			_ = repo.MarkFailed(ctx, msg.ID, pubErr)
+			_ = outboxRepository.MarkFailed(ctx, msg.ID, pubErr)
 		} else {
-			if markErr := repo.MarkPublished(ctx, msg.ID); markErr != nil {
+			if markErr := outboxRepository.MarkPublished(ctx, msg.ID); markErr != nil {
 				log.Printf("OutboxWorker Error: MarkPublished failed for id='%s': %v", msg.ID, markErr)
 			}
 		}

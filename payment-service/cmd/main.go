@@ -67,14 +67,14 @@ func main() {
 	}
 
 	// 2. Initialize Repositories & TxManager
-	txMgr := txcontext.NewTxManager(dbClient.DB)
-	paymentRepo := repository.NewPaymentRepository(dbClient.DB)
-	inboxRepo := repository.NewInboxRepository(dbClient.DB)
-	outboxRepo := repository.NewOutboxRepository(dbClient.DB)
-	pspConfigRepo := repository.NewPSPConfigRepository(dbClient.DB)
+	txManager := txcontext.NewTxManager(dbClient.DB)
+	paymentRepository := repository.NewPaymentRepository(dbClient.DB)
+	inboxRepository := repository.NewInboxRepository(dbClient.DB)
+	outboxRepository := repository.NewOutboxRepository(dbClient.DB)
+	pspConfigRepository := repository.NewPSPConfigRepository(dbClient.DB)
 
 	postgresResolver := provider.NewPostgresTenantPSPResolver(
-		pspConfigRepo,
+		pspConfigRepository,
 		masterEncryptionKey,
 		[]domain.ProviderType{domain.ProviderMock, domain.ProviderDirectBank},
 	)
@@ -84,12 +84,12 @@ func main() {
 	registry.RegisterProvider(directbank.NewDirectBankProvider("BCA"), 3, 30*time.Second)
 
 	// 3. Initialize Domain Services
-	paymentSvc := service.NewPaymentService(
-		txMgr,
-		paymentRepo,
-		inboxRepo,
-		outboxRepo,
-		pspConfigRepo,
+	paymentService := service.NewPaymentService(
+		txManager,
+		paymentRepository,
+		inboxRepository,
+		outboxRepository,
+		pspConfigRepository,
 		postgresResolver,
 		registry,
 		masterEncryptionKey,
@@ -127,21 +127,21 @@ func main() {
 		log.Fatalf("Failed to declare exchange: %v", err)
 	}
 
-	outboxWorker := worker.NewOutboxWorker(outboxRepo, rmqClient, 2*time.Second, 50, logger)
+	outboxWorker := worker.NewOutboxWorker(outboxRepository, rmqClient, 2*time.Second, 50, logger)
 	go outboxWorker.Start(context.Background())
 	defer outboxWorker.Stop()
 
-	sweeper := worker.NewExpirationSweeper(paymentSvc, 1*time.Minute, 24*time.Hour, logger)
+	sweeper := worker.NewExpirationSweeper(paymentService, 1*time.Minute, 24*time.Hour, logger)
 	go sweeper.Start(context.Background())
 	defer sweeper.Stop()
 
-	orderCreatedConsumer := consumer.NewOrderCreatedConsumer(rmqClient.Channel, paymentSvc, logger)
+	orderCreatedConsumer := consumer.NewOrderCreatedConsumer(rmqClient.Channel, paymentService, logger)
 	if err := orderCreatedConsumer.Start(context.Background()); err != nil {
 		logger.Warn("failed to start order.created consumer", "err", err)
 	}
 
 	// 6. Register HTTP Router & Handlers
-	paymentHandler := handler.NewPaymentHandler(paymentSvc)
+	paymentHandler := handler.NewPaymentHandler(paymentService)
 
 	srv := &http.Server{
 		Addr:    ":" + port,

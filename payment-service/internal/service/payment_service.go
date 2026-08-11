@@ -12,6 +12,7 @@ import (
 	"payment-service/internal/domain"
 	"payment-service/internal/provider"
 	"payment-service/internal/repository"
+
 	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
@@ -51,23 +52,23 @@ type ProviderRegistry interface {
 }
 
 type PaymentService struct {
-	txMgr            *txcontext.SQLTxManager
-	paymentRepo      PaymentRepository
-	inboxRepo        InboxRepository
-	outboxRepo       OutboxRepository
-	pspConfigRepo    PSPConfigRepository
-	postgresResolver TenantPSPResolver
-	registry         ProviderRegistry
-	masterKey        []byte
-	logger           *slog.Logger
+	txManager           *txcontext.SQLTxManager
+	paymentRepository   PaymentRepository
+	inboxRepository     InboxRepository
+	outboxRepository    OutboxRepository
+	pspConfigRepository PSPConfigRepository
+	postgresResolver    TenantPSPResolver
+	registry            ProviderRegistry
+	masterKey           []byte
+	logger              *slog.Logger
 }
 
 func NewPaymentService(
-	txMgr *txcontext.SQLTxManager,
-	paymentRepo PaymentRepository,
-	inboxRepo InboxRepository,
-	outboxRepo OutboxRepository,
-	pspConfigRepo PSPConfigRepository,
+	txManager *txcontext.SQLTxManager,
+	paymentRepository PaymentRepository,
+	inboxRepository InboxRepository,
+	outboxRepository OutboxRepository,
+	pspConfigRepository PSPConfigRepository,
 	postgresResolver TenantPSPResolver,
 	registry ProviderRegistry,
 	masterKey []byte,
@@ -77,15 +78,15 @@ func NewPaymentService(
 		logger = slog.Default()
 	}
 	return &PaymentService{
-		txMgr:            txMgr,
-		paymentRepo:      paymentRepo,
-		inboxRepo:        inboxRepo,
-		outboxRepo:       outboxRepo,
-		pspConfigRepo:    pspConfigRepo,
-		postgresResolver: postgresResolver,
-		registry:         registry,
-		masterKey:        masterKey,
-		logger:           logger,
+		txManager:           txManager,
+		paymentRepository:   paymentRepository,
+		inboxRepository:     inboxRepository,
+		outboxRepository:    outboxRepository,
+		pspConfigRepository: pspConfigRepository,
+		postgresResolver:    postgresResolver,
+		registry:            registry,
+		masterKey:           masterKey,
+		logger:              logger,
 	}
 }
 
@@ -167,16 +168,16 @@ func (s *PaymentService) SavePSPConfig(ctx context.Context, config *domain.Tenan
 	}
 
 	var err error
-	if s.txMgr != nil {
-		err = s.txMgr.WithTransaction(ctx, func(txCtx context.Context) error {
-			return s.pspConfigRepo.SaveConfig(txCtx, repository.SaveConfigInput{
+	if s.txManager != nil {
+		err = s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+			return s.pspConfigRepository.SaveConfig(txCtx, repository.SaveConfigInput{
 				TenantID:        config.TenantID,
 				PriorityChain:   config.PriorityChain,
 				ProviderConfigs: config.ProviderConfigs,
 			}, s.masterKey)
 		})
 	} else {
-		err = s.pspConfigRepo.SaveConfig(ctx, repository.SaveConfigInput{
+		err = s.pspConfigRepository.SaveConfig(ctx, repository.SaveConfigInput{
 			TenantID:        config.TenantID,
 			PriorityChain:   config.PriorityChain,
 			ProviderConfigs: config.ProviderConfigs,
@@ -198,10 +199,9 @@ func (s *PaymentService) GetPSPConfig(ctx context.Context, tenantID string) (*Te
 		cfg, err := s.postgresResolver.ResolveConfig(ctx, tenantID)
 		return toPSPConfigOutput(cfg), err
 	}
-	cfg, err := s.pspConfigRepo.GetConfig(ctx, tenantID, s.masterKey)
+	cfg, err := s.pspConfigRepository.GetConfig(ctx, tenantID, s.masterKey)
 	return toPSPConfigOutput(cfg), err
 }
-
 
 func (s *PaymentService) InitiatePayment(ctx context.Context, tenantID, orderID string, amount float64, currency string) (*PaymentOutput, error) {
 	if currency == "" {
@@ -220,8 +220,8 @@ func (s *PaymentService) InitiatePayment(ctx context.Context, tenantID, orderID 
 		UpdatedAt: time.Now(),
 	}
 
-	err := s.txMgr.WithTransaction(ctx, func(txCtx context.Context) error {
-		return s.paymentRepo.Create(txCtx, repository.CreatePaymentInput{
+	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		return s.paymentRepository.Create(txCtx, repository.CreatePaymentInput{
 			ID:                p.ID,
 			TenantID:          p.TenantID,
 			OrderID:           p.OrderID,
@@ -253,7 +253,7 @@ func (s *PaymentService) InitiatePayment(ctx context.Context, tenantID, orderID 
 }
 
 func (s *PaymentService) GeneratePaymentInstructions(ctx context.Context, paymentID string) error {
-	p, err := s.paymentRepo.FindByID(ctx, paymentID)
+	p, err := s.paymentRepository.FindByID(ctx, paymentID)
 	if err != nil {
 		return err
 	}
@@ -274,7 +274,7 @@ func (s *PaymentService) GeneratePaymentInstructions(ctx context.Context, paymen
 
 	execRes, err := s.registry.ExecuteFallbackChain(ctx, req)
 
-	return s.txMgr.WithTransaction(ctx, func(txCtx context.Context) error {
+	return s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 		// Record failed attempts if any
 		if execRes != nil && len(execRes.FailedAttempts) > 0 {
 			for _, failedProv := range execRes.FailedAttempts {
@@ -298,14 +298,14 @@ func (s *PaymentService) GeneratePaymentInstructions(ctx context.Context, paymen
 					Status:       att.Status,
 					ErrorMessage: att.ErrorMessage,
 				}
-				_ = s.paymentRepo.CreateAttempt(txCtx, attInput)
+				_ = s.paymentRepository.CreateAttempt(txCtx, attInput)
 			}
 		}
 
 		if err != nil {
 			// All providers failed
 			p.Status = domain.PaymentStatusFailed
-			_ = s.paymentRepo.Update(txCtx, toUpdatePaymentInput(p))
+			_ = s.paymentRepository.Update(txCtx, toUpdatePaymentInput(p))
 
 			outboxEvt := &domain.PaymentFailedEvent{
 				EventID:   uuid.New().String(),
@@ -315,7 +315,7 @@ func (s *PaymentService) GeneratePaymentInstructions(ctx context.Context, paymen
 				Reason:    err.Error(),
 				Provider:  "",
 			}
-			return s.outboxRepo.SaveOutboxEvent(txCtx, outboxEvt.EventID, domain.RoutingKeyPaymentFailed, outboxEvt)
+			return s.outboxRepository.SaveOutboxEvent(txCtx, outboxEvt.EventID, domain.RoutingKeyPaymentFailed, outboxEvt)
 		}
 
 		// Success attempt
@@ -335,14 +335,14 @@ func (s *PaymentService) GeneratePaymentInstructions(ctx context.Context, paymen
 			ExternalSessionID: att.ExternalSessionID,
 			Status:            att.Status,
 		}
-		_ = s.paymentRepo.CreateAttempt(txCtx, attInput)
+		_ = s.paymentRepository.CreateAttempt(txCtx, attInput)
 
 		p.Status = domain.PaymentStatusInstructionsReady
 		p.Provider = execRes.Provider
 		p.ExternalID = execRes.Session.ExternalSessionID
 		p.Instructions = execRes.Session.Instructions
 
-		if err := s.paymentRepo.Update(txCtx, toUpdatePaymentInput(p)); err != nil {
+		if err := s.paymentRepository.Update(txCtx, toUpdatePaymentInput(p)); err != nil {
 			return err
 		}
 
@@ -357,7 +357,7 @@ func (s *PaymentService) GeneratePaymentInstructions(ctx context.Context, paymen
 			Provider:     p.Provider,
 		}
 
-		return s.outboxRepo.SaveOutboxEvent(txCtx, outboxEvt.EventID, domain.RoutingKeyPaymentInstructionsGenerated, outboxEvt)
+		return s.outboxRepository.SaveOutboxEvent(txCtx, outboxEvt.EventID, domain.RoutingKeyPaymentInstructionsGenerated, outboxEvt)
 	})
 }
 
@@ -372,9 +372,9 @@ func (s *PaymentService) ProcessWebhook(ctx context.Context, providerID domain.P
 		return fmt.Errorf("webhook signature verification failed: %w", err)
 	}
 
-	return s.txMgr.WithTransaction(ctx, func(txCtx context.Context) error {
+	return s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 		// 1. Transactional Inbox Deduplication Guard
-		if err := s.inboxRepo.SaveInboxEvent(txCtx, webhookEvt.EventID, string(webhookEvt.EventType)); err != nil {
+		if err := s.inboxRepository.SaveInboxEvent(txCtx, webhookEvt.EventID, string(webhookEvt.EventType)); err != nil {
 			if errors.Is(err, domain.ErrDuplicateEvent) {
 				s.logger.Info("ignoring duplicate webhook event", "event_id", webhookEvt.EventID)
 				return nil
@@ -385,12 +385,12 @@ func (s *PaymentService) ProcessWebhook(ctx context.Context, providerID domain.P
 		// 2. Resolve Payment entity (prefer payment_id, fallback to external_session_id or order_id)
 		var p *domain.Payment
 		if webhookEvt.PaymentID != "" {
-			p, err = s.paymentRepo.FindByIDForUpdate(txCtx, webhookEvt.PaymentID)
+			p, err = s.paymentRepository.FindByIDForUpdate(txCtx, webhookEvt.PaymentID)
 		} else if webhookEvt.OrderID != "" && webhookEvt.TenantID != "" {
-			p, err = s.paymentRepo.FindByOrderID(txCtx, webhookEvt.TenantID, webhookEvt.OrderID)
+			p, err = s.paymentRepository.FindByOrderID(txCtx, webhookEvt.TenantID, webhookEvt.OrderID)
 			if err == nil && p != nil {
 				// Relock row specifically
-				p, err = s.paymentRepo.FindByIDForUpdate(txCtx, p.ID)
+				p, err = s.paymentRepository.FindByIDForUpdate(txCtx, p.ID)
 			}
 		}
 
@@ -409,7 +409,7 @@ func (s *PaymentService) ProcessWebhook(ctx context.Context, providerID domain.P
 					"payment_id", p.ID)
 
 				p.Status = domain.PaymentStatusFailedAmountMismatch
-				_ = s.paymentRepo.Update(txCtx, toUpdatePaymentInput(p))
+				_ = s.paymentRepository.Update(txCtx, toUpdatePaymentInput(p))
 				return domain.ErrPaymentAmountMismatch
 			}
 		}
@@ -444,7 +444,7 @@ func (s *PaymentService) ProcessWebhook(ctx context.Context, providerID domain.P
 			p.ExternalID = webhookEvt.ExternalSessionID
 		}
 
-		if err := s.paymentRepo.Update(txCtx, toUpdatePaymentInput(p)); err != nil {
+		if err := s.paymentRepository.Update(txCtx, toUpdatePaymentInput(p)); err != nil {
 			return err
 		}
 
@@ -462,12 +462,12 @@ func (s *PaymentService) ProcessWebhook(ctx context.Context, providerID domain.P
 				ExternalSessionID: p.ExternalID,
 				SucceededAt:       time.Now(),
 			}
-			if err := s.outboxRepo.SaveOutboxEvent(txCtx, outboxEvt.EventID, domain.RoutingKeyPaymentSucceeded, outboxEvt); err != nil {
+			if err := s.outboxRepository.SaveOutboxEvent(txCtx, outboxEvt.EventID, domain.RoutingKeyPaymentSucceeded, outboxEvt); err != nil {
 				return err
 			}
 
 			// 6. Phantom Session Double-Billing Cancellation
-			attempts, _ := s.paymentRepo.FindAttemptsByPaymentID(txCtx, p.ID)
+			attempts, _ := s.paymentRepository.FindAttemptsByPaymentID(txCtx, p.ID)
 			for _, att := range attempts {
 				if att.Provider != p.Provider && att.ExternalSessionID != "" && att.Status != domain.AttemptStatusCancelled {
 					if otherAdapter, ok := s.registry.GetProvider(att.Provider); ok {
@@ -482,7 +482,7 @@ func (s *PaymentService) ProcessWebhook(ctx context.Context, providerID domain.P
 							Status:            att.Status,
 							ErrorMessage:      att.ErrorMessage,
 						}
-						_ = s.paymentRepo.UpdateAttempt(txCtx, attUpdate)
+						_ = s.paymentRepository.UpdateAttempt(txCtx, attUpdate)
 					}
 				}
 			}
@@ -500,7 +500,7 @@ func (s *PaymentService) ProcessWebhook(ctx context.Context, providerID domain.P
 				ReceivedAt:        time.Now(),
 				WebhookPayload:    webhookEvt.RawPayload,
 			}
-			return s.outboxRepo.SaveOutboxEvent(txCtx, lateEvt.EventID, domain.RoutingKeyPaymentLateReceived, lateEvt)
+			return s.outboxRepository.SaveOutboxEvent(txCtx, lateEvt.EventID, domain.RoutingKeyPaymentLateReceived, lateEvt)
 
 		case domain.PaymentStatusFailed:
 			failedEvt := &domain.PaymentFailedEvent{
@@ -511,7 +511,7 @@ func (s *PaymentService) ProcessWebhook(ctx context.Context, providerID domain.P
 				Reason:    "Webhook reported payment failure",
 				Provider:  p.Provider,
 			}
-			return s.outboxRepo.SaveOutboxEvent(txCtx, failedEvt.EventID, domain.RoutingKeyPaymentFailed, failedEvt)
+			return s.outboxRepository.SaveOutboxEvent(txCtx, failedEvt.EventID, domain.RoutingKeyPaymentFailed, failedEvt)
 		}
 
 		return nil
@@ -519,17 +519,17 @@ func (s *PaymentService) ProcessWebhook(ctx context.Context, providerID domain.P
 }
 
 func (s *PaymentService) GetPaymentByID(ctx context.Context, id string) (*PaymentOutput, error) {
-	p, err := s.paymentRepo.FindByID(ctx, id)
+	p, err := s.paymentRepository.FindByID(ctx, id)
 	return toPaymentOutput(p), err
 }
 
 func (s *PaymentService) GetPaymentByOrderID(ctx context.Context, tenantID, orderID string) (*PaymentOutput, error) {
-	p, err := s.paymentRepo.FindByOrderID(ctx, tenantID, orderID)
+	p, err := s.paymentRepository.FindByOrderID(ctx, tenantID, orderID)
 	return toPaymentOutput(p), err
 }
 
 func (s *PaymentService) SweepExpiredPayments(ctx context.Context, ttlDuration time.Duration) (int, error) {
-	expiredPayments, err := s.paymentRepo.FindExpiredPayments(ctx, ttlDuration, 100)
+	expiredPayments, err := s.paymentRepository.FindExpiredPayments(ctx, ttlDuration, 100)
 	if err != nil || len(expiredPayments) == 0 {
 		return 0, err
 	}
@@ -537,7 +537,7 @@ func (s *PaymentService) SweepExpiredPayments(ctx context.Context, ttlDuration t
 	count := 0
 	for _, p := range expiredPayments {
 		processFn := func(txCtx context.Context) error {
-			lockedPayment, err := s.paymentRepo.FindByIDForUpdate(txCtx, p.ID)
+			lockedPayment, err := s.paymentRepository.FindByIDForUpdate(txCtx, p.ID)
 			if err != nil {
 				return err
 			}
@@ -551,7 +551,7 @@ func (s *PaymentService) SweepExpiredPayments(ctx context.Context, ttlDuration t
 			}
 
 			lockedPayment.Status = domain.PaymentStatusExpired
-			if err := s.paymentRepo.Update(txCtx, toUpdatePaymentInput(lockedPayment)); err != nil {
+			if err := s.paymentRepository.Update(txCtx, toUpdatePaymentInput(lockedPayment)); err != nil {
 				return err
 			}
 
@@ -563,12 +563,12 @@ func (s *PaymentService) SweepExpiredPayments(ctx context.Context, ttlDuration t
 				ExpiredAt: time.Now(),
 			}
 
-			return s.outboxRepo.SaveOutboxEvent(txCtx, expiredEvt.EventID, domain.RoutingKeyPaymentExpired, expiredEvt)
+			return s.outboxRepository.SaveOutboxEvent(txCtx, expiredEvt.EventID, domain.RoutingKeyPaymentExpired, expiredEvt)
 		}
 
 		var err error
-		if s.txMgr != nil {
-			err = s.txMgr.WithTransaction(ctx, processFn)
+		if s.txManager != nil {
+			err = s.txManager.WithTransaction(ctx, processFn)
 		} else {
 			err = processFn(ctx)
 		}
