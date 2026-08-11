@@ -99,6 +99,52 @@ func scanService(repoRoot, service string, strict bool) []Violation {
 	var violations []Violation
 	serviceDir := filepath.Join(repoRoot, service)
 
+	// Rule 1.1 — Archetype A HTTP services must have cmd/router.go
+	handlerDir := filepath.Join(serviceDir, "internal", "handler")
+	if dirHasGoFiles(handlerDir) {
+		routerCmd := filepath.Join(serviceDir, "cmd", "router.go")
+		routerHandler := filepath.Join(serviceDir, "internal", "handler", "router.go")
+		if !fileExists(routerCmd) && !fileExists(routerHandler) {
+			violations = append(violations, Violation{
+				Service: service,
+				Rule:    "1.1",
+				ID:      "missing-cmd-router",
+				Path:    filepath.ToSlash(filepath.Join(service, "cmd", "main.go")),
+				Line:    1,
+				Message: "Archetype A service with `internal/handler` must isolate route setup into `cmd/router.go`",
+			})
+		}
+	}
+
+	// Rule 8.1 — Every internal package with Go code must ship a *_test.go file
+	internalDir := filepath.Join(serviceDir, "internal")
+	if _, err := os.Stat(internalDir); err == nil {
+		_ = filepath.Walk(internalDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil || !info.IsDir() {
+				return nil
+			}
+			// Skip domain package (pure types/sentinels may be exempted unless strict)
+			relSub, _ := filepath.Rel(internalDir, path)
+			if relSub == "." || relSub == "domain" {
+				return nil
+			}
+
+			hasGo, hasTest := checkPackageTests(path)
+			if hasGo && !hasTest {
+				relPath, _ := filepath.Rel(repoRoot, path)
+				violations = append(violations, Violation{
+					Service: service,
+					Rule:    "8.1",
+					ID:      "missing-unit-tests",
+					Path:    filepath.ToSlash(relPath),
+					Line:    1,
+					Message: fmt.Sprintf("package `%s` contains Go code but lacks a `*_test.go` unit test file — Rule 8.1 requires unit tests for every package", filepath.Base(path)),
+				})
+			}
+			return nil
+		})
+	}
+
 	_ = filepath.Walk(serviceDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") {
 			return nil
@@ -122,6 +168,45 @@ func scanService(repoRoot, service string, strict bool) []Violation {
 	})
 
 	return violations
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func dirHasGoFiles(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".go") && !strings.HasSuffix(entry.Name(), "_test.go") {
+			return true
+		}
+	}
+	return false
+}
+
+func checkPackageTests(dir string) (hasGo bool, hasTest bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false, false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(name, ".go") {
+			if strings.HasSuffix(name, "_test.go") {
+				hasTest = true
+			} else {
+				hasGo = true
+			}
+		}
+	}
+	return hasGo, hasTest
 }
 
 func checkFile(fset *token.FileSet, file *ast.File, service, relPath string, isTest, strict bool) []Violation {
@@ -226,11 +311,28 @@ func checkFile(fset *token.FileSet, file *ast.File, service, relPath string, isT
 			}
 
 		case *ast.StructType:
-			// Rule 6.1 — Service DTOs carrying json tags
-			if strings.Contains(relPath, "/service/") && !isTest {
+			if !isTest {
 				for _, field := range fn.Fields.List {
-					if field.Tag != nil && strings.Contains(field.Tag.Value, `json:"`) {
-						add(field.Pos(), "6.1", "json-tag-in-service", "`json:\"...\"` tag found in the service layer — JSON belongs in handler DTOs only")
+					// Rule 2.2 — Struct fields holding concrete pointers to lower/peer layer structs
+					if star, ok := field.Type.(*ast.StarExpr); ok {
+						if sel, ok := star.X.(*ast.SelectorExpr); ok {
+							if pkgIdent, ok := sel.X.(*ast.Ident); ok {
+								pkgName := pkgIdent.Name
+								typeName := sel.Sel.Name
+								if (strings.Contains(relPath, "/handler/") || strings.Contains(relPath, "/consumer/")) && pkgName == "service" {
+									add(field.Pos(), "2.2", "struct-concrete-dependency", fmt.Sprintf("struct field uses concrete pointer `*%s.%s` — depend on an interface defined in the consuming package instead", pkgName, typeName))
+								} else if strings.Contains(relPath, "/service/") && (pkgName == "repository" || pkgName == "publisher" || pkgName == "provider") {
+									add(field.Pos(), "2.2", "struct-concrete-dependency", fmt.Sprintf("struct field uses concrete pointer `*%s.%s` — depend on an interface defined in the consuming package instead", pkgName, typeName))
+								}
+							}
+						}
+					}
+
+					// Rule 6.1 — Service DTOs carrying json tags
+					if strings.Contains(relPath, "/service/") {
+						if field.Tag != nil && strings.Contains(field.Tag.Value, `json:"`) {
+							add(field.Pos(), "6.1", "json-tag-in-service", "`json:\"...\"` tag found in the service layer — JSON belongs in handler DTOs only")
+						}
 					}
 				}
 			}

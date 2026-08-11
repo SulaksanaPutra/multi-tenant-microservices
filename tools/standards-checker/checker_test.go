@@ -121,3 +121,28 @@ var ErrUserNotFound = errors.New("user not found")
 		t.Errorf("Expected violation ID 'sentinel-outside-domain', got '%s'", violations[0].ID)
 	}
 }
+
+func TestCheckFile_Rule2_2_StructConcreteDependency(t *testing.T) {
+	src := `package handler
+
+import "user-service/internal/service"
+
+type UserHandler struct {
+	userService *service.UserService
+}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "user_handler.go", src, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse Go source: %v", err)
+	}
+
+	violations := checkFile(fset, file, "user-service", "internal/handler/user_handler.go", false, false)
+	if len(violations) != 1 {
+		t.Fatalf("Expected 1 violation for struct concrete dependency, got %d", len(violations))
+	}
+	if violations[0].ID != "struct-concrete-dependency" {
+		t.Errorf("Expected violation ID 'struct-concrete-dependency', got '%s'", violations[0].ID)
+	}
+}
+

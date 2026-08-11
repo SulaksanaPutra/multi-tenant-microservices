@@ -3,7 +3,7 @@ module order-service
 go 1.25.0
 
 require (
-	github.com/SulaksanaPutra/go-microservice-commons v0.1.0
+	github.com/SulaksanaPutra/go-microservice-commons v0.1.1
 	github.com/gin-gonic/gin v1.12.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0

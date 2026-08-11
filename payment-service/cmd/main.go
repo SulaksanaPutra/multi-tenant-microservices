@@ -39,8 +39,13 @@ func getEnv(key, fallback string) string {
 }
 
 const defaultRS256PublicKey = `-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvH4L0sY19tJ6u/o9g
-+2s61i1g9kY5K5XvW8wXzJ8... (fallback placeholder)
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA66+p0j1I6ktH0DhAQgEL
+nAUNwYrQ0ergQ6kF6X2CQSqh1y5XdCVkxxcUp2UYVwo5XABDnBdMan+g/zAgtywq
+sgEvWCfZrEaR/T22pdKqaku8oXSsTYwKVNpOlsM19uNFSuWk1S67vrZEI/zSlcJk
+zFT+FL8vPHVoDCRIXksrosSeGI3lyPrXoxHU9S1Gt0rJ6o5aNBoXR6JgT3vrbhIy
+G2JiHGyGD8hY0/WPPR3GYLMOzilt+8FfbTdsf1c99DbCjGgFUcHY9DuKx3kt1Rqr
+YJNb9Q3iAeltK8GlOdMpLyO6z91QBsRZzFqtme4bHdyvRALIiV62JOeW0t+0oyZg
+0QIDAQAB
 -----END PUBLIC KEY-----`
 
 func main() {

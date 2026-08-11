@@ -12,7 +12,7 @@ require (
 	github.com/rabbitmq/amqp091-go v1.13.0
 )
 
-require github.com/SulaksanaPutra/go-microservice-commons v0.1.0
+require github.com/SulaksanaPutra/go-microservice-commons v0.1.1
 
 require (
 	github.com/bytedance/gopkg v0.1.4 // indirect

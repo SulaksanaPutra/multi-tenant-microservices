@@ -42,7 +42,7 @@ paths:
             x-category: public
             x-service: payment-service
             x-source:
-                - payment-service/cmd/main.go:160
+                - payment-service/cmd/router.go:28
             parameters:
                 - name: id
                   in: path
@@ -104,8 +104,8 @@ paths:
             x-category: jwt
             x-service: payment-service
             x-source:
-                - payment-service/cmd/main.go:155
-                - payment-service/internal/handler/payment_handler.go:79
+                - payment-service/cmd/router.go:23
+                - payment-service/internal/handler/payment_handler.go:88
             security:
                 - BearerAuth: []
             parameters:
@@ -147,7 +147,7 @@ paths:
             x-category: public
             x-service: payment-service
             x-source:
-                - payment-service/cmd/main.go:161
+                - payment-service/cmd/router.go:29
             parameters:
                 - name: orderID
                   in: path
@@ -167,7 +167,7 @@ paths:
             x-category: public
             x-service: payment-service
             x-source:
-                - payment-service/cmd/main.go:163
+                - payment-service/cmd/router.go:31
             responses:
                 "200":
                     description: Successful response
@@ -179,7 +179,7 @@ paths:
             x-category: public
             x-service: payment-service
             x-source:
-                - payment-service/cmd/main.go:162
+                - payment-service/cmd/router.go:30
             responses:
                 "200":
                     description: Successful response
@@ -212,7 +212,7 @@ paths:
             x-category: public
             x-service: payment-service
             x-source:
-                - payment-service/cmd/main.go:151
+                - payment-service/cmd/router.go:19
             responses:
                 "200":
                     description: Successful response
