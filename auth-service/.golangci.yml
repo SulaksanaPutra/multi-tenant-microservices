@@ -1,28 +1,46 @@
+version: "2"
+
 run:
   timeout: 5m
 
 linters:
   enable:
     - errcheck
-    - gosimple
     - govet
     - ineffassign
     - staticcheck
     - unused
-    - gofmt
     - revive
-
-linters-settings:
-  revive:
+  exclusions:
     rules:
-      - name: exported
-        disabled: true
-      - name: package-comments
-        disabled: true
-      - name: unused-parameter
-        disabled: true
+      - linters:
+          - revive
+        text: "should have comment"
+      - linters:
+          - revive
+        text: "comment on exported"
+      - linters:
+          - revive
+        text: "should have a package comment"
+      - linters:
+          - revive
+        text: "stutters"
+      - linters:
+          - revive
+        text: "unused-parameter"
+      - linters:
+          - revive
+        text: "blank import"
+      - linters:
+          - revive
+        text: "empty block"
+      - linters:
+          - revive
+        text: "this block is empty"
+      - linters:
+          - revive
+        text: "context.WithValue"
 
 issues:
-  exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0

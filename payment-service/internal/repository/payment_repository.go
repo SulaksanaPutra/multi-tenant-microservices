@@ -156,7 +156,7 @@ func (r *PaymentRepository) FindExpiredPayments(ctx context.Context, ttlDuration
 	if err != nil {
 		return nil, fmt.Errorf("failed to query expired payments: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var payments []*domain.Payment
 	for rows.Next() {
@@ -234,7 +234,7 @@ func (r *PaymentRepository) FindAttemptsByPaymentID(ctx context.Context, payment
 	if err != nil {
 		return nil, fmt.Errorf("failed to query attempts: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var attempts []*domain.PaymentAttempt
 	for rows.Next() {

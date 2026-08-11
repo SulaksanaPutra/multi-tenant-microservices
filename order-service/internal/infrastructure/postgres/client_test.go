@@ -33,7 +33,7 @@ func TestNewClientFromDSN_PingFailure(t *testing.T) {
 	db, err := NewClientFromDSN(dsn)
 	if err == nil {
 		if db != nil {
-			db.Close()
+			_ = db.Close()
 		}
 		t.Fatalf("expected error from NewClientFromDSN with unreachable DSN, got nil error")
 	}

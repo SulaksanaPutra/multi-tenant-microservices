@@ -80,7 +80,7 @@ func (vc *VersionCache) VerifyVersion(ctx context.Context, userID, tenantID stri
 	if err != nil {
 		return true
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return true

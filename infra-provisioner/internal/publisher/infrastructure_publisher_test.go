@@ -61,9 +61,6 @@ func TestInfrastructurePublisher_PublishInfrastructureProvisioned_ContextCancell
 func TestInfrastructurePublisher_StructInitialization(t *testing.T) {
 	client := &rabbitmq.Client{}
 	pub := &InfrastructurePublisher{client: client}
-	if pub == nil {
-		t.Fatal("expected InfrastructurePublisher struct pointer to be non-nil")
-	}
 	if pub.client != client {
 		t.Fatalf("expected client reference to match")
 	}

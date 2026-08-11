@@ -30,7 +30,7 @@ func NewClient(host, port, user, password, dbname string) (*Client, error) {
 				log.Println("Auth Service PostgreSQL: Connected successfully")
 				return &Client{database}, nil
 			}
-			database.Close()
+			_ = database.Close()
 		}
 		log.Printf("Auth Service PostgreSQL connection attempt %d/10 failed: %v. Retrying in 2s...", i+1, err)
 		time.Sleep(2 * time.Second)
@@ -42,6 +42,6 @@ func NewClient(host, port, user, password, dbname string) (*Client, error) {
 // Close safely closes the underlying database connection pool.
 func (c *Client) Close() {
 	if c != nil && c.DB != nil {
-		c.DB.Close()
+		_ = c.DB.Close()
 	}
 }

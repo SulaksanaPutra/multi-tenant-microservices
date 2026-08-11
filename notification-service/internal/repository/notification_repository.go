@@ -102,7 +102,7 @@ func (r *NotificationRepository) ListNotifications(ctx context.Context, tenantID
 	if err != nil {
 		return nil, fmt.Errorf("failed to query notifications: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var logs []domain.NotificationLog
 	for rows.Next() {

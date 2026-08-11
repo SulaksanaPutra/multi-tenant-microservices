@@ -33,7 +33,7 @@ func (m *SchemaMigrator) CheckSchemaExists(ctx context.Context, sharedDSN, schem
 	if err != nil {
 		return false, fmt.Errorf("failed to open shared db for schema check: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	var exists bool
 	query := "SELECT EXISTS(SELECT 1 FROM information_schema.schemata WHERE schema_name = $1);"
@@ -57,7 +57,7 @@ func (m *SchemaMigrator) LockSchema(ctx context.Context, sharedDSN, schemaName, 
 	if err != nil {
 		return fmt.Errorf("failed to open shared db for schema lock: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -97,7 +97,7 @@ func (m *SchemaMigrator) RestoreSchema(ctx context.Context, sharedDSN, lockedSch
 	if err != nil {
 		return fmt.Errorf("failed to open shared db for schema restore: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	alterQuery := fmt.Sprintf("ALTER SCHEMA %s RENAME TO %s;",
 		pq.QuoteIdentifier(lockedSchemaName), pq.QuoteIdentifier(originalSchemaName))
@@ -241,7 +241,7 @@ func (m *SchemaMigrator) cleanTargetTables(ctx context.Context, host string, por
 	if err != nil {
 		return fmt.Errorf("failed to open target db for pre-clean: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if err := conn.PingContext(ctx); err != nil {
 		return fmt.Errorf("failed to ping target db for pre-clean: %w", err)
@@ -268,7 +268,7 @@ func (m *SchemaMigrator) TableHasRows(ctx context.Context, dsn, schema, table st
 	if err != nil {
 		return false, fmt.Errorf("failed to open db for table check: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	query := fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s.%s LIMIT 1);",
 		pq.QuoteIdentifier(schema), pq.QuoteIdentifier(table))
@@ -291,7 +291,7 @@ func (m *SchemaMigrator) DropSchemaIfExists(ctx context.Context, dsn, schemaName
 	if err != nil {
 		return fmt.Errorf("failed to open db for schema drop: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE;", pq.QuoteIdentifier(schemaName))); err != nil {
 		return fmt.Errorf("failed to drop schema '%s': %w", schemaName, err)
@@ -374,7 +374,7 @@ func (m *SchemaMigrator) ProvisionTenantDatabase(ctx context.Context, host strin
 	if err != nil {
 		return fmt.Errorf("failed to open maintenance db: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if err := db.PingContext(ctx); err != nil {
 		return fmt.Errorf("failed to ping maintenance db: %w", err)
@@ -421,7 +421,7 @@ func (m *SchemaMigrator) DropTenantDatabase(ctx context.Context, host string, po
 	if err != nil {
 		return fmt.Errorf("failed to open maintenance db: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	var roleExists bool
 	_ = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1);", roleName).Scan(&roleExists)

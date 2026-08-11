@@ -99,7 +99,7 @@ func (r *PermissionRegistrar) doRegister(ctx context.Context, serviceName string
 	if err != nil {
 		return fmt.Errorf("permission registrar: failed to POST permissions to auth-service: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("permission registrar: auth-service returned status %d", resp.StatusCode)

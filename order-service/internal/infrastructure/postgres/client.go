@@ -29,7 +29,7 @@ func NewClient(host, port, user, password, dbname string) (*Client, error) {
 		}
 		if pingErr := database.Ping(); pingErr != nil {
 			log.Printf("postgres.NewClient: attempt %d: failed to ping: %v", attempt, pingErr)
-			database.Close()
+			_ = database.Close()
 			time.Sleep(time.Duration(attempt) * 2 * time.Second)
 			continue
 		}
@@ -55,7 +55,7 @@ func NewClientFromDSN(dsn string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to open postgres from DSN: %w", err)
 	}
 	if err := db.Ping(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to ping postgres from DSN: %w", err)
 	}
 	// Strict limits per tenant pool — prevents connection exhaustion when

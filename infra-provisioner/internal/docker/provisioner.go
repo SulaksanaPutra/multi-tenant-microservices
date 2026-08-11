@@ -151,7 +151,7 @@ func (p *DockerProvisioner) bootstrapDomainDatabases(
 	if err != nil {
 		return fmt.Errorf("failed to open root db connection: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	for domainDB, domainSecret := range domainSecrets {
 		if err := ValidateIdentifier(domainDB); err != nil {

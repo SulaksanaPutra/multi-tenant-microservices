@@ -73,7 +73,7 @@ func (r *CredentialRepository) GetUserMemberships(ctx context.Context, userID st
 	if err != nil {
 		return nil, fmt.Errorf("credential repository: failed to query user memberships: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var tenantIDs []string
 	for rows.Next() {

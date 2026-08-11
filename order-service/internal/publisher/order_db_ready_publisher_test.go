@@ -61,9 +61,6 @@ func TestOrderDBReadyPublisher_PublishTenantOrderDBReady_ContextCancelled(t *tes
 func TestOrderDBReadyPublisher_StructInitialization(t *testing.T) {
 	client := &rabbitmq.Client{}
 	pub := &OrderDBReadyPublisher{client: client}
-	if pub == nil {
-		t.Fatal("expected OrderDBReadyPublisher struct pointer to be non-nil")
-	}
 	if pub.client != client {
 		t.Fatalf("expected client reference to match")
 	}

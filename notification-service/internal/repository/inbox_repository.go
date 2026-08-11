@@ -75,7 +75,7 @@ func (r *InboxRepository) GetEventsByTenantID(ctx context.Context, tenantID stri
 	if rows == nil {
 		return []domain.InboxMessage{}, nil
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var list []domain.InboxMessage
 	for rows.Next() {

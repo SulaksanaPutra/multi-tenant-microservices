@@ -65,7 +65,7 @@ func (r *OutboxRepository) FetchPending(ctx context.Context, limit int) ([]*Outb
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch pending outbox events: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var messages []*OutboxMessage
 	for rows.Next() {

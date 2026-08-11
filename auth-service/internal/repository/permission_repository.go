@@ -60,7 +60,7 @@ func (r *PermissionRepository) ListAllPermissions(ctx context.Context) ([]domain
 	if err != nil {
 		return nil, fmt.Errorf("permission repository: failed to list permissions: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var permissions []domain.Permission
 	for rows.Next() {
@@ -90,7 +90,7 @@ func (r *PermissionRepository) FindByIDs(ctx context.Context, ids []string) ([]d
 	if err != nil {
 		return nil, fmt.Errorf("permission repository: failed to find permissions by ids: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var permissions []domain.Permission
 	for rows.Next() {

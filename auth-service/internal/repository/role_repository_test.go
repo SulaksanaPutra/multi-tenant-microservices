@@ -54,8 +54,8 @@ func TestRoleRepository_CreateRole(t *testing.T) {
 
 		// Direct test for pq error code conversion
 		var targetPqErr *pq.Error
-		if errors.As(pqErr, &targetPqErr) && targetPqErr.Code == "23505" {
-			// Matches the internal repository logic condition
+		if !errors.As(pqErr, &targetPqErr) || targetPqErr.Code != "23505" {
+			t.Fatalf("expected pq error code 23505, got %v", pqErr)
 		}
 	})
 

@@ -168,7 +168,8 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(
 	var userID, recipientEmail, tenantName, tenantSlug, ownerName string
 
 	for _, evt := range events {
-		if evt.EventType == "user.created" {
+		switch evt.EventType {
+		case "user.created":
 			hasUserCreated = true
 			var userEvt domain.UserCreatedEvent
 			if err := json.Unmarshal(evt.Payload, &userEvt); err == nil {
@@ -179,7 +180,7 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(
 					recipientEmail = userEvt.Email
 				}
 			}
-		} else if evt.EventType == "workspace.ready" {
+		case "workspace.ready":
 			hasWorkspaceReady = true
 			var wsEvt domain.WorkspaceReadyEvent
 			if err := json.Unmarshal(evt.Payload, &wsEvt); err == nil {

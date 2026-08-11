@@ -42,10 +42,10 @@ type fetchResult struct {
 
 type PoolRegistryOption func(*PoolRegistry)
 
-func WithMaxCapacity(cap int) PoolRegistryOption {
+func WithMaxCapacity(capacity int) PoolRegistryOption {
 	return func(pr *PoolRegistry) {
-		if cap > 0 {
-			pr.maxCapacity = cap
+		if capacity > 0 {
+			pr.maxCapacity = capacity
 		}
 	}
 }

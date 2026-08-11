@@ -276,9 +276,7 @@ func (c *WorkspaceInitiatedConsumer) handleSharedProvisioning(ctx context.Contex
 
 		// The dedicated resource is no longer the active data plane after a
 		// downgrade; release it once the shared provisioning succeeds.
-		if cleanup != nil {
-			_ = cleanup()
-		}
+		_ = cleanup()
 	}
 
 	return &domain.InfrastructureProvisionedEvent{
@@ -310,7 +308,6 @@ func (c *WorkspaceInitiatedConsumer) handleDedicatedProvisioning(ctx context.Con
 
 	// Cleanup resource that must be destroyed on lock/migration failure.
 	var rollbackCleanup func()
-	rollbackCleanup = func() {}
 
 	sameInstance := strings.EqualFold(c.isolationMode, "same_instance")
 	if sameInstance {

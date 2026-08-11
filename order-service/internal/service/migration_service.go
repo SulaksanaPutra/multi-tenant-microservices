@@ -66,7 +66,7 @@ func (s *MigrationService) MigrateTenantDB(ctx context.Context, dsn, schemaName 
 	if err != nil {
 		return fmt.Errorf("failed to open database connection: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if err := db.PingContext(ctx); err != nil {
 		return fmt.Errorf("failed to ping database: %w", err)

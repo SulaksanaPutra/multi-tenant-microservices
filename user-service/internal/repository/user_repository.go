@@ -131,7 +131,7 @@ func (userRepository *UserRepository) ListUsers(ctx context.Context, tenantID st
 	if err != nil {
 		return nil, fmt.Errorf("user repository: failed to query users: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var users []domain.User
 	for rows.Next() {

@@ -27,7 +27,7 @@ func (m *mockCredentialRepo) UpsertCredential(_ context.Context, input repositor
 		PasswordHash: input.PasswordHash,
 	}
 	if input.TenantID != "" {
-		_ = m.AddMembership(nil, input.UserID, input.TenantID)
+		_ = m.AddMembership(context.TODO(), input.UserID, input.TenantID)
 	}
 	return nil
 }

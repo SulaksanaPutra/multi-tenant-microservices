@@ -161,7 +161,7 @@ func (r *RoleRepository) FindRolesByTenantID(ctx context.Context, tenantID strin
 	if err != nil {
 		return nil, fmt.Errorf("role repository: failed to list roles for tenant '%s': %w", tenantID, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var roles []domain.Role
 	for rows.Next() {
@@ -198,7 +198,7 @@ func (r *RoleRepository) GetPermissionsForRole(ctx context.Context, roleID strin
 	if err != nil {
 		return nil, fmt.Errorf("role repository: failed to fetch permissions for role_id '%s': %w", roleID, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var permissions []domain.Permission
 	for rows.Next() {
@@ -377,7 +377,7 @@ func (r *RoleRepository) FindUserPermissions(ctx context.Context, userID, tenant
 	if err != nil {
 		return nil, 1, fmt.Errorf("role repository: failed to fetch permissions for user_id '%s': %w", userID, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var permissions []string
 	for rows.Next() {
@@ -423,7 +423,7 @@ func (r *RoleRepository) ListUserRolesByTenant(ctx context.Context, tenantID str
 	if err != nil {
 		return nil, fmt.Errorf("role repository: failed to list user roles for tenant '%s': %w", tenantID, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var assignments []UserRoleBrief
 	for rows.Next() {

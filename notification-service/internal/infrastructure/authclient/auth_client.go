@@ -69,7 +69,7 @@ func (c *AuthClient) FetchSetupToken(ctx context.Context, userID, tenantID, emai
 	if err != nil {
 		return "", fmt.Errorf("auth client: failed to execute request to %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("auth client: unexpected status code %d from %s", resp.StatusCode, url)

@@ -1,64 +1,69 @@
-# `payment-service` — Payment Gateway Integration Microservice
+# payment-service (API / Domain Service - Payment Adapter)
 
-> **Archetype A:** API / Domain Service  
-> **Port:** `8086`  
-> **Database:** `payment_db` (PostgreSQL)  
-> **Documentation:** [docs/23-how-do-we-design-a-resilient-multi-tenant-payment-adapter-with-automatic-fallback.md](../docs/23-how-do-we-design-a-resilient-multi-tenant-payment-adapter-with-automatic-fallback.md)
+`payment-service` is an **Archetype A (API / Domain Service)** microservice responsible for handling multi-tenant payment gateway integrations (Stripe, Xendit, Midtrans, Direct Bank Virtual Accounts, and Mock PSPs), webhook cryptographic verification, pessimistic concurrency locking, transaction-scoped outbox publishing, and TTL payment expiration sweeps.
 
 ---
 
-## Overview
+## Architectural Bounds & Standards
 
-`payment-service` is an **Archetype A (API / Domain Service)** microservice responsible for handling multi-tenant payment gateway integrations (Stripe, Xendit, Midtrans, Direct Bank Virtual Accounts, and Mock PSPs).
+- **Category:** Archetype A (API / Domain Service - Payment Adapter)
+- **Layout:** `cmd/` -> `internal/{handler, service, repository, domain, provider, consumer, worker, middleware, txcontext}`
+- **Responsibilities:** Multi-provider payment gateway integration (`PaymentProvider`), async payment instruction generation (`order.created` ingestion), HMAC webhook cryptographic verification, pessimistic row locking (`SELECT ... FOR UPDATE`), transaction-scoped outbox event publishing, late payment recovery (`REQUIRES_MANUAL_REVIEW`), and TTL payment expiration sweeps.
 
-It encapsulates payment provider transports, async payment instruction generation (Virtual Accounts, QRIS, Redirect URLs), multi-provider fallback execution, webhook cryptographic HMAC signature verification, pessimistic concurrency locking (`SELECT ... FOR UPDATE`), and TTL payment expiration sweeps.
+For system-wide architectural rules, layer boundaries, and unit-of-work patterns, see [Clean Architecture Standards](../docs/00-clean-architecture-standards-and-layer-hierarchy.md) and [Multi-Tenant Payment Adapter Architecture](../docs/23-how-do-we-design-a-resilient-multi-tenant-payment-adapter-with-automatic-fallback.md).
 
 ---
 
-## Architectural Highlights
+## Service-Specific Components & Patterns
 
-- **Provider Adapter Pattern (`PaymentProvider`):** Abstracted domain interface for adding, removing, or switching third-party PSP integrations.
-- **Async Payment Instructions:** Generates multi-format payment instructions (`VIRTUAL_ACCOUNT`, `QRIS`, `REDIRECT_URL`, `DEEP_LINK`) asynchronously upon `order.created` event ingestion.
-- **Phantom Session Double-Billing Prevention (`payment_attempts`):** Multi-attempt tracking table that proactively cancels open remote checkout sessions when a fallback provider attempt succeeds.
-- **Webhook Security & Fraud Guard:** Asserts `webhook.Amount == payment.Amount && webhook.Currency == payment.Currency`. Amount mismatches trigger `FAILED_AMOUNT_MISMATCH` and halt order fulfillment.
-- **Out-of-Order Webhook Concurrency Guard:** PostgreSQL `SELECT ... FOR UPDATE` row locking combined with Finite State Machine validation (`internal/domain/payment_fsm.go`).
-- **Late Payment Recovery (`EXPIRED` $\rightarrow$ `REQUIRES_MANUAL_REVIEW`):** Rescuing late payments safely by flagging `REQUIRES_MANUAL_REVIEW` and emitting `payment.late_payment_received` for Ops alerting.
+### 1. Provider Adapter Pattern & Dynamic Tenant Resolution
+- **`PaymentProvider` Interface:** Abstracted domain interface for adding, removing, or switching third-party PSP integrations (Stripe, Xendit, Midtrans, Direct Bank, Mock PSPs).
+- **`TenantPSPResolver`:** Resolves per-tenant provider priority chains and encrypted credentials dynamically.
+
+### 2. Async Instruction Generation & Transactional Outbox Pattern
+- **`order.created` Ingestion:** Consumes `order.created` AMQP events to asynchronously generate multi-format payment instructions (`VIRTUAL_ACCOUNT`, `QRIS`, `REDIRECT_URL`, `DEEP_LINK`).
+- **Transactional Outbox Worker:** Writes outgoing payment domain events (`payment.created`, `payment.completed`, `payment.failed`, `payment.expired`) to `payment_db.outbox` within the same Unit-of-Work database transaction, polled by `OutboxWorker` (`SELECT ... FOR UPDATE SKIP LOCKED`) and published to RabbitMQ.
+
+### 3. Out-of-Order Webhook Concurrency Guard & Fraud Prevention
+- **HMAC Signature Verification:** Verifies provider cryptographic signatures on `POST /api/payments/webhook/:provider` callbacks prior to processing.
+- **Webhook Fraud Guard:** Asserts `webhook.Amount == payment.Amount && webhook.Currency == payment.Currency`. Amount mismatches trigger `FAILED_AMOUNT_MISMATCH` and halt order fulfillment.
+- **Pessimistic Concurrency Guard:** Combines PostgreSQL `SELECT ... FOR UPDATE` row locking with Finite State Machine validation (`internal/domain/payment_fsm.go`) to prevent race conditions during concurrent webhook redeliveries.
+- **Phantom Session Double-Billing Prevention (`payment_attempts`):** Tracks multi-attempt payment attempts to proactively cancel open remote checkout sessions when a secondary fallback attempt succeeds.
+
+### 4. Late Payment Recovery & Expiration Sweeper
+- **Late Payment Recovery (`EXPIRED` -> `REQUIRES_MANUAL_REVIEW`):** Rescuing late payments safely by flagging `REQUIRES_MANUAL_REVIEW` and emitting `payment.late_payment_received` for Ops alerting.
 - **Expiration Sweeper Worker:** Background ticker worker sweeping abandoned payments past TTL (24 hours), transitioning status to `EXPIRED` and emitting `payment.expired` for inventory release.
-- **`TenantPSPResolver`:** Dynamic per-tenant provider chains and encrypted credentials resolution.
 
 ---
 
-## REST Endpoints & Permissions
+## Key Interfaces & APIs
 
-| Method | Endpoint | Authorization | Permission Required | Description |
+### HTTP Endpoints (Port 8086)
+| Method | Endpoint | Auth | Required Scope | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `GET` | `/health` | None | None | Service health check |
 | `POST` | `/api/payments/webhook/:provider` | None (HMAC Signature) | None | Unauthenticated PSP webhook callback |
-| `GET` | `/api/payments/:id` | Bearer JWT | `payments:read` | Retrieve payment by ID |
-| `GET` | `/api/payments/by-order/:orderID` | Bearer JWT | `payments:read` | Retrieve payment by tenant order ID |
+| `GET` | `/api/payments/:id` | Bearer `<JWT>` | `payments:read` | Retrieve payment by payment ID |
+| `GET` | `/api/payments/by-order/:orderID` | Bearer `<JWT>` | `payments:read` | Retrieve payment by tenant order ID |
+
+### AMQP Published Events & Subscriptions
+| Event Key | Role | Purpose / Action |
+| :--- | :--- | :--- |
+| `order.created` | Subscribed | Ingests new tenant orders and generates payment instructions asynchronously. |
+| `payment.created` | Published | Signals payment instruction readiness. |
+| `payment.completed` | Published | Signals successful payment settlement to trigger downstream order fulfillment. |
+| `payment.failed` | Published | Signals payment failure or fraud validation mismatch. |
+| `payment.expired` | Published | Signals payment expiration to release locked inventory. |
+| `payment.late_payment_received` | Published | Alerts Ops of funds received after expiration (`REQUIRES_MANUAL_REVIEW`). |
 
 ---
 
-## Directory Layout
+## Local Development & Testing
 
-```text
-payment-service/
-├── cmd/main.go                        # Port 8086, HTTP Router, AMQP Consumers, Outbox & Sweeper Workers
-├── migrations/
-│   ├── 00001_init_payment_schema.sql  # Goose migrations
-│   └── embed.go                       # Embedded migration filesystem
-└── internal/
-    ├── consumer/
-    │   └── order_created_consumer.go  # Listens to order.created AMQP queue
-    ├── domain/                        # Pure entities, sentinel errors, FSM, and Provider interfaces
-    ├── handler/                       # HTTP Controllers
-    ├── httputil/                      # Standardized response utilities
-    ├── infrastructure/                # AuthClient PermissionRegistrar & AMQP Driver
-    ├── middleware/                    # RS256 RequireJWT & RequirePermission RBAC
-    ├── migration/                     # Goose library-mode migration runner
-    ├── provider/                      # ProviderRegistry, CircuitBreaker, MockProvider & DirectBankProvider
-    ├── repository/                    # PostgreSQL repositories (payments, attempts, inbox, outbox)
-    ├── service/                       # PaymentService core domain logic
-    ├── txcontext/                     # Unit-of-work transaction manager
-    └── worker/                        # ExpirationSweeper & OutboxWorker
+```bash
+# Run unit & repository tests
+go test -v ./...
+
+# Repomix packing for LLM analysis
+npx repomix
 ```

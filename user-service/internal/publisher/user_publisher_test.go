@@ -61,9 +61,6 @@ func TestUserPublisher_PublishUserCreated_ContextCancelled(t *testing.T) {
 func TestUserPublisher_StructInitialization(t *testing.T) {
 	client := &rabbitmq.Client{}
 	pub := &UserPublisher{client: client}
-	if pub == nil {
-		t.Fatal("expected UserPublisher struct pointer to be non-nil")
-	}
 	if pub.client != client {
 		t.Fatalf("expected client reference to match")
 	}
