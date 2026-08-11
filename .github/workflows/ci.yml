@@ -1,0 +1,170 @@
+name: Microservice Platform CI/CD Pipeline
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    tags: [ 'v*.*.*' ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: Fast Unit Tests & Code Standards (Runs on PRs, Tags, & Manual)
+  # ---------------------------------------------------------------------------
+  unit-tests-and-lint:
+    name: Unit Tests & Code Standards (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - auth-service
+          - tenant-service
+          - user-service
+          - order-service
+          - notification-service
+          - infra-provisioner
+          - payment-service
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache-dependency-path: ${{ matrix.service }}/go.sum
+
+      - name: Run Coding Standards Scan (Go AST)
+        run: (cd tools/standards-checker && go run . --service ${{ matrix.service }}) || echo "::warning title=Coding Standards::Scan reported warnings in ${{ matrix.service }}"
+
+      - name: Run OpenAPI Spec Generator Check (Go AST)
+        run: (cd tools/openapi-generator && go run . --service ${{ matrix.service }})
+
+      - name: Run Unit Tests (${{ matrix.service }})
+        working-directory: ./${{ matrix.service }}
+        run: CGO_ENABLED=0 go test -v ./...
+
+  # ---------------------------------------------------------------------------
+  # Job 2: PR E2E Smoke & Integration Gate (Runs on PRs only - Lite Tier)
+  # ---------------------------------------------------------------------------
+  pr-e2e-smoke:
+    name: PR E2E Integration Gate (Lite Tier)
+    needs: unit-tests-and-lint
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache-dependency-path: e2e-tests/go.sum
+
+      - name: Build & Deploy Platform (Lite Tier)
+        run: |
+          echo "==> Deploying Lite Tier for PR E2E Smoke..."
+          export TIER=lite
+          export DEDICATED_ISOLATION_MODE=same_instance
+          export SHARED_DB_HOST=postgres
+          export AUTH_DB_HOST=postgres USER_DB_HOST=postgres TENANT_DB_HOST=postgres NOTIFICATION_DB_HOST=postgres
+          
+          cd infrastructure
+          docker compose up -d --build
+          
+          cd ..
+          for svc in auth-service tenant-service user-service order-service notification-service payment-service; do
+            (cd $svc && docker compose up -d --build)
+          done
+
+      - name: Wait for Platform Health
+        run: |
+          echo "==> Waiting for PostgreSQL & RabbitMQ to be healthy..."
+          timeout 60s bash -c 'until docker exec postgres pg_isready -U postgres -d shared_db; do sleep 2; done'
+          timeout 60s bash -c 'until docker exec rabbitmq rabbitmq-diagnostics -q ping; do sleep 2; done'
+          echo "==> Base infrastructure is healthy."
+
+      - name: Run E2E Integration Tests (Serial)
+        working-directory: ./e2e-tests
+        run: |
+          TIER=lite CGO_ENABLED=0 go test -p 1 -v ./...
+
+      - name: Cleanup E2E Test Data & Containers
+        if: always()
+        run: |
+          bash infrastructure/scripts/clean-e2e-data.sh --tier lite || true
+          docker compose -f infrastructure/docker-compose.yml down -v || true
+          for svc in auth-service tenant-service user-service order-service notification-service payment-service; do
+            (cd $svc && docker compose down -v || true)
+          done
+
+  # ---------------------------------------------------------------------------
+  # Job 3: Heavy Security Scan & Full E2E Suite (Runs on Tags or Manual Trigger)
+  # ---------------------------------------------------------------------------
+  security-and-full-e2e:
+    name: Heavy Security Audit & Full Platform E2E
+    needs: unit-tests-and-lint
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run Security Audit (govulncheck across all modules)
+        run: |
+          for svc in auth-service tenant-service user-service order-service notification-service infra-provisioner payment-service e2e-tests; do
+            echo "=== Security Audit: $svc ==="
+            (cd $svc && govulncheck ./...)
+          done
+
+      - name: Deploy Platform (Standard Container Isolation Tier)
+        run: |
+          echo "==> Deploying Standard Tier for Release Gate..."
+          export TIER=standard
+          export DEDICATED_ISOLATION_MODE=container
+          export SHARED_DB_HOST=postgres
+          export AUTH_DB_HOST=postgres USER_DB_HOST=postgres TENANT_DB_HOST=postgres NOTIFICATION_DB_HOST=postgres
+          
+          cd infrastructure
+          docker compose up -d --build
+          
+          cd ..
+          for svc in auth-service tenant-service user-service order-service notification-service payment-service; do
+            (cd $svc && docker compose up -d --build)
+          done
+
+      - name: Wait for Platform Health
+        run: |
+          timeout 60s bash -c 'until docker exec postgres pg_isready -U postgres -d shared_db; do sleep 2; done'
+          timeout 60s bash -c 'until docker exec rabbitmq rabbitmq-diagnostics -q ping; do sleep 2; done'
+
+      - name: Run Full E2E Test Suite (Standard Tier - Serial)
+        working-directory: ./e2e-tests
+        run: |
+          TIER=standard CGO_ENABLED=0 go test -p 1 -v ./...
+
+      - name: Teardown Infrastructure
+        if: always()
+        run: |
+          bash infrastructure/scripts/clean-e2e-data.sh --tier standard || true
+          docker compose -f infrastructure/docker-compose.yml down -v || true
+          for svc in auth-service tenant-service user-service order-service notification-service payment-service; do
+            (cd $svc && docker compose down -v || true)
+          done
