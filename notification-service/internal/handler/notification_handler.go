@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"notification-service/internal/domain"
-	"notification-service/internal/httputil"
-	"notification-service/internal/middleware"
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
+	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
 	"notification-service/internal/service"
 
 	"github.com/gin-gonic/gin"

@@ -21,7 +21,7 @@ import (
 	"testing"
 
 	"auth-service/internal/handler"
-	"auth-service/internal/httputil"
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 )
 
 func TestUserRoleAssignmentAndPermissionsE2E(t *testing.T) {

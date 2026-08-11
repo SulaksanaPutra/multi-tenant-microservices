@@ -8,7 +8,7 @@ import (
 
 	"auth-service/internal/domain"
 	"auth-service/internal/infrastructure/postgres"
-	"auth-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 type UpsertCredentialInput struct {

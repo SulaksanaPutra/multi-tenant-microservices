@@ -5,8 +5,8 @@ import (
 	"os"
 
 	"user-service/internal/handler"
-	"user-service/internal/httputil"
-	"user-service/internal/middleware"
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
+	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
 
 	"github.com/gin-gonic/gin"
 )
@@ -28,7 +28,7 @@ func newRouter(userHandler *handler.UserHandler) http.Handler {
 		versionCache := middleware.NewVersionCache(authServiceURL, internalToken)
 
 		api := r.Group("/api")
-		api.Use(middleware.RequireJWT(publicKeyPEM, versionCache))
+		api.Use(middleware.RequireJWT(publicKeyPEM, middleware.WithVersionCache(versionCache)))
 
 		api.GET("/users", middleware.RequirePermission("users:read"), userHandler.ListUsers)
 		api.GET("/users/me", middleware.RequirePermission("users:read"), userHandler.GetMe)

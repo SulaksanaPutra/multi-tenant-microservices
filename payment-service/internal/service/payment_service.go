@@ -12,7 +12,7 @@ import (
 	"payment-service/internal/domain"
 	"payment-service/internal/provider"
 	"payment-service/internal/repository"
-	"payment-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 type PaymentService struct {

@@ -20,14 +20,14 @@ import (
 	"payment-service/internal/handler"
 	"payment-service/internal/infrastructure/authclient"
 	"payment-service/internal/infrastructure/rabbitmq"
-	"payment-service/internal/middleware"
+	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
 	"payment-service/internal/migration"
 	"payment-service/internal/provider"
 	"payment-service/internal/provider/directbank"
 	"payment-service/internal/provider/mock"
 	"payment-service/internal/repository"
 	"payment-service/internal/service"
-	"payment-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 	"payment-service/internal/worker"
 )
 

@@ -9,7 +9,7 @@ import (
 
 	"user-service/internal/infrastructure/postgres"
 	"user-service/internal/testutil"
-	"user-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 func TestInboxRepository_Constructor(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"auth-service/internal/httputil"
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 	"auth-service/internal/service"
 
 	"github.com/gin-gonic/gin"

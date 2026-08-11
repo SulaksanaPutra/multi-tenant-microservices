@@ -19,7 +19,8 @@ import (
 	"order-service/internal/domain"
 	"order-service/internal/handler"
 	"order-service/internal/infrastructure/tenantdb"
-	"order-service/internal/middleware"
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
+	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
 	"order-service/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -103,7 +104,11 @@ func signJWT(t *testing.T, key *rsa.PrivateKey, tenantID, userID string) string 
 	return signed
 }
 
-func setupTestRouter(pubKeyPEM string, resolver middleware.Resolver) *gin.Engine {
+type tenantResolver interface {
+	GetTenantDB(ctx context.Context, tenantID string) (tenantdb.Config, error)
+}
+
+func setupTestRouter(pubKeyPEM string, resolver tenantResolver) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 
@@ -114,8 +119,20 @@ func setupTestRouter(pubKeyPEM string, resolver middleware.Resolver) *gin.Engine
 		return &stubOrderService{}
 	})
 
+	tenantHandlerHook := func(c *gin.Context, tenantID string) error {
+		tenantCfg, err := resolver.GetTenantDB(c.Request.Context(), tenantID)
+		if err != nil {
+			httputil.WriteError(c, http.StatusInternalServerError, "failed to resolve tenant database: "+err.Error())
+			return err
+		}
+		c.Set("tenantConfig", tenantCfg)
+		ctx := tenantdb.WithConfig(c.Request.Context(), tenantCfg)
+		c.Request = c.Request.WithContext(ctx)
+		return nil
+	}
+
 	api := r.Group("/api")
-	api.Use(middleware.RequireJWT(pubKeyPEM, resolver))
+	api.Use(middleware.RequireJWT(pubKeyPEM, middleware.WithTenantHandler(tenantHandlerHook)))
 
 	api.POST("/orders", orderHandler.CreateOrder)
 	api.GET("/orders", orderHandler.ListOrders)

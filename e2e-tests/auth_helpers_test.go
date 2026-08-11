@@ -30,7 +30,7 @@ import (
 	"testing"
 	"time"
 
-	"auth-service/internal/httputil"
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 
 	"github.com/golang-jwt/jwt/v5"
 	amqp "github.com/rabbitmq/amqp091-go"

@@ -5,8 +5,8 @@ import (
 
 	"auth-service/internal/crypto"
 	"auth-service/internal/handler"
-	"auth-service/internal/httputil"
-	"auth-service/internal/middleware"
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
+	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
 
 	"github.com/gin-gonic/gin"
 )
@@ -42,12 +42,12 @@ func newRouter(
 		auth.POST("/refresh", authHandler.Refresh)
 
 		// Logout requires a valid JWT (to prevent anonymous token revocation abuse)
-		auth.POST("/logout", middleware.RequireJWT(jwtManager), authHandler.Logout)
+		auth.POST("/logout", middleware.RequireJWT(jwtManager.PublicKeyPEM()), authHandler.Logout)
 	}
 
 	// Tenant Admin API endpoints (JWT authenticated + RBAC permission gated)
 	api := r.Group("/api/auth")
-	api.Use(middleware.RequireJWT(jwtManager))
+	api.Use(middleware.RequireJWT(jwtManager.PublicKeyPEM()))
 	{
 		// Read-only RBAC endpoints (auth:roles:read)
 		api.GET("/permissions", middleware.RequirePermission("auth:roles:read"), permissionHandler.ListPermissions)

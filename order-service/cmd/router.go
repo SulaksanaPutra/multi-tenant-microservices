@@ -1,13 +1,15 @@
 package main
 
 import (
+	"errors"
 	"net/http"
 	"os"
 
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
+	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
+	"order-service/internal/domain"
 	"order-service/internal/handler"
-	"order-service/internal/httputil"
 	"order-service/internal/infrastructure/tenantdb"
-	"order-service/internal/middleware"
 	"order-service/internal/repository"
 	"order-service/internal/service"
 
@@ -36,8 +38,28 @@ func newRouter(tenantDBResolver *tenantdb.Resolver) http.Handler {
 		return service.NewOrderService(repository.NewOrderRepository(cfg))
 	})
 
+	tenantHandlerHook := func(c *gin.Context, tenantID string) error {
+		tenantCfg, err := tenantDBResolver.GetTenantDB(c.Request.Context(), tenantID)
+		if err != nil {
+			if errors.Is(err, domain.ErrTenantMigrating) {
+				httputil.WriteError(c, http.StatusLocked, "tenant infrastructure is locked for migration")
+				return err
+			}
+			httputil.WriteError(c, http.StatusInternalServerError, "failed to resolve tenant database: "+err.Error())
+			return err
+		}
+		c.Set("tenantConfig", tenantCfg)
+		ctx := tenantdb.WithConfig(c.Request.Context(), tenantCfg)
+		c.Request = c.Request.WithContext(ctx)
+		return nil
+	}
+
 	api := r.Group("/api")
-	api.Use(middleware.RequireJWT(publicKeyPEM, tenantDBResolver, versionCache))
+	api.Use(middleware.RequireJWT(
+		publicKeyPEM,
+		middleware.WithVersionCache(versionCache),
+		middleware.WithTenantHandler(tenantHandlerHook),
+	))
 
 	api.GET("/orders", middleware.RequirePermission("orders:read"), orderHandler.ListOrders)
 	api.POST("/orders", middleware.RequirePermission("orders:write"), orderHandler.CreateOrder)

@@ -4,9 +4,11 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"math/big"
@@ -60,6 +62,21 @@ func NewJWTManagerFromPublicKey(publicKeyPEM string) (*JWTManager, error) {
 // PublicKey returns the RSA public key for external distribution (JWKS).
 func (m *JWTManager) PublicKey() *rsa.PublicKey {
 	return m.publicKey
+}
+
+// PublicKeyPEM encodes and returns the RSA public key in PEM format.
+func (m *JWTManager) PublicKeyPEM() string {
+	if m.publicKey == nil {
+		return ""
+	}
+	pubBytes, err := x509.MarshalPKIXPublicKey(m.publicKey)
+	if err != nil {
+		return ""
+	}
+	return string(pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: pubBytes,
+	}))
 }
 
 // jwtClaims defines the full JWT payload structure registered with golang-jwt.

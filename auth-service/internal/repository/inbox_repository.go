@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"auth-service/internal/infrastructure/postgres"
-	"auth-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 type CreateInboxMessageInput struct {

@@ -20,7 +20,7 @@ import (
 	"notification-service/internal/migration"
 	"notification-service/internal/repository"
 	"notification-service/internal/service"
-	"notification-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 func main() {

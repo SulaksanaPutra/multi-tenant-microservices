@@ -7,7 +7,7 @@ import (
 	"user-service/internal/consumer"
 	"user-service/internal/infrastructure/rabbitmq"
 	"user-service/internal/service"
-	"user-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 type consumerRunner struct {

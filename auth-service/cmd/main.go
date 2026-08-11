@@ -19,7 +19,7 @@ import (
 	"auth-service/internal/migration"
 	"auth-service/internal/repository"
 	"auth-service/internal/service"
-	"auth-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 func main() {

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"payment-service/internal/domain"
-	"payment-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 type InboxRepository struct {

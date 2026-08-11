@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"time"
 
-	"order-service/internal/middleware"
+	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
 
 	"order-service/internal/domain"
-	"order-service/internal/httputil"
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 	"order-service/internal/infrastructure/tenantdb"
 	"order-service/internal/service"
 

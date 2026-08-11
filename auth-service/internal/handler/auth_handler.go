@@ -7,7 +7,7 @@ import (
 
 	"auth-service/internal/crypto"
 	"auth-service/internal/domain"
-	"auth-service/internal/httputil"
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 	"auth-service/internal/service"
 
 	"github.com/gin-gonic/gin"

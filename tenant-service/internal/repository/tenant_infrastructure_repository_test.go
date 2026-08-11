@@ -9,7 +9,7 @@ import (
 
 	"tenant-service/internal/infrastructure/postgres"
 	"tenant-service/internal/testutil"
-	"tenant-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 func TestTenantInfrastructureRepository_Constructor(t *testing.T) {

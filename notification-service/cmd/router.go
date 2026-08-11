@@ -5,8 +5,8 @@ import (
 	"os"
 
 	"notification-service/internal/handler"
-	"notification-service/internal/httputil"
-	"notification-service/internal/middleware"
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
+	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
 
 	"github.com/gin-gonic/gin"
 )
@@ -30,7 +30,7 @@ func newRouter(notifHandler *handler.NotificationHandler) http.Handler {
 	internalToken := os.Getenv("INTERNAL_SERVICE_TOKEN")
 	versionCache := middleware.NewVersionCache(authServiceURL, internalToken)
 
-	r.GET("/api/notifications", middleware.RequireJWT(publicKeyPEM, versionCache), middleware.RequirePermission("notifications:read"), notifHandler.ListNotifications)
+	r.GET("/api/notifications", middleware.RequireJWT(publicKeyPEM, middleware.WithVersionCache(versionCache)), middleware.RequirePermission("notifications:read"), notifHandler.ListNotifications)
 
 	return r
 }

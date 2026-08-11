@@ -9,7 +9,7 @@ import (
 
 	"tenant-service/internal/domain"
 	"tenant-service/internal/infrastructure/postgres"
-	"tenant-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 type CreateTenantInput struct {

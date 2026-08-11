@@ -1,4 +1,4 @@
-package httputil
+package domain
 
 import (
 	"regexp"

@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"auth-service/internal/handler"
-	"auth-service/internal/httputil"
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 
 	"github.com/golang-jwt/jwt/v5"
 )

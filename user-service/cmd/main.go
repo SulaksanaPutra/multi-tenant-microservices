@@ -20,7 +20,7 @@ import (
 	"user-service/internal/publisher"
 	"user-service/internal/repository"
 	"user-service/internal/service"
-	"user-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 func main() {

@@ -19,7 +19,7 @@ import (
 	"tenant-service/internal/publisher"
 	"tenant-service/internal/repository"
 	"tenant-service/internal/service"
-	"tenant-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 func main() {

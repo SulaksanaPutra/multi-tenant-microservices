@@ -8,8 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"payment-service/internal/domain"
-	"payment-service/internal/httputil"
-	"payment-service/internal/middleware"
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
+	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
 	"payment-service/internal/service"
 )
 

@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"user-service/internal/domain"
-	"user-service/internal/httputil"
-	"user-service/internal/middleware"
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
+	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
 	"user-service/internal/service"
 
 	"github.com/gin-gonic/gin"

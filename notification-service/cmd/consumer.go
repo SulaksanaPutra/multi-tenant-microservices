@@ -7,7 +7,7 @@ import (
 	"notification-service/internal/consumer"
 	"notification-service/internal/infrastructure/rabbitmq"
 	"notification-service/internal/service"
-	"notification-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 type consumerRunner struct {

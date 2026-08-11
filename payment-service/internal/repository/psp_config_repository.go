@@ -10,7 +10,7 @@ import (
 
 	"payment-service/internal/crypto"
 	"payment-service/internal/domain"
-	"payment-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 type PSPConfigRepository struct {

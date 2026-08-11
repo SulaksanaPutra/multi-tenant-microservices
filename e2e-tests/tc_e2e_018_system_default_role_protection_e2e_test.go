@@ -26,7 +26,7 @@ import (
 	"testing"
 
 	"auth-service/internal/handler"
-	"auth-service/internal/httputil"
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 )
 
 func TestE2E_SystemDefaultRoleProtection(t *testing.T) {

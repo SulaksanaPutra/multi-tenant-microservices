@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"auth-service/internal/domain"
-	"auth-service/internal/httputil"
-	"auth-service/internal/middleware"
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
+	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
 	"auth-service/internal/service"
 
 	"github.com/gin-gonic/gin"

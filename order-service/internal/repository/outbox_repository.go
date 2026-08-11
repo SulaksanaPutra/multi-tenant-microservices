@@ -10,7 +10,7 @@ import (
 
 	"order-service/internal/domain"
 	"order-service/internal/infrastructure/tenantdb"
-	"order-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 
 	"github.com/lib/pq"
 )

@@ -10,7 +10,7 @@ import (
 
 	"user-service/internal/domain"
 	"user-service/internal/infrastructure/postgres"
-	"user-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 const (

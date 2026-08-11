@@ -6,7 +6,7 @@ import (
 
 	"notification-service/internal/domain"
 	"notification-service/internal/infrastructure/postgres"
-	"notification-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 type CreateNotificationLogInput struct {

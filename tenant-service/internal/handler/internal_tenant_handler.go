@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"tenant-service/internal/httputil"
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 	"tenant-service/internal/service"
 
 	"github.com/gin-gonic/gin"

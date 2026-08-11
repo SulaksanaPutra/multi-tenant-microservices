@@ -38,7 +38,7 @@ import (
 	"time"
 
 	"auth-service/internal/handler"
-	"auth-service/internal/httputil"
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 
 	_ "github.com/lib/pq"
 )

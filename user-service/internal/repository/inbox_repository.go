@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"user-service/internal/infrastructure/postgres"
-	"user-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 type InboxRepository struct {

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"tenant-service/internal/domain"
-	"tenant-service/internal/httputil"
 	"tenant-service/internal/repository"
 )
 
@@ -119,7 +118,7 @@ func (workspaceService *WorkspaceService) RegisterWorkspace(ctx context.Context,
 	}
 
 	tenantID := domain.GenerateTenantID()
-	slug := httputil.SanitizeSlug(input.TenantName)
+	slug := domain.SanitizeSlug(input.TenantName)
 	outboxID := domain.GenerateOutboxID()
 
 	evt := domain.WorkspaceInitiatedEvent{
@@ -300,7 +299,7 @@ func (workspaceService *WorkspaceService) UpdateTenant(ctx context.Context, inpu
 	}
 	slug := input.Slug
 	if slug == "" {
-		slug = httputil.SanitizeSlug(input.Name)
+		slug = domain.SanitizeSlug(input.Name)
 	}
 
 	return workspaceService.tenantRepository.UpdateTenant(ctx, repository.UpdateTenantInput{

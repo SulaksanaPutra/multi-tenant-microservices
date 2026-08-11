@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"payment-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 type OutboxMessage struct {

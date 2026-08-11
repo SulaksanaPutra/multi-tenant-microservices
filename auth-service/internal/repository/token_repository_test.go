@@ -11,7 +11,7 @@ import (
 	"auth-service/internal/domain"
 	"auth-service/internal/infrastructure/postgres"
 	"auth-service/internal/testutil"
-	"auth-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 func TestTokenRepository_Constructor(t *testing.T) {

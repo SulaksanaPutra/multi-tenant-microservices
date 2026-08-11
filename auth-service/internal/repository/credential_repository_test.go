@@ -9,7 +9,7 @@ import (
 
 	"auth-service/internal/infrastructure/postgres"
 	"auth-service/internal/testutil"
-	"auth-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 func TestCredentialRepository_Constructor(t *testing.T) {

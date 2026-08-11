@@ -5,10 +5,10 @@ import (
 	"os"
 
 	"tenant-service/internal/handler"
-	"tenant-service/internal/httputil"
-	"tenant-service/internal/middleware"
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
+	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
 	"tenant-service/internal/service"
-	"tenant-service/internal/txcontext"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 
 	"github.com/gin-gonic/gin"
 )
@@ -31,7 +31,7 @@ func newRouter(txManager *txcontext.SQLTxManager, workspaceService *service.Work
 		versionCache := middleware.NewVersionCache(authServiceURL, internalToken)
 
 		api := r.Group("/api/tenants")
-		api.Use(middleware.RequireJWT(publicKeyPEM, versionCache))
+		api.Use(middleware.RequireJWT(publicKeyPEM, middleware.WithVersionCache(versionCache)))
 		{
 			api.GET("/me", middleware.RequirePermission("tenants:read"), tenantHandler.GetTenantMe)
 			api.PUT("/me", middleware.RequirePermission("tenants:write"), tenantHandler.UpdateTenantMe)
