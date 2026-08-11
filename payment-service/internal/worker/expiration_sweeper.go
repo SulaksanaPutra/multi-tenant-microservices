@@ -4,12 +4,14 @@ import (
 	"context"
 	"log/slog"
 	"time"
-
-	"payment-service/internal/service"
 )
 
+type PaymentSweeper interface {
+	SweepExpiredPayments(ctx context.Context, ttl time.Duration) (int, error)
+}
+
 type ExpirationSweeper struct {
-	paymentService *service.PaymentService
+	paymentService PaymentSweeper
 	interval       time.Duration
 	ttlDuration    time.Duration
 	logger         *slog.Logger
@@ -17,7 +19,7 @@ type ExpirationSweeper struct {
 }
 
 func NewExpirationSweeper(
-	paymentService *service.PaymentService,
+	paymentService PaymentSweeper,
 	interval time.Duration,
 	ttlDuration time.Duration,
 	logger *slog.Logger,

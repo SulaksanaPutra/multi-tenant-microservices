@@ -116,6 +116,23 @@ func scanService(repoRoot, service string, strict bool) []Violation {
 		}
 	}
 
+	// Rule 1.2 — Microservice entrypoints must call loadEnv(".env")
+	mainCmd := filepath.Join(serviceDir, "cmd", "main.go")
+	if fileExists(mainCmd) && service != "infra-provisioner" {
+		fset := token.NewFileSet()
+		node, err := parser.ParseFile(fset, mainCmd, nil, 0)
+		if err == nil && !hasLoadEnvCall(node) {
+			violations = append(violations, Violation{
+				Service: service,
+				Rule:    "1.2",
+				ID:      "missing-load-env",
+				Path:    filepath.ToSlash(filepath.Join(service, "cmd", "main.go")),
+				Line:    1,
+				Message: "Microservice entrypoint `cmd/main.go` does not invoke `loadEnv(\".env\")` at startup",
+			})
+		}
+	}
+
 	// Rule 8.1 — Every internal package with Go code must ship a *_test.go file
 	internalDir := filepath.Join(serviceDir, "internal")
 	if _, err := os.Stat(internalDir); err == nil {
@@ -372,6 +389,23 @@ func checkFile(fset *token.FileSet, file *ast.File, service, relPath string, isT
 					}
 				}
 			}
+
+		case *ast.BasicLit:
+			if !isTest && fn.Kind == token.STRING {
+				val := strings.Trim(fn.Value, "`\"")
+				if strings.Contains(val, "-----BEGIN PUBLIC KEY-----") ||
+					strings.Contains(val, "-----BEGIN PRIVATE KEY-----") ||
+					strings.Contains(val, "-----BEGIN RSA PRIVATE KEY-----") {
+					add(fn.Pos(), "7.1", "hardcoded-crypto-fallback", "hardcoded RSA/ECDSA key PEM block found in binary — load keys dynamically from environment or secret manager")
+				}
+
+				if strings.HasSuffix(relPath, "cmd/main.go") {
+					switch val {
+					case "POSTGRES_HOST", "POSTGRES_PORT", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "PAYMENT_SERVICE_PORT", "AUTH_SERVICE_PORT", "ORDER_SERVICE_PORT", "USER_SERVICE_PORT", "TENANT_SERVICE_PORT", "NOTIFICATION_SERVICE_PORT":
+						add(fn.Pos(), "1.3", "env-naming-convention", fmt.Sprintf("non-standard environment variable key `%s` used in `cmd/main.go` — use standard `PORT` and `DB_*` keys", val))
+					}
+				}
+			}
 		}
 
 		// Rule 3.4 — Abbreviated identifiers (only when --strict is set)
@@ -488,6 +522,20 @@ func hasInternalType(file *ast.File) bool {
 		}
 	}
 	return false
+}
+
+func hasLoadEnvCall(file *ast.File) bool {
+	hasCall := false
+	ast.Inspect(file, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok {
+			if ident, ok := call.Fun.(*ast.Ident); ok && ident.Name == "loadEnv" {
+				hasCall = true
+				return false
+			}
+		}
+		return true
+	})
+	return hasCall
 }
 
 func printHumanReport(violations []Violation) {

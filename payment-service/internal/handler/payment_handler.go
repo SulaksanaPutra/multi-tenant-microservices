@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -13,11 +14,19 @@ import (
 	"payment-service/internal/service"
 )
 
-type PaymentHandler struct {
-	paymentService *service.PaymentService
+type PaymentService interface {
+	GetPaymentByID(ctx context.Context, id string) (*service.PaymentOutput, error)
+	GetPaymentByOrderID(ctx context.Context, tenantID, orderID string) (*service.PaymentOutput, error)
+	ProcessWebhook(ctx context.Context, providerID domain.ProviderType, headers map[string]string, body []byte) error
+	SavePSPConfig(ctx context.Context, config *domain.TenantPSPConfig) error
+	GetPSPConfig(ctx context.Context, tenantID string) (*service.TenantPSPConfigOutput, error)
 }
 
-func NewPaymentHandler(paymentService *service.PaymentService) *PaymentHandler {
+type PaymentHandler struct {
+	paymentService PaymentService
+}
+
+func NewPaymentHandler(paymentService PaymentService) *PaymentHandler {
 	return &PaymentHandler{
 		paymentService: paymentService,
 	}

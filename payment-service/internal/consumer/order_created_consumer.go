@@ -18,13 +18,17 @@ type AMQPChannel interface {
 	Consume(queue, consumer string, autoAck, exclusive, noLocal, noWait bool, args amqp.Table) (<-chan amqp.Delivery, error)
 }
 
+type PaymentInitiator interface {
+	InitiatePayment(ctx context.Context, tenantID, orderID string, amount float64, currency string) (*service.PaymentOutput, error)
+}
+
 type OrderCreatedConsumer struct {
 	channel        AMQPChannel
-	paymentService *service.PaymentService
+	paymentService PaymentInitiator
 	logger         *slog.Logger
 }
 
-func NewOrderCreatedConsumer(channel AMQPChannel, paymentService *service.PaymentService, logger *slog.Logger) *OrderCreatedConsumer {
+func NewOrderCreatedConsumer(channel AMQPChannel, paymentService PaymentInitiator, logger *slog.Logger) *OrderCreatedConsumer {
 	if logger == nil {
 		logger = slog.Default()
 	}

@@ -6,26 +6,25 @@ services:
     container_name: payment-service
     restart: always
     environment:
-      PAYMENT_SERVICE_PORT: ${PAYMENT_SERVICE_PORT:-8086}
-      POSTGRES_HOST: ${PAYMENT_DB_HOST:-postgres}
-      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-payment_db}
+      PORT: ${PORT:-8086}
+      DB_HOST: ${PAYMENT_DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-payment_db}
       RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
       AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:-http://auth-service:8085}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-default_internal_service_token}
       AUTH_JWT_PUBLIC_KEY_PEM: ${AUTH_JWT_PUBLIC_KEY_PEM}
       PAYMENT_ENCRYPTION_KEY: ${PAYMENT_ENCRYPTION_KEY:-default_32_bytes_payment_enc_key}
     ports:
-      - "${PAYMENT_SERVICE_PORT:-8086}:${PAYMENT_SERVICE_PORT:-8086}"
+      - "${PORT:-8086}:${PORT:-8086}"
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=microservice-network"
       - "traefik.http.routers.payment-service.rule=PathPrefix(`/api/payments`)"
-      - "traefik.http.routers.payment-service.entrypoints=web"
       - "traefik.http.routers.payment-service.priority=10"
-      - "traefik.http.services.payment-service.loadbalancer.server.port=${PAYMENT_SERVICE_PORT:-8086}"
+      - "traefik.http.services.payment-service.loadbalancer.server.port=${PORT:-8086}"
     networks:
       - microservice-network
 

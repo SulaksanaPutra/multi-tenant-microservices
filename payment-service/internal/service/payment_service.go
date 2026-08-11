@@ -15,26 +15,61 @@ import (
 	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
+type PaymentRepository interface {
+	Create(ctx context.Context, input repository.CreatePaymentInput) error
+	FindByID(ctx context.Context, id string) (*domain.Payment, error)
+	FindByOrderID(ctx context.Context, tenantID, orderID string) (*domain.Payment, error)
+	FindByIDForUpdate(ctx context.Context, id string) (*domain.Payment, error)
+	CreateAttempt(ctx context.Context, input repository.CreateAttemptInput) error
+	UpdateAttempt(ctx context.Context, input repository.UpdateAttemptInput) error
+	FindAttemptsByPaymentID(ctx context.Context, paymentID string) ([]*domain.PaymentAttempt, error)
+	Update(ctx context.Context, input repository.UpdatePaymentInput) error
+	FindExpiredPayments(ctx context.Context, ttlDuration time.Duration, limit int) ([]*domain.Payment, error)
+}
+
+type InboxRepository interface {
+	SaveInboxEvent(ctx context.Context, eventID string, eventType string) error
+}
+
+type OutboxRepository interface {
+	SaveOutboxEvent(ctx context.Context, eventID, routingKey string, payload interface{}) error
+}
+
+type PSPConfigRepository interface {
+	SaveConfig(ctx context.Context, input repository.SaveConfigInput, masterKey []byte) error
+	GetConfig(ctx context.Context, tenantID string, masterKey []byte) (*domain.TenantPSPConfig, error)
+}
+
+type TenantPSPResolver interface {
+	ResolveConfig(ctx context.Context, tenantID string) (*domain.TenantPSPConfig, error)
+	InvalidateCache(tenantID string)
+}
+
+type ProviderRegistry interface {
+	ExecuteFallbackChain(ctx context.Context, req domain.CreateSessionRequest) (*provider.ExecutionResult, error)
+	GetProvider(providerID domain.ProviderType) (domain.PaymentProvider, bool)
+}
+
 type PaymentService struct {
 	txMgr            *txcontext.SQLTxManager
-	paymentRepo      *repository.PaymentRepository
-	inboxRepo        *repository.InboxRepository
-	outboxRepo       *repository.OutboxRepository
-	pspConfigRepo    *repository.PSPConfigRepository
-	postgresResolver *provider.PostgresTenantPSPResolver
-	registry         *provider.ProviderRegistry
+	paymentRepo      PaymentRepository
+	inboxRepo        InboxRepository
+	outboxRepo       OutboxRepository
+	pspConfigRepo    PSPConfigRepository
+	postgresResolver TenantPSPResolver
+	registry         ProviderRegistry
 	masterKey        []byte
 	logger           *slog.Logger
 }
 
 func NewPaymentService(
 	txMgr *txcontext.SQLTxManager,
-	paymentRepo *repository.PaymentRepository,
-	inboxRepo *repository.InboxRepository,
-	outboxRepo *repository.OutboxRepository,
-	pspConfigRepo *repository.PSPConfigRepository,
-	postgresResolver *provider.PostgresTenantPSPResolver,
-	registry *provider.ProviderRegistry,
+	paymentRepo PaymentRepository,
+	inboxRepo InboxRepository,
+	outboxRepo OutboxRepository,
+	pspConfigRepo PSPConfigRepository,
+	postgresResolver TenantPSPResolver,
+	registry ProviderRegistry,
 	masterKey []byte,
 	logger *slog.Logger,
 ) *PaymentService {
@@ -131,13 +166,22 @@ func (s *PaymentService) SavePSPConfig(ctx context.Context, config *domain.Tenan
 		return errors.New("tenant_id is required")
 	}
 
-	err := s.txMgr.WithTransaction(ctx, func(txCtx context.Context) error {
-		return s.pspConfigRepo.SaveConfig(txCtx, repository.SaveConfigInput{
+	var err error
+	if s.txMgr != nil {
+		err = s.txMgr.WithTransaction(ctx, func(txCtx context.Context) error {
+			return s.pspConfigRepo.SaveConfig(txCtx, repository.SaveConfigInput{
+				TenantID:        config.TenantID,
+				PriorityChain:   config.PriorityChain,
+				ProviderConfigs: config.ProviderConfigs,
+			}, s.masterKey)
+		})
+	} else {
+		err = s.pspConfigRepo.SaveConfig(ctx, repository.SaveConfigInput{
 			TenantID:        config.TenantID,
 			PriorityChain:   config.PriorityChain,
 			ProviderConfigs: config.ProviderConfigs,
 		}, s.masterKey)
-	})
+	}
 	if err != nil {
 		return err
 	}
@@ -492,7 +536,7 @@ func (s *PaymentService) SweepExpiredPayments(ctx context.Context, ttlDuration t
 
 	count := 0
 	for _, p := range expiredPayments {
-		err := s.txMgr.WithTransaction(ctx, func(txCtx context.Context) error {
+		processFn := func(txCtx context.Context) error {
 			lockedPayment, err := s.paymentRepo.FindByIDForUpdate(txCtx, p.ID)
 			if err != nil {
 				return err
@@ -520,7 +564,14 @@ func (s *PaymentService) SweepExpiredPayments(ctx context.Context, ttlDuration t
 			}
 
 			return s.outboxRepo.SaveOutboxEvent(txCtx, expiredEvt.EventID, domain.RoutingKeyPaymentExpired, expiredEvt)
-		})
+		}
+
+		var err error
+		if s.txMgr != nil {
+			err = s.txMgr.WithTransaction(ctx, processFn)
+		} else {
+			err = processFn(ctx)
+		}
 
 		if err == nil {
 			count++

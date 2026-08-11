@@ -12,8 +12,14 @@ type EventPublisher interface {
 	PublishEvent(ctx context.Context, routingKey string, payload []byte) error
 }
 
+type OutboxRepository interface {
+	FetchPending(ctx context.Context, limit int) ([]*repository.OutboxMessage, error)
+	MarkFailed(ctx context.Context, eventID string, reason string) error
+	MarkPublished(ctx context.Context, eventID string) error
+}
+
 type OutboxWorker struct {
-	outboxRepo   *repository.OutboxRepository
+	outboxRepo   OutboxRepository
 	publisher    EventPublisher
 	pollInterval time.Duration
 	batchSize    int
@@ -22,7 +28,7 @@ type OutboxWorker struct {
 }
 
 func NewOutboxWorker(
-	outboxRepo *repository.OutboxRepository,
+	outboxRepo OutboxRepository,
 	publisher EventPublisher,
 	pollInterval time.Duration,
 	batchSize int,

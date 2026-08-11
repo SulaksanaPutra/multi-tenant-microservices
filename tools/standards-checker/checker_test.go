@@ -146,3 +146,48 @@ type UserHandler struct {
 	}
 }
 
+func TestCheckFile_Rule7_1_HardcodedCryptoFallback(t *testing.T) {
+	src := `package main
+
+const pubKey = "-----BEGIN PUBLIC KEY-----\nsomekey\n-----END PUBLIC KEY-----"
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "main.go", src, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse Go source: %v", err)
+	}
+
+	violations := checkFile(fset, file, "payment-service", "cmd/main.go", false, false)
+	if len(violations) != 1 {
+		t.Fatalf("Expected 1 violation for hardcoded crypto fallback, got %d", len(violations))
+	}
+	if violations[0].ID != "hardcoded-crypto-fallback" {
+		t.Errorf("Expected violation ID 'hardcoded-crypto-fallback', got '%s'", violations[0].ID)
+	}
+}
+
+func TestCheckFile_Rule1_3_EnvNamingConvention(t *testing.T) {
+	src := `package main
+
+import "os"
+
+func main() {
+	port := os.Getenv("PAYMENT_SERVICE_PORT")
+	_ = port
+}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "main.go", src, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse Go source: %v", err)
+	}
+
+	violations := checkFile(fset, file, "payment-service", "payment-service/cmd/main.go", false, false)
+	if len(violations) != 1 {
+		t.Fatalf("Expected 1 violation for env naming convention, got %d", len(violations))
+	}
+	if violations[0].ID != "env-naming-convention" {
+		t.Errorf("Expected violation ID 'env-naming-convention', got '%s'", violations[0].ID)
+	}
+}
+

@@ -1,90 +1,77 @@
 package main
 
 import (
+	"bufio"
 	"context"
-	"database/sql"
-	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
-
-	"github.com/gin-gonic/gin"
-	_ "github.com/lib/pq"
 
 	"payment-service/internal/consumer"
 	"payment-service/internal/domain"
 	"payment-service/internal/handler"
 	"payment-service/internal/infrastructure/authclient"
+	"payment-service/internal/infrastructure/postgres"
 	"payment-service/internal/infrastructure/rabbitmq"
-	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
 	"payment-service/internal/migration"
 	"payment-service/internal/provider"
 	"payment-service/internal/provider/directbank"
 	"payment-service/internal/provider/mock"
 	"payment-service/internal/repository"
 	"payment-service/internal/service"
-	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 	"payment-service/internal/worker"
+
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
-func getEnv(key, fallback string) string {
-	if val, ok := os.LookupEnv(key); ok && val != "" {
-		return val
-	}
-	return fallback
-}
-
-const defaultRS256PublicKey = `-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA66+p0j1I6ktH0DhAQgEL
-nAUNwYrQ0ergQ6kF6X2CQSqh1y5XdCVkxxcUp2UYVwo5XABDnBdMan+g/zAgtywq
-sgEvWCfZrEaR/T22pdKqaku8oXSsTYwKVNpOlsM19uNFSuWk1S67vrZEI/zSlcJk
-zFT+FL8vPHVoDCRIXksrosSeGI3lyPrXoxHU9S1Gt0rJ6o5aNBoXR6JgT3vrbhIy
-G2JiHGyGD8hY0/WPPR3GYLMOzilt+8FfbTdsf1c99DbCjGgFUcHY9DuKx3kt1Rqr
-YJNb9Q3iAeltK8GlOdMpLyO6z91QBsRZzFqtme4bHdyvRALIiV62JOeW0t+0oyZg
-0QIDAQAB
------END PUBLIC KEY-----`
-
 func main() {
+	loadEnv(".env")
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger.Info("Starting Payment Service...")
 
-	port := getEnv("PAYMENT_SERVICE_PORT", "8086")
-	dbHost := getEnv("POSTGRES_HOST", "localhost")
-	dbPort := getEnv("POSTGRES_PORT", "5432")
-	dbUser := getEnv("POSTGRES_USER", "postgres")
-	dbPassword := getEnv("POSTGRES_PASSWORD", "postgres")
-	dbName := getEnv("POSTGRES_DB", "paymentDB")
-	amqpURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
-	authServiceURL := getEnv("AUTH_SERVICE_URL", "http://localhost:8085")
+	port := getEnv("PORT", "8086")
+	dbHost := getEnv("DB_HOST", "postgres")
+	dbPort := getEnv("DB_PORT", "5432")
+	dbUser := getEnv("DB_USER", "postgres")
+	dbPassword := getEnv("DB_PASSWORD", "postgres")
+	dbName := getEnv("DB_NAME", "payment_db")
+	amqpURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
+	authServiceURL := getEnv("AUTH_SERVICE_URL", "http://auth-service:8085")
 	internalServiceToken := getEnv("INTERNAL_SERVICE_TOKEN", "default_internal_service_token")
-	jwtPubKeyPEM := getEnv("AUTH_JWT_PUBLIC_KEY_PEM", defaultRS256PublicKey)
-	masterEncryptionKey := []byte(getEnv("PAYMENT_ENCRYPTION_KEY", "default_32_bytes_payment_enc_key"))
+	jwtPubKeyPEM := getEnv("AUTH_JWT_PUBLIC_KEY_PEM", "")
+	encryptionKeyStr := getEnv("PAYMENT_ENCRYPTION_KEY", "default_32_bytes_payment_enc_key")
 
-	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		dbHost, dbPort, dbUser, dbPassword, dbName)
+	if jwtPubKeyPEM == "" {
+		log.Fatal("AUTH_JWT_PUBLIC_KEY_PEM environment variable is required")
+	}
 
-	db, err := sql.Open("postgres", dsn)
+	if len(encryptionKeyStr) != 32 {
+		log.Fatalf("PAYMENT_ENCRYPTION_KEY must be exactly 32 bytes long, got %d bytes", len(encryptionKeyStr))
+	}
+	masterEncryptionKey := []byte(encryptionKeyStr)
+
+	// 1. Connect Infrastructure Drivers
+	dbClient, err := postgres.NewClient(dbHost, dbPort, dbUser, dbPassword, dbName)
 	if err != nil {
-		log.Fatalf("failed to connect to payment database: %v", err)
+		log.Fatalf("Failed to initialize database client: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	defer dbClient.Close()
 
-	if err := db.Ping(); err != nil {
-		log.Fatalf("failed to ping payment database: %v", err)
-	}
-
-	if err := migration.Run(context.Background(), db); err != nil {
-		log.Fatalf("failed to run goose database migrations: %v", err)
+	if err := migration.Run(context.Background(), dbClient.DB); err != nil {
+		log.Fatalf("Failed to run goose database migrations: %v", err)
 	}
 
-	txMgr := txcontext.NewTxManager(db)
-	paymentRepo := repository.NewPaymentRepository(db)
-	inboxRepo := repository.NewInboxRepository(db)
-	outboxRepo := repository.NewOutboxRepository(db)
-	pspConfigRepo := repository.NewPSPConfigRepository(db)
+	// 2. Initialize Repositories & TxManager
+	txMgr := txcontext.NewTxManager(dbClient.DB)
+	paymentRepo := repository.NewPaymentRepository(dbClient.DB)
+	inboxRepo := repository.NewInboxRepository(dbClient.DB)
+	outboxRepo := repository.NewOutboxRepository(dbClient.DB)
+	pspConfigRepo := repository.NewPSPConfigRepository(dbClient.DB)
 
 	postgresResolver := provider.NewPostgresTenantPSPResolver(
 		pspConfigRepo,
@@ -96,6 +83,7 @@ func main() {
 	registry.RegisterProvider(mock.NewMockProvider(domain.ProviderMock, "mock_secret_key", false), 3, 30*time.Second)
 	registry.RegisterProvider(directbank.NewDirectBankProvider("BCA"), 3, 30*time.Second)
 
+	// 3. Initialize Domain Services
 	paymentSvc := service.NewPaymentService(
 		txMgr,
 		paymentRepo,
@@ -108,10 +96,8 @@ func main() {
 		logger,
 	)
 
+	// 4. Register Domain Permissions with auth-service (non-blocking)
 	registrar := authclient.NewPermissionRegistrar(authServiceURL, internalServiceToken)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
 	permItems := []authclient.PermissionItem{
 		{Name: domain.PermissionPaymentsRead, Description: "Allows viewing payment status"},
 		{Name: domain.PermissionPaymentsCreate, Description: "Allows initiating payment flows"},
@@ -120,20 +106,25 @@ func main() {
 		{Name: domain.PermissionPaymentsManage, Description: "Allows managing tenant PSP configurations"},
 	}
 
-	if err := registrar.Register(ctx, "payment-service", permItems); err != nil {
-		logger.Warn("permission registration deferred", "err", err)
-	} else {
-		logger.Info("registered domain permissions with auth-service")
-	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := registrar.Register(ctx, "payment-service", permItems); err != nil {
+			logger.Warn("permission registration deferred", "err", err)
+		} else {
+			logger.Info("registered domain permissions with auth-service")
+		}
+	}()
 
+	// 5. Connect RabbitMQ Driver & Background Workers
 	rmqClient, err := rabbitmq.NewClient(amqpURL)
 	if err != nil {
-		log.Fatalf("failed to connect to rabbitmq: %v", err)
+		log.Fatalf("Failed to connect to rabbitmq: %v", err)
 	}
 	defer rmqClient.Close()
 
 	if err := rmqClient.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
-		log.Fatalf("failed to declare exchange: %v", err)
+		log.Fatalf("Failed to declare exchange: %v", err)
 	}
 
 	outboxWorker := worker.NewOutboxWorker(outboxRepo, rmqClient, 2*time.Second, 50, logger)
@@ -149,42 +140,26 @@ func main() {
 		logger.Warn("failed to start order.created consumer", "err", err)
 	}
 
+	// 6. Register HTTP Router & Handlers
 	paymentHandler := handler.NewPaymentHandler(paymentSvc)
-
-	r := gin.Default()
-
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "UP", "service": "payment-service"})
-	})
-
-	r.POST("/api/payments/webhook/:provider", paymentHandler.HandleWebhook)
-
-	api := r.Group("/api/payments")
-	api.Use(middleware.RequireJWT(jwtPubKeyPEM))
-	{
-		api.GET("/:id", middleware.RequirePermission(domain.PermissionPaymentsRead), paymentHandler.GetPaymentByID)
-		api.GET("/by-order/:orderID", middleware.RequirePermission(domain.PermissionPaymentsRead), paymentHandler.GetPaymentByOrderID)
-		api.PUT("/config", middleware.RequirePermission(domain.PermissionPaymentsManage), paymentHandler.UpdatePSPConfig)
-		api.GET("/config", middleware.RequirePermission(domain.PermissionPaymentsManage), paymentHandler.GetPSPConfig)
-	}
-
 
 	srv := &http.Server{
 		Addr:    ":" + port,
-		Handler: r,
+		Handler: newRouter(paymentHandler, jwtPubKeyPEM),
 	}
 
 	go func() {
-		logger.Info("starting payment-service HTTP server", "port", port)
+		logger.Info("Payment Service HTTP API listening", "port", port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("http server failed: %v", err)
+			log.Fatalf("HTTP server failed: %v", err)
 		}
 	}()
 
+	// 7. Graceful Shutdown Setup
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	logger.Info("shutting down payment-service...")
+	logger.Info("Shutting down payment-service...")
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
@@ -194,4 +169,36 @@ func main() {
 	}
 
 	logger.Info("payment-service exited cleanly")
+}
+
+func loadEnv(filepath string) {
+	file, err := os.Open(filepath)
+	if err != nil {
+		return
+	}
+	defer func() { _ = file.Close() }()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			val := strings.TrimSpace(parts[1])
+			val = strings.Trim(val, `"'`)
+			if _, exists := os.LookupEnv(key); !exists {
+				_ = os.Setenv(key, val)
+			}
+		}
+	}
+}
+
+func getEnv(key, fallback string) string {
+	if value, exists := os.LookupEnv(key); exists && strings.TrimSpace(value) != "" {
+		return value
+	}
+	return fallback
 }
