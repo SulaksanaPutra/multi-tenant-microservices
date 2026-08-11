@@ -133,30 +133,66 @@ func scanService(repoRoot, service string, strict bool) []Violation {
 		}
 	}
 
-	// Rule 8.1 — Every internal package with Go code must ship a *_test.go file
+	// Rule 8.1 — Every internal Go source file must ship a corresponding *_test.go file
 	internalDir := filepath.Join(serviceDir, "internal")
 	if _, err := os.Stat(internalDir); err == nil {
 		_ = filepath.Walk(internalDir, func(path string, info os.FileInfo, err error) error {
-			if err != nil || !info.IsDir() {
+			if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 				return nil
 			}
-			// Skip domain package (pure types/sentinels may be exempted unless strict)
-			relSub, _ := filepath.Rel(internalDir, path)
-			if relSub == "." || relSub == "domain" {
+			// Skip testutil directory
+			if strings.Contains(path, "/testutil/") {
 				return nil
 			}
 
-			hasGo, hasTest := checkPackageTests(path)
-			if hasGo && !hasTest {
-				relPath, _ := filepath.Rel(repoRoot, path)
-				violations = append(violations, Violation{
-					Service: service,
-					Rule:    "8.1",
-					ID:      "missing-unit-tests",
-					Path:    filepath.ToSlash(relPath),
-					Line:    1,
-					Message: fmt.Sprintf("package `%s` contains Go code but lacks a `*_test.go` unit test file — Rule 8.1 requires unit tests for every package", filepath.Base(path)),
-				})
+			relPath, _ := filepath.Rel(repoRoot, path)
+			relPath = filepath.ToSlash(relPath)
+
+			dir := filepath.Dir(path)
+			base := filepath.Base(path)
+			nameNoExt := strings.TrimSuffix(base, ".go")
+
+			// For internal/domain/, enforce 1:1 file-level test pairing
+			if strings.Contains(relPath, "/internal/domain/") {
+				normalizedName := strings.ReplaceAll(strings.ToLower(nameNoExt), "_", "") + "test"
+				entries, err := os.ReadDir(dir)
+				hasMatchingTest := false
+				if err == nil {
+					for _, entry := range entries {
+						if !entry.IsDir() && strings.HasSuffix(entry.Name(), "_test.go") {
+							testNameNoExt := strings.TrimSuffix(entry.Name(), ".go")
+							normalizedTest := strings.ReplaceAll(strings.ToLower(testNameNoExt), "_", "")
+							if normalizedTest == normalizedName {
+								hasMatchingTest = true
+								break
+							}
+						}
+					}
+				}
+
+				if !hasMatchingTest {
+					violations = append(violations, Violation{
+						Service: service,
+						Rule:    "8.1",
+						ID:      "missing-unit-tests",
+						Path:    relPath,
+						Line:    1,
+						Message: fmt.Sprintf("domain file `%s` lacks a matching `*_test.go` unit test file — Rule 8.1 requires 1:1 unit test files for every domain entity/contract file", base),
+					})
+				}
+			} else {
+				// For non-domain packages, ensure the package directory ships at least one *_test.go file
+				_, hasTest := checkPackageTests(dir)
+				if !hasTest {
+					violations = append(violations, Violation{
+						Service: service,
+						Rule:    "8.1",
+						ID:      "missing-unit-tests",
+						Path:    relPath,
+						Line:    1,
+						Message: fmt.Sprintf("package `%s` contains Go code but lacks a `*_test.go` unit test file — Rule 8.1 requires unit tests for every package", filepath.Base(dir)),
+					})
+				}
 			}
 			return nil
 		})
