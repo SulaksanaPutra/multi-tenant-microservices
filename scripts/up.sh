@@ -20,6 +20,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$ROOT/infrastructure/.env"
 
+# Auto-register local Git hooks
+if command -v git >/dev/null 2>&1 && [ -d "$ROOT/.git" ]; then
+  git config core.hooksPath "$ROOT/.githooks" || true
+fi
+
 DEPLOY_DIRS=(auth-service tenant-service user-service order-service notification-service)
 TEST_DIRS=(auth-service tenant-service user-service order-service notification-service infra-provisioner)
 E2E_MIGRATION_FILTER='TestE2E_TC_E2E_030|TestE2E_TC_E2E_032|TestE2E_TC_E2E_033'

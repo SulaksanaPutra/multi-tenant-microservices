@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# .githooks/pre-push — Local pre-push hook for E2E integration testing before pushing code.
+set -e
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+echo "==> Running Local Pre-Push E2E Integration Checks..."
+
+# Step 1: Check Docker Liveness
+if ! docker info >/dev/null 2>&1; then
+  echo "⚠️ Warning: Docker Daemon is not running locally. Skipping local E2E suite; GitHub Actions CI will enforce E2E on PR."
+  exit 0
+fi
+
+# Step 2: Run E2E Integration Tests (Lite Tier)
+echo "--> Running E2E Integration Tests (Lite Tier)..."
+if (cd "$ROOT/e2e-tests" && TIER=lite CGO_ENABLED=0 go test -p 1 -v ./...); then
+  echo "==> Local E2E tests passed cleanly! Proceeding with push."
+else
+  echo ""
+  echo "❌ Push aborted: E2E integration tests failed." >&2
+  exit 1
+fi
