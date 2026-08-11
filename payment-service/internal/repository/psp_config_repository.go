@@ -10,15 +10,16 @@ import (
 
 	"payment-service/internal/crypto"
 	"payment-service/internal/domain"
+	"payment-service/internal/infrastructure/postgres"
 	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 type PSPConfigRepository struct {
-	db *sql.DB
+	dbClient *postgres.Client
 }
 
-func NewPSPConfigRepository(db *sql.DB) *PSPConfigRepository {
-	return &PSPConfigRepository{db: db}
+func NewPSPConfigRepository(dbClient *postgres.Client) *PSPConfigRepository {
+	return &PSPConfigRepository{dbClient: dbClient}
 }
 
 type SaveConfigInput struct {
@@ -28,7 +29,7 @@ type SaveConfigInput struct {
 }
 
 func (r *PSPConfigRepository) SaveConfig(ctx context.Context, input SaveConfigInput, masterKey []byte) error {
-	exec := txcontext.GetExecutor(ctx, r.db)
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 
 	chainJSON, err := json.Marshal(input.PriorityChain)
 	if err != nil {
@@ -64,7 +65,7 @@ func (r *PSPConfigRepository) SaveConfig(ctx context.Context, input SaveConfigIn
 }
 
 func (r *PSPConfigRepository) GetConfig(ctx context.Context, tenantID string, masterKey []byte) (*domain.TenantPSPConfig, error) {
-	exec := txcontext.GetExecutor(ctx, r.db)
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 
 	query := `
 		SELECT tenant_id, priority_chain, encrypted_credentials

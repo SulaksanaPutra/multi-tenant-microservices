@@ -2,11 +2,11 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
 
+	"payment-service/internal/infrastructure/postgres"
 	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
@@ -22,15 +22,15 @@ type OutboxMessage struct {
 }
 
 type OutboxRepository struct {
-	db *sql.DB
+	dbClient *postgres.Client
 }
 
-func NewOutboxRepository(db *sql.DB) *OutboxRepository {
-	return &OutboxRepository{db: db}
+func NewOutboxRepository(dbClient *postgres.Client) *OutboxRepository {
+	return &OutboxRepository{dbClient: dbClient}
 }
 
 func (r *OutboxRepository) SaveOutboxEvent(ctx context.Context, eventID, routingKey string, payload any) error {
-	exec := txcontext.GetExecutor(ctx, r.db)
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
@@ -51,7 +51,7 @@ func (r *OutboxRepository) SaveOutboxEvent(ctx context.Context, eventID, routing
 }
 
 func (r *OutboxRepository) FetchPending(ctx context.Context, limit int) ([]*OutboxMessage, error) {
-	exec := txcontext.GetExecutor(ctx, r.db)
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 
 	query := `
 		SELECT event_id, routing_key, payload, status, retry_count, last_error, created_at, published_at
@@ -84,7 +84,7 @@ func (r *OutboxRepository) FetchPending(ctx context.Context, limit int) ([]*Outb
 }
 
 func (r *OutboxRepository) MarkPublished(ctx context.Context, eventID string) error {
-	exec := txcontext.GetExecutor(ctx, r.db)
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	now := time.Now()
 
 	query := `
@@ -100,7 +100,7 @@ func (r *OutboxRepository) MarkPublished(ctx context.Context, eventID string) er
 }
 
 func (r *OutboxRepository) MarkFailed(ctx context.Context, eventID, lastErr string) error {
-	exec := txcontext.GetExecutor(ctx, r.db)
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 
 	query := `
 		UPDATE payment_outbox SET

@@ -35,10 +35,14 @@ CREATE INDEX IF NOT EXISTS idx_attempts_payment ON payment_attempts(payment_id);
 CREATE INDEX IF NOT EXISTS idx_attempts_provider_ext ON payment_attempts(provider, external_session_id);
 
 CREATE TABLE IF NOT EXISTS payment_inbox (
-    event_id VARCHAR(64) PRIMARY KEY,
-    event_type VARCHAR(64) NOT NULL,
+    event_id     VARCHAR(255) PRIMARY KEY,
+    tenant_id    VARCHAR(255),
+    event_type   VARCHAR(255),
+    payload      JSONB,
     processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_payment_inbox_tenant_event ON payment_inbox(tenant_id, event_type);
 
 CREATE TABLE IF NOT EXISTS payment_outbox (
     event_id VARCHAR(64) PRIMARY KEY,

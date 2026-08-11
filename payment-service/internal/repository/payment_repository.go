@@ -9,15 +9,16 @@ import (
 	"time"
 
 	"payment-service/internal/domain"
+	"payment-service/internal/infrastructure/postgres"
 	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 type PaymentRepository struct {
-	db *sql.DB
+	dbClient *postgres.Client
 }
 
-func NewPaymentRepository(db *sql.DB) *PaymentRepository {
-	return &PaymentRepository{db: db}
+func NewPaymentRepository(dbClient *postgres.Client) *PaymentRepository {
+	return &PaymentRepository{dbClient: dbClient}
 }
 
 type CreatePaymentInput struct {
@@ -74,7 +75,7 @@ type UpdateAttemptInput struct {
 }
 
 func (r *PaymentRepository) Create(ctx context.Context, input CreatePaymentInput) error {
-	exec := txcontext.GetExecutor(ctx, r.db)
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 
 	instructionsJSON, err := json.Marshal(input.Instructions)
 	if err != nil {
@@ -114,7 +115,7 @@ func (r *PaymentRepository) Create(ctx context.Context, input CreatePaymentInput
 }
 
 func (r *PaymentRepository) Update(ctx context.Context, input UpdatePaymentInput) error {
-	exec := txcontext.GetExecutor(ctx, r.db)
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 
 	instructionsJSON, err := json.Marshal(input.Instructions)
 	if err != nil {
@@ -159,7 +160,7 @@ func (r *PaymentRepository) Update(ctx context.Context, input UpdatePaymentInput
 }
 
 func (r *PaymentRepository) FindByID(ctx context.Context, id string) (*domain.Payment, error) {
-	exec := txcontext.GetExecutor(ctx, r.db)
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	query := `
 		SELECT id, tenant_id, order_id, amount, currency, status,
 		       provider, external_id, payment_instructions, raw_webhook_payload,
@@ -171,7 +172,7 @@ func (r *PaymentRepository) FindByID(ctx context.Context, id string) (*domain.Pa
 
 // FindByIDForUpdate locks the payment row for pessimistic concurrency control during webhook processing.
 func (r *PaymentRepository) FindByIDForUpdate(ctx context.Context, id string) (*domain.Payment, error) {
-	exec := txcontext.GetExecutor(ctx, r.db)
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	query := `
 		SELECT id, tenant_id, order_id, amount, currency, status,
 		       provider, external_id, payment_instructions, raw_webhook_payload,
@@ -182,7 +183,7 @@ func (r *PaymentRepository) FindByIDForUpdate(ctx context.Context, id string) (*
 }
 
 func (r *PaymentRepository) FindByOrderID(ctx context.Context, tenantID, orderID string) (*domain.Payment, error) {
-	exec := txcontext.GetExecutor(ctx, r.db)
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	query := `
 		SELECT id, tenant_id, order_id, amount, currency, status,
 		       provider, external_id, payment_instructions, raw_webhook_payload,
@@ -194,7 +195,7 @@ func (r *PaymentRepository) FindByOrderID(ctx context.Context, tenantID, orderID
 }
 
 func (r *PaymentRepository) FindExpiredPayments(ctx context.Context, ttlDuration time.Duration, limit int) ([]*domain.Payment, error) {
-	exec := txcontext.GetExecutor(ctx, r.db)
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	cutoff := time.Now().Add(-ttlDuration)
 
 	query := `
@@ -225,7 +226,7 @@ func (r *PaymentRepository) FindExpiredPayments(ctx context.Context, ttlDuration
 }
 
 func (r *PaymentRepository) CreateAttempt(ctx context.Context, input CreateAttemptInput) error {
-	exec := txcontext.GetExecutor(ctx, r.db)
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	query := `
 		INSERT INTO payment_attempts (
 			id, payment_id, tenant_id, provider, external_session_id,
@@ -253,7 +254,7 @@ func (r *PaymentRepository) CreateAttempt(ctx context.Context, input CreateAttem
 }
 
 func (r *PaymentRepository) UpdateAttempt(ctx context.Context, input UpdateAttemptInput) error {
-	exec := txcontext.GetExecutor(ctx, r.db)
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	updatedAt := time.Now()
 
 	query := `
@@ -277,7 +278,7 @@ func (r *PaymentRepository) UpdateAttempt(ctx context.Context, input UpdateAttem
 }
 
 func (r *PaymentRepository) FindAttemptsByPaymentID(ctx context.Context, paymentID string) ([]*domain.PaymentAttempt, error) {
-	exec := txcontext.GetExecutor(ctx, r.db)
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	query := `
 		SELECT id, payment_id, tenant_id, provider, external_session_id,
 		       status, error_message, created_at, updated_at

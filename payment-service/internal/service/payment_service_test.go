@@ -71,6 +71,10 @@ func (m *mockPaymentRepo) FindExpiredPayments(ctx context.Context, ttlDuration t
 
 type mockInboxRepo struct{}
 
+func (m *mockInboxRepo) TryInsert(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
+	return false, nil
+}
+
 func (m *mockInboxRepo) SaveInboxEvent(ctx context.Context, eventID string, eventType string) error {
 	return nil
 }

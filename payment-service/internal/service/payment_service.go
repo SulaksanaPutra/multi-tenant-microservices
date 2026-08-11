@@ -29,6 +29,7 @@ type PaymentRepository interface {
 }
 
 type InboxRepository interface {
+	TryInsert(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error)
 	SaveInboxEvent(ctx context.Context, eventID string, eventType string) error
 }
 

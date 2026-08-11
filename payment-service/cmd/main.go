@@ -68,10 +68,10 @@ func main() {
 
 	// 2. Initialize Repositories & TxManager
 	txManager := txcontext.NewTxManager(dbClient.DB)
-	paymentRepository := repository.NewPaymentRepository(dbClient.DB)
-	inboxRepository := repository.NewInboxRepository(dbClient.DB)
-	outboxRepository := repository.NewOutboxRepository(dbClient.DB)
-	pspConfigRepository := repository.NewPSPConfigRepository(dbClient.DB)
+	paymentRepository := repository.NewPaymentRepository(dbClient)
+	inboxRepository := repository.NewInboxRepository(dbClient)
+	outboxRepository := repository.NewOutboxRepository(dbClient)
+	pspConfigRepository := repository.NewPSPConfigRepository(dbClient)
 
 	postgresResolver := provider.NewPostgresTenantPSPResolver(
 		pspConfigRepository,
