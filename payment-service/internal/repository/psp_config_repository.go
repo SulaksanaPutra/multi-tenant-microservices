@@ -21,15 +21,21 @@ func NewPSPConfigRepository(db *sql.DB) *PSPConfigRepository {
 	return &PSPConfigRepository{db: db}
 }
 
-func (r *PSPConfigRepository) SaveConfig(ctx context.Context, config *domain.TenantPSPConfig, masterKey []byte) error {
+type SaveConfigInput struct {
+	TenantID        string
+	PriorityChain   []domain.ProviderType
+	ProviderConfigs map[domain.ProviderType]domain.ProviderCredentials
+}
+
+func (r *PSPConfigRepository) SaveConfig(ctx context.Context, input SaveConfigInput, masterKey []byte) error {
 	exec := txcontext.GetExecutor(ctx, r.db)
 
-	chainJSON, err := json.Marshal(config.PriorityChain)
+	chainJSON, err := json.Marshal(input.PriorityChain)
 	if err != nil {
 		return fmt.Errorf("failed to marshal priority chain: %w", err)
 	}
 
-	credsJSON, err := json.Marshal(config.ProviderConfigs)
+	credsJSON, err := json.Marshal(input.ProviderConfigs)
 	if err != nil {
 		return fmt.Errorf("failed to marshal provider credentials: %w", err)
 	}
@@ -49,7 +55,7 @@ func (r *PSPConfigRepository) SaveConfig(ctx context.Context, config *domain.Ten
 			updated_at = EXCLUDED.updated_at
 	`
 
-	_, err = exec.ExecContext(ctx, query, config.TenantID, chainJSON, encryptedCreds, now, now)
+	_, err = exec.ExecContext(ctx, query, input.TenantID, chainJSON, encryptedCreds, now, now)
 	if err != nil {
 		return fmt.Errorf("failed to save tenant PSP config: %w", err)
 	}

@@ -130,7 +130,7 @@ func TestInboxRepository_TryInsert_GenericError(t *testing.T) {
 	}
 }
 
-func TestInboxRepository_GetEventsByTenantID_QueryError(t *testing.T) {
+func TestInboxRepository_ListEventsByTenantID_QueryError(t *testing.T) {
 	dbErr := errors.New("query failure")
 	mockExec := &testutil.MockDBExecutor{
 		QueryContextFn: func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
@@ -141,7 +141,7 @@ func TestInboxRepository_GetEventsByTenantID_QueryError(t *testing.T) {
 	repo := NewInboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	events, err := repo.GetEventsByTenantID(ctx, "tenant-test")
+	events, err := repo.ListEventsByTenantID(ctx, "tenant-test")
 	if err == nil {
 		t.Fatal("expected query error, got nil")
 	}
@@ -153,7 +153,7 @@ func TestInboxRepository_GetEventsByTenantID_QueryError(t *testing.T) {
 	}
 }
 
-func TestInboxRepository_GetEventsByTenantID_EmptyResult(t *testing.T) {
+func TestInboxRepository_ListEventsByTenantID_EmptyResult(t *testing.T) {
 	mockDB, _ := sql.Open("postgres", "host=localhost port=1 user=dummy dbname=dummy sslmode=disable")
 	_ = mockDB.Close()
 
@@ -167,7 +167,7 @@ func TestInboxRepository_GetEventsByTenantID_EmptyResult(t *testing.T) {
 	repo := NewInboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	events, err := repo.GetEventsByTenantID(ctx, "tenant-test")
+	events, err := repo.ListEventsByTenantID(ctx, "tenant-test")
 	if err != nil {
 		t.Fatalf("expected nil error on empty query result, got %v", err)
 	}

@@ -10,4 +10,7 @@ var (
 	ErrNoAvailableProvider      = errors.New("no available payment provider in fallback chain")
 	ErrProviderTransientFailure = errors.New("payment provider transient failure")
 	ErrDuplicateEvent           = errors.New("duplicate event already processed in inbox")
+	ErrInvalidCiphertext        = errors.New("invalid ciphertext or decryption failure")
+	ErrEmptyMasterKey           = errors.New("master key is empty")
+	ErrCircuitOpen              = errors.New("circuit breaker is open")
 )

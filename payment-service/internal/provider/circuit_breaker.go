@@ -1,12 +1,9 @@
 package provider
 
 import (
-	"errors"
 	"sync"
 	"time"
 )
-
-var ErrCircuitOpen = errors.New("circuit breaker is open")
 
 type State string
 

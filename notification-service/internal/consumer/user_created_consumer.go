@@ -26,7 +26,7 @@ type NotificationService interface {
 // InboxService is the consumer-side interface expected by UserCreatedConsumer.
 type InboxService interface {
 	ClaimEvent(txCtx context.Context, input service.ClaimInboxInput) (bool, error)
-	GetBarrierEvents(txCtx context.Context, tenantID string) ([]domain.InboxMessage, error)
+	ListBarrierEvents(txCtx context.Context, tenantID string) ([]domain.InboxMessage, error)
 }
 
 // AuthClient is the consumer-side interface expected by UserCreatedConsumer.
@@ -200,7 +200,7 @@ func (c *UserCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Del
 		}
 
 		// Step 2: Read the full barrier state for this tenant (consistent inside the tx).
-		events, err := c.inboxService.GetBarrierEvents(txCtx, evt.TenantID)
+		events, err := c.inboxService.ListBarrierEvents(txCtx, evt.TenantID)
 		if err != nil {
 			return fmt.Errorf("failed to fetch barrier events: %w", err)
 		}

@@ -51,7 +51,7 @@ func (m *mockNotificationService) CreateOrderNotification(ctx context.Context, e
 
 type mockInboxService struct {
 	claimEventFunc       func(txCtx context.Context, input service.ClaimInboxInput) (bool, error)
-	getBarrierEventsFunc func(txCtx context.Context, tenantID string) ([]domain.InboxMessage, error)
+	listBarrierEventsFunc func(txCtx context.Context, tenantID string) ([]domain.InboxMessage, error)
 }
 
 func (m *mockInboxService) ClaimEvent(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
@@ -61,9 +61,9 @@ func (m *mockInboxService) ClaimEvent(txCtx context.Context, input service.Claim
 	return false, nil
 }
 
-func (m *mockInboxService) GetBarrierEvents(txCtx context.Context, tenantID string) ([]domain.InboxMessage, error) {
-	if m.getBarrierEventsFunc != nil {
-		return m.getBarrierEventsFunc(txCtx, tenantID)
+func (m *mockInboxService) ListBarrierEvents(txCtx context.Context, tenantID string) ([]domain.InboxMessage, error) {
+	if m.listBarrierEventsFunc != nil {
+		return m.listBarrierEventsFunc(txCtx, tenantID)
 	}
 	return []domain.InboxMessage{}, nil
 }

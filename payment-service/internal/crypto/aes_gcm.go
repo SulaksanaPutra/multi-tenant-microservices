@@ -5,14 +5,10 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
-	"errors"
 	"fmt"
 	"io"
-)
 
-var (
-	ErrInvalidCiphertext = errors.New("invalid ciphertext or corrupted payload")
-	ErrEmptyMasterKey    = errors.New("master encryption key cannot be empty")
+	"payment-service/internal/domain"
 )
 
 func deriveKey(masterKey []byte) []byte {
@@ -25,7 +21,7 @@ func deriveKey(masterKey []byte) []byte {
 
 func EncryptAESGCM(plaintext []byte, masterKey []byte) ([]byte, error) {
 	if len(masterKey) == 0 {
-		return nil, ErrEmptyMasterKey
+		return nil, domain.ErrEmptyMasterKey
 	}
 
 	key := deriveKey(masterKey)
@@ -50,7 +46,7 @@ func EncryptAESGCM(plaintext []byte, masterKey []byte) ([]byte, error) {
 
 func DecryptAESGCM(ciphertext []byte, masterKey []byte) ([]byte, error) {
 	if len(masterKey) == 0 {
-		return nil, ErrEmptyMasterKey
+		return nil, domain.ErrEmptyMasterKey
 	}
 
 	key := deriveKey(masterKey)
@@ -66,13 +62,13 @@ func DecryptAESGCM(ciphertext []byte, masterKey []byte) ([]byte, error) {
 
 	nonceSize := gcm.NonceSize()
 	if len(ciphertext) < nonceSize {
-		return nil, ErrInvalidCiphertext
+		return nil, domain.ErrInvalidCiphertext
 	}
 
 	nonce, encryptedPayload := ciphertext[:nonceSize], ciphertext[nonceSize:]
 	plaintext, err := gcm.Open(nil, nonce, encryptedPayload, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt payload: %w", ErrInvalidCiphertext)
+		return nil, fmt.Errorf("failed to decrypt payload: %w", domain.ErrInvalidCiphertext)
 	}
 
 	return plaintext, nil

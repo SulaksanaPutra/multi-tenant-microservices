@@ -187,7 +187,7 @@ func checkFile(fset *token.FileSet, file *ast.File, service, relPath string, isT
 			}
 
 			// Rule 6.1 — Repository write methods must accept DTOs
-			if isWriteMethod(fn.Name.Name) {
+			if strings.Contains(relPath, "/repository/") && isWriteMethod(fn.Name.Name) {
 				if fn.Type.Params != nil {
 					for _, param := range fn.Type.Params.List {
 						if isDomainStruct(param.Type) {

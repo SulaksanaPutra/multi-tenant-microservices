@@ -21,7 +21,7 @@ type ClaimInboxInput struct {
 // InboxServiceRepository is the consumer-side interface expected by InboxService.
 type InboxServiceRepository interface {
 	TryInsert(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error)
-	GetEventsByTenantID(ctx context.Context, tenantID string) ([]domain.InboxMessage, error)
+	ListEventsByTenantID(ctx context.Context, tenantID string) ([]domain.InboxMessage, error)
 	AcquireTenantLock(ctx context.Context, tenantID string) error
 }
 
@@ -62,13 +62,9 @@ func (s *InboxService) ClaimEvent(txCtx context.Context, input ClaimInboxInput) 
 	return isDuplicate, nil
 }
 
-// GetBarrierEvents returns all inbox events recorded for the given tenant.
-// Called at Layer 1 by consumers after ClaimEvent succeeds, so that the resulting
-// []domain.InboxMessage slice can be passed as data into the business service.
-// This participates in the Outer Unit-of-Work via txCtx, ensuring the read is
-// consistent with the just-inserted ClaimEvent row within the same transaction.
-func (s *InboxService) GetBarrierEvents(txCtx context.Context, tenantID string) ([]domain.InboxMessage, error) {
-	events, err := s.inboxRepository.GetEventsByTenantID(txCtx, tenantID)
+// ListBarrierEvents returns all inbox events recorded for the given tenant.
+func (s *InboxService) ListBarrierEvents(txCtx context.Context, tenantID string) ([]domain.InboxMessage, error) {
+	events, err := s.inboxRepository.ListEventsByTenantID(txCtx, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("inbox service: failed to fetch barrier events for tenant_id='%s': %w", tenantID, err)
 	}

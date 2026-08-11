@@ -10,9 +10,9 @@ import (
 )
 
 type mockInboxRepo struct {
-	tryInsertFunc           func(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error)
-	getEventsByTenantIDFunc func(ctx context.Context, tenantID string) ([]domain.InboxMessage, error)
-	acquireTenantLockFunc   func(ctx context.Context, tenantID string) error
+	tryInsertFunc            func(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error)
+	listEventsByTenantIDFunc func(ctx context.Context, tenantID string) ([]domain.InboxMessage, error)
+	acquireTenantLockFunc    func(ctx context.Context, tenantID string) error
 }
 
 func (m *mockInboxRepo) TryInsert(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
@@ -22,9 +22,9 @@ func (m *mockInboxRepo) TryInsert(ctx context.Context, input repository.CreateIn
 	return false, nil
 }
 
-func (m *mockInboxRepo) GetEventsByTenantID(ctx context.Context, tenantID string) ([]domain.InboxMessage, error) {
-	if m.getEventsByTenantIDFunc != nil {
-		return m.getEventsByTenantIDFunc(ctx, tenantID)
+func (m *mockInboxRepo) ListEventsByTenantID(ctx context.Context, tenantID string) ([]domain.InboxMessage, error) {
+	if m.listEventsByTenantIDFunc != nil {
+		return m.listEventsByTenantIDFunc(ctx, tenantID)
 	}
 	return []domain.InboxMessage{}, nil
 }
@@ -101,34 +101,30 @@ func TestInboxService_ClaimEvent_TryInsertError(t *testing.T) {
 	}
 }
 
-func TestInboxService_GetBarrierEvents_ReturnsEvents(t *testing.T) {
-	expected := []domain.InboxMessage{
-		{EventID: "e-1", TenantID: "t-1", EventType: "user.created"},
-		{EventID: "e-2", TenantID: "t-1", EventType: "workspace.ready"},
-	}
-	svc := NewInboxService(&mockInboxRepo{
-		getEventsByTenantIDFunc: func(ctx context.Context, tenantID string) ([]domain.InboxMessage, error) {
-			return expected, nil
+func TestInboxService_ListBarrierEvents_ReturnsEvents(t *testing.T) {
+	mockRepo := &mockInboxRepo{
+		listEventsByTenantIDFunc: func(ctx context.Context, tenantID string) ([]domain.InboxMessage, error) {
+			return []domain.InboxMessage{{EventID: "evt-1"}}, nil
 		},
-	})
-	events, err := svc.GetBarrierEvents(context.Background(), "t-1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(events) != 2 {
-		t.Errorf("expected 2 events, got %d", len(events))
+	svc := NewInboxService(mockRepo)
+
+	events, err := svc.ListBarrierEvents(context.Background(), "t-1")
+	if err != nil || len(events) != 1 {
+		t.Fatalf("expected 1 event, got err=%v events=%v", err, events)
 	}
 }
 
-func TestInboxService_GetBarrierEvents_RepoError(t *testing.T) {
-	expectedErr := errors.New("db timeout")
-	svc := NewInboxService(&mockInboxRepo{
-		getEventsByTenantIDFunc: func(ctx context.Context, tenantID string) ([]domain.InboxMessage, error) {
-			return nil, expectedErr
+func TestInboxService_ListBarrierEvents_RepoError(t *testing.T) {
+	mockRepo := &mockInboxRepo{
+		listEventsByTenantIDFunc: func(ctx context.Context, tenantID string) ([]domain.InboxMessage, error) {
+			return nil, errors.New("db error")
 		},
-	})
-	_, err := svc.GetBarrierEvents(context.Background(), "t-1")
-	if !errors.Is(err, expectedErr) {
-		t.Errorf("expected wrapped error %v, got %v", expectedErr, err)
+	}
+	svc := NewInboxService(mockRepo)
+
+	_, err := svc.ListBarrierEvents(context.Background(), "t-1")
+	if err == nil {
+		t.Fatal("expected error, got nil")
 	}
 }

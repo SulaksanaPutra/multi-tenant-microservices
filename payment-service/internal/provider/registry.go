@@ -109,7 +109,7 @@ func (r *ProviderRegistry) ExecuteFallbackChain(ctx context.Context, req domain.
 		breaker := r.breakers[providerID]
 		if breaker != nil && !breaker.Allow() {
 			res.FailedAttempts = append(res.FailedAttempts, providerID)
-			res.AttemptErrors[providerID] = ErrCircuitOpen
+			res.AttemptErrors[providerID] = domain.ErrCircuitOpen
 			continue
 		}
 

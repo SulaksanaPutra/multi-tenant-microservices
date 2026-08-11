@@ -173,7 +173,7 @@ func (c *WorkspaceReadyConsumer) handleDelivery(ctx context.Context, d rabbitmq.
 		}
 
 		// Step 2: Read the full barrier state for this tenant (consistent inside the tx).
-		events, err := c.inboxService.GetBarrierEvents(txCtx, evt.TenantID)
+		events, err := c.inboxService.ListBarrierEvents(txCtx, evt.TenantID)
 		if err != nil {
 			return fmt.Errorf("failed to fetch barrier events: %w", err)
 		}

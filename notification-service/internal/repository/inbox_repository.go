@@ -61,7 +61,7 @@ func (r *InboxRepository) TryInsert(ctx context.Context, input CreateInboxMessag
 	return false, nil // isDuplicate = false, safe to process
 }
 
-func (r *InboxRepository) GetEventsByTenantID(ctx context.Context, tenantID string) ([]domain.InboxMessage, error) {
+func (r *InboxRepository) ListEventsByTenantID(ctx context.Context, tenantID string) ([]domain.InboxMessage, error) {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	const query = `
 		SELECT event_id, tenant_id, event_type, payload

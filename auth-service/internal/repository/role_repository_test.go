@@ -210,7 +210,7 @@ func TestRoleRepository_FindRolesByTenantID(t *testing.T) {
 	}
 }
 
-func TestRoleRepository_GetPermissionsForRole(t *testing.T) {
+func TestRoleRepository_ListPermissionsForRole(t *testing.T) {
 	dbErr := errors.New("get perms error")
 	mockExec := &testutil.MockDBExecutor{
 		QueryContextFn: func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
@@ -221,7 +221,7 @@ func TestRoleRepository_GetPermissionsForRole(t *testing.T) {
 	repo := NewRoleRepository(&postgres.Client{})
 	ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-	perms, err := repo.GetPermissionsForRole(ctxWithExec, "role_123")
+	perms, err := repo.ListPermissionsForRole(ctxWithExec, "role_123")
 	if perms != nil {
 		t.Errorf("expected nil perms on query error, got %v", perms)
 	}

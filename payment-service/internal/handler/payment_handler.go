@@ -169,7 +169,7 @@ func (h *PaymentHandler) GetPSPConfig(c *gin.Context) {
 	}
 
 	if cfg == nil {
-		cfg = &domain.TenantPSPConfig{
+		cfg = &service.TenantPSPConfigOutput{
 			TenantID:        tenantID,
 			PriorityChain:   []domain.ProviderType{domain.ProviderMock, domain.ProviderDirectBank},
 			ProviderConfigs: make(map[domain.ProviderType]domain.ProviderCredentials),

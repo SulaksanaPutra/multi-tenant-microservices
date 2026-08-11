@@ -20,15 +20,68 @@ func NewPaymentRepository(db *sql.DB) *PaymentRepository {
 	return &PaymentRepository{db: db}
 }
 
-func (r *PaymentRepository) Create(ctx context.Context, p *domain.Payment) error {
+type CreatePaymentInput struct {
+	ID                  string
+	TenantID            string
+	OrderID             string
+	Amount              float64
+	Currency            string
+	Status              domain.PaymentStatus
+	Provider            domain.ProviderType
+	ExternalID          string
+	Instructions        domain.PaymentInstructions
+	RawWebhookPayload   map[string]any
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+type UpdatePaymentInput struct {
+	ID                  string
+	TenantID            string
+	OrderID             string
+	Amount              float64
+	Currency            string
+	Status              domain.PaymentStatus
+	Provider            domain.ProviderType
+	ExternalID          string
+	Instructions        domain.PaymentInstructions
+	RawWebhookPayload   map[string]any
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+type CreateAttemptInput struct {
+	ID                string
+	PaymentID         string
+	TenantID          string
+	Provider          domain.ProviderType
+	ExternalSessionID string
+	Status            domain.AttemptStatus
+	ErrorMessage      string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type UpdateAttemptInput struct {
+	ID                string
+	PaymentID         string
+	TenantID          string
+	Provider          domain.ProviderType
+	ExternalSessionID string
+	Status            domain.AttemptStatus
+	ErrorMessage      string
+	UpdatedAt         time.Time
+}
+
+func (r *PaymentRepository) Create(ctx context.Context, input CreatePaymentInput) error {
 	exec := txcontext.GetExecutor(ctx, r.db)
 
-	instructionsJSON, err := json.Marshal(p.Instructions)
+	instructionsJSON, err := json.Marshal(input.Instructions)
 	if err != nil {
 		return fmt.Errorf("failed to marshal instructions: %w", err)
 	}
 
-	payloadJSON, err := json.Marshal(p.RawWebhookPayload)
+	payloadJSON, err := json.Marshal(input.RawWebhookPayload)
 	if err != nil {
 		payloadJSON = []byte("{}")
 	}
@@ -42,15 +95,16 @@ func (r *PaymentRepository) Create(ctx context.Context, p *domain.Payment) error
 	`
 
 	now := time.Now()
-	if p.CreatedAt.IsZero() {
-		p.CreatedAt = now
+	createdAt := input.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = now
 	}
-	p.UpdatedAt = now
+	updatedAt := now
 
 	_, err = exec.ExecContext(ctx, query,
-		p.ID, p.TenantID, p.OrderID, p.Amount, p.Currency, string(p.Status),
-		string(p.Provider), p.ExternalID, instructionsJSON, payloadJSON,
-		p.CreatedAt, p.UpdatedAt,
+		input.ID, input.TenantID, input.OrderID, input.Amount, input.Currency, string(input.Status),
+		string(input.Provider), input.ExternalID, instructionsJSON, payloadJSON,
+		createdAt, updatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert payment: %w", err)
@@ -59,20 +113,20 @@ func (r *PaymentRepository) Create(ctx context.Context, p *domain.Payment) error
 	return nil
 }
 
-func (r *PaymentRepository) Update(ctx context.Context, p *domain.Payment) error {
+func (r *PaymentRepository) Update(ctx context.Context, input UpdatePaymentInput) error {
 	exec := txcontext.GetExecutor(ctx, r.db)
 
-	instructionsJSON, err := json.Marshal(p.Instructions)
+	instructionsJSON, err := json.Marshal(input.Instructions)
 	if err != nil {
 		return fmt.Errorf("failed to marshal instructions: %w", err)
 	}
 
-	payloadJSON, err := json.Marshal(p.RawWebhookPayload)
+	payloadJSON, err := json.Marshal(input.RawWebhookPayload)
 	if err != nil {
 		payloadJSON = []byte("{}")
 	}
 
-	p.UpdatedAt = time.Now()
+	updatedAt := time.Now()
 
 	query := `
 		UPDATE payments SET
@@ -86,8 +140,8 @@ func (r *PaymentRepository) Update(ctx context.Context, p *domain.Payment) error
 	`
 
 	res, err := exec.ExecContext(ctx, query,
-		string(p.Status), string(p.Provider), p.ExternalID,
-		instructionsJSON, payloadJSON, p.UpdatedAt, p.ID,
+		string(input.Status), string(input.Provider), input.ExternalID,
+		instructionsJSON, payloadJSON, updatedAt, input.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update payment: %w", err)
@@ -170,7 +224,7 @@ func (r *PaymentRepository) FindExpiredPayments(ctx context.Context, ttlDuration
 	return payments, nil
 }
 
-func (r *PaymentRepository) CreateAttempt(ctx context.Context, att *domain.PaymentAttempt) error {
+func (r *PaymentRepository) CreateAttempt(ctx context.Context, input CreateAttemptInput) error {
 	exec := txcontext.GetExecutor(ctx, r.db)
 	query := `
 		INSERT INTO payment_attempts (
@@ -180,15 +234,16 @@ func (r *PaymentRepository) CreateAttempt(ctx context.Context, att *domain.Payme
 	`
 
 	now := time.Now()
-	if att.CreatedAt.IsZero() {
-		att.CreatedAt = now
+	createdAt := input.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = now
 	}
-	att.UpdatedAt = now
+	updatedAt := now
 
 	_, err := exec.ExecContext(ctx, query,
-		att.ID, att.PaymentID, att.TenantID, string(att.Provider),
-		att.ExternalSessionID, string(att.Status), att.ErrorMessage,
-		att.CreatedAt, att.UpdatedAt,
+		input.ID, input.PaymentID, input.TenantID, string(input.Provider),
+		input.ExternalSessionID, string(input.Status), input.ErrorMessage,
+		createdAt, updatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert payment attempt: %w", err)
@@ -197,9 +252,9 @@ func (r *PaymentRepository) CreateAttempt(ctx context.Context, att *domain.Payme
 	return nil
 }
 
-func (r *PaymentRepository) UpdateAttempt(ctx context.Context, att *domain.PaymentAttempt) error {
+func (r *PaymentRepository) UpdateAttempt(ctx context.Context, input UpdateAttemptInput) error {
 	exec := txcontext.GetExecutor(ctx, r.db)
-	att.UpdatedAt = time.Now()
+	updatedAt := time.Now()
 
 	query := `
 		UPDATE payment_attempts SET
@@ -211,8 +266,8 @@ func (r *PaymentRepository) UpdateAttempt(ctx context.Context, att *domain.Payme
 	`
 
 	_, err := exec.ExecContext(ctx, query,
-		att.ExternalSessionID, string(att.Status), att.ErrorMessage,
-		att.UpdatedAt, att.ID,
+		input.ExternalSessionID, string(input.Status), input.ErrorMessage,
+		updatedAt, input.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update payment attempt: %w", err)

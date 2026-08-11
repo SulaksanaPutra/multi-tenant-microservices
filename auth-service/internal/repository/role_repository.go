@@ -79,7 +79,7 @@ func (r *RoleRepository) FindRoleByID(ctx context.Context, id string) (*domain.R
 	}
 
 	// Fetch permissions attached to this role
-	perms, err := r.GetPermissionsForRole(ctx, id)
+	perms, err := r.ListPermissionsForRole(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +123,7 @@ func (r *RoleRepository) FindRoleByName(ctx context.Context, tenantID *string, n
 		role.TenantID = &tenantIDVal.String
 	}
 
-	perms, err := r.GetPermissionsForRole(ctx, role.ID)
+	perms, err := r.ListPermissionsForRole(ctx, role.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +185,7 @@ func (r *RoleRepository) FindRolesByTenantID(ctx context.Context, tenantID strin
 	return roles, nil
 }
 
-func (r *RoleRepository) GetPermissionsForRole(ctx context.Context, roleID string) ([]domain.Permission, error) {
+func (r *RoleRepository) ListPermissionsForRole(ctx context.Context, roleID string) ([]domain.Permission, error) {
 	exec := txcontext.GetExecutor(ctx, r.dbClient)
 	query := `
 		SELECT p.id, p.name, p.service, COALESCE(p.description, ''), p.created_at, p.updated_at
@@ -352,7 +352,7 @@ func (r *RoleRepository) FindUserRole(ctx context.Context, userID, tenantID stri
 	}
 	ur.Role = &role
 
-	perms, err := r.GetPermissionsForRole(ctx, role.ID)
+	perms, err := r.ListPermissionsForRole(ctx, role.ID)
 	if err != nil {
 		return nil, err
 	}
