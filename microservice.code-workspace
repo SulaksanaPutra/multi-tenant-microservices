@@ -1,0 +1,63 @@
+{
+	"folders": [
+		{
+			"name": ".workspace",
+			"path": "."
+		},
+		{
+			"name": "utils",
+			"path": "../go-microservice-commons"
+		},
+		{
+			"name": "docs",
+			"path": "docs"
+		},
+		{
+			"name": "tools",
+			"path": "tools"
+		},
+		{
+			"name": "scripts",
+			"path": "scripts"
+		},
+		{
+			"name": "e2e-tests",
+			"path": "e2e-tests"
+		},
+		{
+			"name": "infrastructure",
+			"path": "infrastructure"
+		},
+		{
+			"name": "infra-provisioner",
+			"path": "infra-provisioner"
+		},
+		{
+			"name": "tenant-service",
+			"path": "tenant-service"
+		},
+		{
+			"name": "auth-service",
+			"path": "auth-service"
+		},
+		{
+			"name": "user-service",
+			"path": "user-service"
+		},
+		{
+			"name": "order-service",
+			"path": "order-service"
+		},
+		{
+			"name": "payment-service",
+			"path": "payment-service"
+		},
+		{
+			"name": "notification-service",
+			"path": "notification-service"
+		}
+	],
+	"settings": {
+		"explorer.sortOrder": "default"
+	}
+}
