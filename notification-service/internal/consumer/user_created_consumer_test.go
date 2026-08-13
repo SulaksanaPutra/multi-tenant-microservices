@@ -206,7 +206,7 @@ func TestUserCreatedConsumer_HandleDelivery_DuplicateInbox_Acks(t *testing.T) {
 
 	inbox := &mockInboxService{
 		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
-			return true, nil // duplicate  Eskip cleanly
+			return true, nil // duplicate  Eskip cleanly
 		},
 	}
 
@@ -302,7 +302,7 @@ func TestUserCreatedConsumer_HandleDelivery_NoEmailWhenBarrierNotMet(t *testing.
 
 	notifSvc := &mockNotificationService{
 		processEventAndTrySendWelcomeFunc: func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
-			return nil, nil // barrier not met  Eno email needed
+			return nil, nil // barrier not met  Eno email needed
 		},
 	}
 
@@ -333,7 +333,7 @@ func TestUserCreatedConsumer_HandleDelivery_NoEmailWhenBarrierNotMet(t *testing.
 func TestUserCreatedConsumer_HandleDelivery_MisroutedRoutingKey_AcksAndDiscards(t *testing.T) {
 	// Simulates a ghost AMQP binding delivering a workspace.ready message to
 	// the notification_service_user_created queue. The routing key guard must
-	// discard silently with Ack  Eno inbox write, no notification service call.
+	// discard silently with Ack  Eno inbox write, no notification service call.
 	body, _ := json.Marshal(domain.WorkspaceReadyEvent{
 		EventID:    "evt-misrouted-1",
 		TenantID:   "tenant-99",

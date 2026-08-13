@@ -150,9 +150,9 @@ func (c *WorkspaceReadyConsumer) handleDelivery(ctx context.Context, d rabbitmq.
 	log.Printf("WorkspaceReadyConsumer processing event_id='%s' for tenant_id='%s'", evt.EventID, evt.TenantID)
 
 	// Phase 1: DB-only work inside the transaction boundary.
-	//  EInbox guard (ClaimEvent) and barrier read (GetBarrierEvents) are Layer 1 responsibilities.
-	//  ENotificationService writes the pending audit log and returns dispatch details.
-	//  ENo external I/O (SMTP, HTTP) is allowed inside this closure.
+	//  EInbox guard (ClaimEvent) and barrier read (GetBarrierEvents) are Layer 1 responsibilities.
+	//  ENotificationService writes the pending audit log and returns dispatch details.
+	//  ENo external I/O (SMTP, HTTP) is allowed inside this closure.
 	var sendDetails *service.ProcessEventOutput
 	err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 		inboxInput := service.ClaimInboxInput{
@@ -162,7 +162,7 @@ func (c *WorkspaceReadyConsumer) handleDelivery(ctx context.Context, d rabbitmq.
 			Payload:   d.Body,
 		}
 
-		// Step 1: Transactional inbox guard  Ededuplicates the event atomically.
+		// Step 1: Transactional inbox guard  Ededuplicates the event atomically.
 		isDup, err := c.inboxService.ClaimEvent(txCtx, inboxInput)
 		if err != nil {
 			return fmt.Errorf("inbox guard failed: %w", err)
@@ -205,15 +205,15 @@ func (c *WorkspaceReadyConsumer) handleDelivery(ctx context.Context, d rabbitmq.
 	if sendDetails != nil {
 		setupToken, fetchErr := c.authClient.FetchSetupToken(ctx, sendDetails.UserID, sendDetails.TenantID, sendDetails.RecipientEmail)
 		if fetchErr != nil {
-			log.Printf("WorkspaceReadyConsumer: Failed to fetch setup token from auth-service for tenant='%s': %v  ENACKing for retry.", sendDetails.TenantID, fetchErr)
+			log.Printf("WorkspaceReadyConsumer: Failed to fetch setup token from auth-service for tenant='%s': %v  ENACKing for retry.", sendDetails.TenantID, fetchErr)
 			_ = d.Nack(false, true)
 			return fetchErr
 		}
 
 		if _, _, mailErr := c.mailer.SendWelcomeEmail(sendDetails.RecipientEmail, sendDetails.TenantID, sendDetails.TenantName, sendDetails.TenantSlug, sendDetails.OwnerName, setupToken); mailErr != nil {
-			log.Printf("WorkspaceReadyConsumer: SMTP dispatch failed for event_id='%s' recipient='%s': %v  ENACKing for retry.",
+			log.Printf("WorkspaceReadyConsumer: SMTP dispatch failed for event_id='%s' recipient='%s': %v  ENACKing for retry.",
 				evt.EventID, sendDetails.RecipientEmail, mailErr)
-			_ = d.Nack(false, true) // Requeue  Einbox ON CONFLICT ensures idempotent retry
+			_ = d.Nack(false, true) // Requeue  Einbox ON CONFLICT ensures idempotent retry
 			return mailErr
 		}
 		log.Printf("WorkspaceReadyConsumer: Welcome email dispatched to '%s' for tenant='%s'", sendDetails.RecipientEmail, sendDetails.TenantID)
