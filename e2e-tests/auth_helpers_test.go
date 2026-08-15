@@ -17,16 +17,12 @@
 package e2e_test
 
 import (
-	"bufio"
 	"bytes"
 	"crypto/rsa"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -36,53 +32,23 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-const (
-	gatewayBaseURL = "http://localhost:8000"
-	authServiceURL = "http://localhost:8085"
+var (
+	gatewayBaseURL = getTestConfig().GatewayURL
+	authServiceURL = getTestConfig().AuthServiceURL
 	authLoginURL   = authServiceURL + "/api/auth/login"
 	authRefreshURL = authServiceURL + "/api/auth/refresh"
-)
 
-// Direct-DB DSNs are vars so init() can remap them for the premium tier, where
-// each service owns a dedicated postgres container exposed on its own host port.
-var (
-	// userDBDSN is the local DSN for the user_db used as a fallback to resolve
-	// user_id when the registration response does not include it.
-	userDBDSN = "host=localhost port=5432 user=postgres password=postgres dbname=user_db sslmode=disable"
-	// notificationDBDSN is the local DSN for the notification_db.
-	notificationDBDSN = "host=localhost port=5432 user=postgres password=postgres dbname=notification_db sslmode=disable"
+	userDBDSN         = getTestConfig().UserDBDSN
+	notificationDBDSN = getTestConfig().NotificationDBDSN
+	tenantDBDSN       = getTestConfig().TenantDBDSN
+	sharedDBDSN       = getTestConfig().SharedDBDSN
+	paymentDBDSN      = getTestConfig().PaymentDBDSN
 )
-
-// init remaps the direct-DB DSNs for the premium tier. The e2e suite runs on the
-// host: standard/lite keep the shared postgres on 5432, while premium exposes the
-// per-service postgres containers on dedicated host ports (see infrastructure/
-// docker-compose.yml, per-service-db profile). Run: TIER=premium go test ./...
-func init() {
-	tier := os.Getenv("TIER")
-	if tier == "" {
-		if data, err := os.ReadFile("../.active-tier"); err == nil {
-			tier = strings.TrimSpace(string(data))
-			if tier != "" {
-				_ = os.Setenv("TIER", tier)
-			}
-		}
-	}
-	if tier != "premium" {
-		return
-	}
-	tenantDBDSN = "host=localhost port=5433 user=postgres password=postgres dbname=tenant_manager_db sslmode=disable"
-	userDBDSN = "host=localhost port=5434 user=postgres password=postgres dbname=user_db sslmode=disable"
-	sharedDBDSN = "host=localhost port=5435 user=postgres password=postgres dbname=shared_db sslmode=disable"
-	notificationDBDSN = "host=localhost port=5437 user=postgres password=postgres dbname=notification_db sslmode=disable"
-}
 
 // internalServiceToken resolves the inter-service bearer token (X-Internal-Service-Token)
-// from the environment, falling back to the documented docker-compose default when unset.
+// from the unified test configuration.
 func internalServiceToken() string {
-	if v := os.Getenv("INTERNAL_SERVICE_TOKEN"); v != "" {
-		return v
-	}
-	return "default_internal_service_token"
+	return getTestConfig().InternalServiceToken
 }
 
 // defaultHTTPClient is the shared HTTP client used by all E2E tests.
@@ -269,66 +235,10 @@ func bearerHeader(token string) string {
 // JWT Key Helpers
 // --------------------------------------------------------------------------
 
-// loadRSAPrivateKey resolves the RSA private key used by auth-service.
-// Instruction:
-//  1. Checks AUTH_JWT_PRIVATE_KEY_PEM env variable.
-//  2. If empty, inspects nearby .env files (auth-service/.env, .env).
-//  3. Parses PEM string into *rsa.PrivateKey.
-//
-// Architectural Invariant:
-//
-//	Required for security E2E tests (e.g. TC-E2E-012 expired token simulation).
+// loadRSAPrivateKey resolves the RSA private key used by auth-service from TestConfig.
 func loadRSAPrivateKey(t *testing.T) *rsa.PrivateKey {
 	t.Helper()
-
-	pemStr := os.Getenv("AUTH_JWT_PRIVATE_KEY_PEM")
-
-	if pemStr == "" {
-		paths := []string{
-			"../auth-service/.env",
-			"../.env",
-			"./.env",
-		}
-		for _, p := range paths {
-			absPath, err := filepath.Abs(p)
-			if err != nil {
-				continue
-			}
-			f, err := os.Open(absPath)
-			if err != nil {
-				continue
-			}
-			scanner := bufio.NewScanner(f)
-			for scanner.Scan() {
-				line := strings.TrimSpace(scanner.Text())
-				if line == "" || strings.HasPrefix(line, "#") {
-					continue
-				}
-				parts := strings.SplitN(line, "=", 2)
-				if len(parts) == 2 && strings.TrimSpace(parts[0]) == "AUTH_JWT_PRIVATE_KEY_PEM" {
-					val := strings.TrimSpace(parts[1])
-					val = strings.Trim(val, `"'`)
-					val = strings.ReplaceAll(val, `\n`, "\n")
-					pemStr = val
-					break
-				}
-			}
-			f.Close()
-			if pemStr != "" {
-				break
-			}
-		}
-	}
-
-	if pemStr == "" {
-		t.Fatalf("[Auth] AUTH_JWT_PRIVATE_KEY_PEM is not set and could not be loaded from any .env file")
-	}
-
-	privateKey, err := jwt.ParseRSAPrivateKeyFromPEM([]byte(pemStr))
-	if err != nil {
-		t.Fatalf("[Auth] Failed to parse RSA private key PEM: %v", err)
-	}
-	return privateKey
+	return getTestConfig().RSAPrivateKey(t)
 }
 
 // --------------------------------------------------------------------------
@@ -472,20 +382,28 @@ func registerAndActivateTenant(t *testing.T, plan ...string) (tenantID, userID, 
 	}
 
 	// 4. Wait for workspace.initiated event on RabbitMQ queue (10s timeout) and extract tenant_id
-	select {
-	case d := <-msgs:
-		var event map[string]any
-		if err := json.Unmarshal(d.Body, &event); err != nil {
-			t.Fatalf("[Setup] Failed to unmarshal RabbitMQ event payload: %v", err)
+	timer := time.NewTimer(15 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case d := <-msgs:
+			var event map[string]any
+			if err := json.Unmarshal(d.Body, &event); err != nil {
+				continue
+			}
+			evEmail, _ := event["owner_email"].(string)
+			tID, ok := event["tenant_id"].(string)
+			if ok && tID != "" && (evEmail == "" || evEmail == ownerEmail) {
+				tenantID = tID
+				t.Logf("[Setup] Extracted tenant_id='%s' from workspace.initiated event on RabbitMQ", tenantID)
+				break
+			}
+		case <-timer.C:
+			t.Fatalf("[Setup] Timed out waiting for workspace.initiated event on RabbitMQ for owner='%s'", ownerEmail)
 		}
-		tID, ok := event["tenant_id"].(string)
-		if !ok || tID == "" {
-			t.Fatalf("[Setup] RabbitMQ event missing tenant_id: %v", event)
+		if tenantID != "" {
+			break
 		}
-		tenantID = tID
-		t.Logf("[Setup] Extracted tenant_id='%s' from workspace.initiated event on RabbitMQ", tenantID)
-	case <-time.After(10 * time.Second):
-		t.Fatalf("[Setup] Timed out waiting for workspace.initiated event on RabbitMQ")
 	}
 
 	// 5. Poll tenant_manager_db using waitForTenantActive until status is 'active'
@@ -501,7 +419,7 @@ func registerAndActivateTenant(t *testing.T, plan ...string) (tenantID, userID, 
 	userID = resolveUserID(t, regResp, ownerEmail)
 
 	// 7. Return tenantID, userID, ownerEmail, and a generated password
-	password = fmt.Sprintf("Pass_%d!", time.Now().UnixNano()%100000)
+	password = fmt.Sprintf("SecurePass_%06d!", time.Now().UnixNano()%1000000)
 	t.Logf("[Setup] Tenant '%s' activated (userID='%s', ownerEmail='%s')", tenantID, userID, ownerEmail)
 
 	return tenantID, userID, ownerEmail, password

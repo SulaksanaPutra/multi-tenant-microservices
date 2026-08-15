@@ -35,12 +35,11 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-const (
-	gatewayURL  = "http://localhost:8000/api/tenants/register"
-	postgresDSN = "host=localhost port=5432 user=postgres password=postgres dbname=tenant_manager_db sslmode=disable"
-	rabbitmqURL = "amqp://guest:guest@localhost:5672/"
-	rabbitmqAPI = "http://localhost:15672/api/exchanges/%2F/company.events"
-	mailpitAPI  = "http://localhost:8025/api/v1/messages"
+var (
+	gatewayURL  = gatewayRegisterURL
+	rabbitmqURL = getTestConfig().RabbitMQURL
+	rabbitmqAPI = getTestConfig().RabbitMQAPIURL
+	mailpitAPI  = getTestConfig().MailpitAPIURL
 )
 
 type RegisterRequest struct {
@@ -193,33 +192,41 @@ func TestFullMicroservicesFlow_E2E_Success(t *testing.T) {
 	// Architectural Invariant: tenant_id is communicated via control-plane events, not public HTTP APIs.
 	// =========================================================================
 	var tenantID string
-	select {
-	case d := <-msgs:
-		var event WorkspaceInitiatedEvent
-		if err := json.Unmarshal(d.Body, &event); err != nil {
-			t.Fatalf("Failed to unmarshal WorkspaceInitiated event payload: %v", err)
+	timer := time.NewTimer(15 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case d := <-msgs:
+			var event WorkspaceInitiatedEvent
+			if err := json.Unmarshal(d.Body, &event); err != nil {
+				continue
+			}
+
+			if event.TenantID == "" || !strings.HasPrefix(event.TenantID, "tnt_") {
+				continue
+			}
+
+			if event.OwnerEmail != testEmail {
+				continue
+			}
+
+			tenantID = event.TenantID
+			t.Logf("3. [Tenant Service] Intercepted WorkspaceInitiated event from RabbitMQ! Extracted tenant_id='%s', owner_email='%s'", tenantID, event.OwnerEmail)
+			break
+
+		case <-timer.C:
+			t.Fatalf("Timed out waiting for WorkspaceInitiated RabbitMQ event for email '%s'", testEmail)
 		}
-
-		if event.TenantID == "" || !strings.HasPrefix(event.TenantID, "tnt_") {
-			t.Fatalf("Expected valid tenant_id starting with 'tnt_' in AMQP event, got '%s'", event.TenantID)
+		if tenantID != "" {
+			break
 		}
-
-		if event.OwnerEmail != testEmail {
-			t.Fatalf("Event owner_email mismatch! Expected '%s', got '%s'", testEmail, event.OwnerEmail)
-		}
-
-		tenantID = event.TenantID
-		t.Logf("3. [Tenant Service] Intercepted WorkspaceInitiated event from RabbitMQ! Extracted tenant_id='%s', owner_email='%s'", tenantID, event.OwnerEmail)
-
-	case <-time.After(15 * time.Second):
-		t.Fatalf("Timed out waiting for WorkspaceInitiated RabbitMQ event")
 	}
 
 	// =========================================================================
 	// Step 4: Verify PostgreSQL Control Plane Persistence
 	// Instruction: Query tenant_manager_db public.tenants table for registered tenant_id.
 	// =========================================================================
-	db, err := sql.Open("postgres", postgresDSN)
+	db, err := sql.Open("postgres", tenantDBDSN)
 	if err != nil {
 		t.Fatalf("Failed to connect to PostgreSQL: %v", err)
 	}

@@ -25,19 +25,12 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-const (
-	gatewayRegisterURL = "http://localhost:8000/api/tenants/register"
-	gatewayOrdersURL   = "http://localhost:8000/api/orders"
-	gatewayNotifsURL   = "http://localhost:8000/api/notifications"
-	rabbitmqDSN        = "amqp://guest:guest@localhost:5672/"
-	mailpitAPIURL      = "http://localhost:8025/api/v1/messages"
-)
-
-// tenantDBDSN and sharedDBDSN are vars so init() (auth_helpers_test.go) can
-// remap them to the premium per-service postgres containers.
 var (
-	tenantDBDSN = "host=localhost port=5432 user=postgres password=postgres dbname=tenant_manager_db sslmode=disable"
-	sharedDBDSN = "host=localhost port=5432 user=postgres password=postgres dbname=shared_db sslmode=disable"
+	gatewayRegisterURL = gatewayBaseURL + "/api/tenants/register"
+	gatewayOrdersURL   = gatewayBaseURL + "/api/orders"
+	gatewayNotifsURL   = gatewayBaseURL + "/api/notifications"
+	rabbitmqDSN        = getTestConfig().RabbitMQURL
+	mailpitAPIURL      = getTestConfig().MailpitAPIURL
 )
 
 type OrderRequest struct {
@@ -152,20 +145,28 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 	// Step 3: Intercept AMQP Event Payload & Extract TenantID
 	// =========================================================================
 	var tenantID string
-	select {
-	case d := <-msgs:
-		var event map[string]any
-		_ = json.Unmarshal(d.Body, &event)
-
-		// We now extract the tenantID directly from the message broker payload
-		tID, ok := event["tenant_id"].(string)
-		if !ok || tID == "" {
-			t.Fatalf("RabbitMQ event missing tenant_id: %v", event)
+	timer := time.NewTimer(15 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case d := <-msgs:
+			var event map[string]any
+			if err := json.Unmarshal(d.Body, &event); err != nil {
+				continue
+			}
+			evEmail, _ := event["owner_email"].(string)
+			tID, ok := event["tenant_id"].(string)
+			if ok && tID != "" && (evEmail == "" || evEmail == ownerEmail) {
+				tenantID = tID
+				t.Logf("3. Extracted tenant_id='%s' from workspace.initiated event on RabbitMQ", tenantID)
+				break
+			}
+		case <-timer.C:
+			t.Fatalf("Timed out waiting for workspace.initiated event for email '%s'", ownerEmail)
 		}
-		tenantID = tID
-		t.Logf("3. Extracted tenant_id='%s' from workspace.initiated event on RabbitMQ", tenantID)
-	case <-time.After(10 * time.Second):
-		t.Fatalf("Timed out waiting for workspace.initiated event")
+		if tenantID != "" {
+			break
+		}
 	}
 
 	// =========================================================================

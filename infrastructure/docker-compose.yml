@@ -121,7 +121,7 @@ services:
     profiles: ["per-service-db"]
     restart: always
     ports:
-      - "5436:5432"
+      - "${AUTH_DB_PORT:-5436}:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -142,7 +142,7 @@ services:
     profiles: ["per-service-db"]
     restart: always
     ports:
-      - "5434:5432"
+      - "${USER_DB_PORT:-5434}:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -163,7 +163,7 @@ services:
     profiles: ["per-service-db"]
     restart: always
     ports:
-      - "5433:5432"
+      - "${TENANT_DB_PORT:-5433}:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -184,7 +184,7 @@ services:
     profiles: ["per-service-db"]
     restart: always
     ports:
-      - "5437:5432"
+      - "${NOTIFICATION_DB_PORT:-5437}:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -206,7 +206,7 @@ services:
     profiles: ["per-service-db"]
     restart: always
     ports:
-      - "5435:5432"
+      - "${DATA_PLANE_DB_PORT:-5435}:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -226,7 +226,7 @@ services:
     profiles: ["per-service-db"]
     restart: always
     ports:
-      - "5438:5432"
+      - "${PAYMENT_DB_PORT:-5438}:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}

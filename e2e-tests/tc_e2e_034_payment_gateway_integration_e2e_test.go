@@ -21,7 +21,7 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-const gatewayPaymentWebhookURL = "http://localhost:8000/api/payments/webhook/mock"
+var gatewayPaymentWebhookURL = gatewayBaseURL + "/api/payments/webhook/mock"
 
 func TestE2E_TC_E2E_034_PaymentGatewayIntegration(t *testing.T) {
 	t.Log("=== TC-E2E-034: Payment Gateway Integration & Webhook Flow ===")

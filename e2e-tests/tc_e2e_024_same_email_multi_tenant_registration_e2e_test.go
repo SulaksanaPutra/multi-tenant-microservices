@@ -36,7 +36,7 @@ func TestTC_E2E_024_SameEmailMultiTenantRegistration(t *testing.T) {
 	const ownerName = "John MultiOwner"
 
 	// 1. Establish RabbitMQ connection & listener queue for workspace.initiated
-	amqpConn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+	amqpConn, err := amqp.Dial(rabbitmqDSN)
 	if err != nil {
 		t.Fatalf("[Setup] Failed to connect to RabbitMQ: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestTC_E2E_024_SameEmailMultiTenantRegistration(t *testing.T) {
 	}
 
 	// 4. Wait for both tenants to become ACTIVE in tenant_manager_db
-	tenantMgrDB, err := sql.Open("postgres", "host=localhost port=5432 user=postgres password=postgres dbname=tenant_manager_db sslmode=disable")
+	tenantMgrDB, err := sql.Open("postgres", tenantDBDSN)
 	if err != nil {
 		t.Fatalf("[Setup] Failed to connect to tenant_manager_db: %v", err)
 	}

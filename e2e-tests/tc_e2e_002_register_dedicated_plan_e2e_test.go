@@ -96,19 +96,28 @@ func TestE2E_DedicatedPlan_FullWorkflow(t *testing.T) {
 	// Step 3: Intercept AMQP Event Payload & Extract TenantID
 	// =========================================================================
 	var tenantID string
-	select {
-	case d := <-msgs:
-		var event map[string]any
-		_ = json.Unmarshal(d.Body, &event)
-
-		tID, ok := event["tenant_id"].(string)
-		if !ok || tID == "" {
-			t.Fatalf("RabbitMQ event missing tenant_id: %v", event)
+	timer := time.NewTimer(15 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case d := <-msgs:
+			var event map[string]any
+			if err := json.Unmarshal(d.Body, &event); err != nil {
+				continue
+			}
+			evEmail, _ := event["owner_email"].(string)
+			tID, ok := event["tenant_id"].(string)
+			if ok && tID != "" && (evEmail == "" || evEmail == ownerEmail) {
+				tenantID = tID
+				t.Logf("3. Extracted tenant_id='%s' from workspace.initiated event on RabbitMQ", tenantID)
+				break
+			}
+		case <-timer.C:
+			t.Fatalf("Timed out waiting for workspace.initiated event for email '%s'", ownerEmail)
 		}
-		tenantID = tID
-		t.Logf("3. Extracted tenant_id='%s' from workspace.initiated event on RabbitMQ", tenantID)
-	case <-time.After(10 * time.Second):
-		t.Fatalf("Timed out waiting for workspace.initiated event")
+		if tenantID != "" {
+			break
+		}
 	}
 
 	// =========================================================================
