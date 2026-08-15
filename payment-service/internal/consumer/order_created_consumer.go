@@ -20,23 +20,44 @@ type AMQPClient interface {
 	GetChannel() *amqp.Channel
 }
 
+type TxManager interface {
+	WithTransaction(ctx context.Context, fn func(txCtx context.Context) error) error
+}
+
+type InboxService interface {
+	ClaimEvent(txCtx context.Context, input service.ClaimInboxInput) (bool, error)
+}
+
 type PaymentInitiator interface {
 	InitiatePayment(ctx context.Context, tenantID, orderID string, amount float64, currency string) (*service.PaymentOutput, error)
 }
 
+type OrderCreatedConsumerParams struct {
+	Client         AMQPClient
+	TxManager      TxManager
+	InboxService   InboxService
+	PaymentService PaymentInitiator
+	Logger         *slog.Logger
+}
+
 type OrderCreatedConsumer struct {
 	client         AMQPClient
+	txManager      TxManager
+	inboxService   InboxService
 	paymentService PaymentInitiator
 	logger         *slog.Logger
 }
 
-func NewOrderCreatedConsumer(client AMQPClient, paymentService PaymentInitiator, logger *slog.Logger) *OrderCreatedConsumer {
+func NewOrderCreatedConsumer(params OrderCreatedConsumerParams) *OrderCreatedConsumer {
+	logger := params.Logger
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &OrderCreatedConsumer{
-		client:         client,
-		paymentService: paymentService,
+		client:         params.Client,
+		txManager:      params.TxManager,
+		inboxService:   params.InboxService,
+		paymentService: params.PaymentService,
 		logger:         logger,
 	}
 }
@@ -130,6 +151,12 @@ func (c *OrderCreatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) 
 }
 
 func (c *OrderCreatedConsumer) handleDelivery(ctx context.Context, d amqp.Delivery) {
+	if d.RoutingKey != domain.RoutingKeyOrderCreated && d.RoutingKey != "" {
+		c.logger.Warn("received misrouted message; discarding", "routing_key", d.RoutingKey, "expected", domain.RoutingKeyOrderCreated)
+		_ = d.Ack(false)
+		return
+	}
+
 	var evt domain.OrderCreatedEvent
 	if err := json.Unmarshal(d.Body, &evt); err != nil {
 		c.logger.Error("failed to unmarshal OrderCreatedEvent payload", "err", err)
@@ -137,14 +164,48 @@ func (c *OrderCreatedConsumer) handleDelivery(ctx context.Context, d amqp.Delive
 		return
 	}
 
+	deliveryCount := getDeliveryCount(d.Headers)
+	if deliveryCount >= 3 {
+		c.logger.Warn("[DLQ] max delivery count reached for event; discarding to DLQ",
+			"event_id", evt.EventID,
+			"order_id", evt.OrderID,
+			"tenant_id", evt.TenantID,
+			"delivery_count", deliveryCount,
+		)
+		_ = d.Nack(false, false)
+		return
+	}
+
 	c.logger.Info("received order.created event", "event_id", evt.EventID, "order_id", evt.OrderID, "tenant_id", evt.TenantID)
 
-	_, err := c.paymentService.InitiatePayment(ctx, evt.TenantID, evt.OrderID, evt.Amount, "USD")
+	err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		isDup, err := c.inboxService.ClaimEvent(txCtx, service.ClaimInboxInput{
+			EventID:   evt.EventID,
+			TenantID:  evt.TenantID,
+			EventType: domain.RoutingKeyOrderCreated,
+			Payload:   d.Body,
+		})
+		if err != nil {
+			return fmt.Errorf("inbox guard failed: %w", err)
+		}
+		if isDup {
+			c.logger.Info("duplicate order.created event detected by inbox guard; skipping", "event_id", evt.EventID)
+			return nil
+		}
+
+		_, err = c.paymentService.InitiatePayment(txCtx, evt.TenantID, evt.OrderID, evt.Amount, "USD")
+		if err != nil {
+			return fmt.Errorf("failed to initiate payment: %w", err)
+		}
+		return nil
+	})
+
 	if err != nil {
-		c.logger.Error("failed to initiate payment for order", "order_id", evt.OrderID, "err", err)
+		c.logger.Error("failed to process order.created event; requeueing", "event_id", evt.EventID, "order_id", evt.OrderID, "err", err)
 		_ = d.Nack(false, true)
 		return
 	}
 
 	_ = d.Ack(false)
+	c.logger.Info("successfully processed & ACKed order.created event", "event_id", evt.EventID, "order_id", evt.OrderID)
 }

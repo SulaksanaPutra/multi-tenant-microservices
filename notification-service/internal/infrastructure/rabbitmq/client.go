@@ -163,6 +163,12 @@ func (c *Client) NotifyReconnect() <-chan struct{} {
 	return c.readyCh
 }
 
+func (c *Client) GetChannel() *amqp.Channel {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Channel
+}
+
 func (c *Client) DeclareExchange(name, kind string) error {
 	c.mu.RLock()
 	ch := c.Channel
@@ -206,6 +212,31 @@ func (c *Client) DeclareAndBindQueue(queueName, exchangeName, routingKey string)
 		return fmt.Errorf("failed to bind queue %s to exchange %s: %w", queueName, exchangeName, err)
 	}
 	return nil
+}
+
+func (c *Client) Consume(queueName, consumerTag string) (<-chan Delivery, error) {
+	c.mu.RLock()
+	ch := c.Channel
+	c.mu.RUnlock()
+
+	if ch == nil {
+		return nil, errors.New("rabbitmq: channel is nil")
+	}
+
+	msgs, err := ch.Consume(
+		queueName,
+		consumerTag,
+		false, // autoAck
+		false, // exclusive
+		false, // noLocal
+		false, // noWait
+		nil,   // args
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start consume on queue %s: %w", queueName, err)
+	}
+
+	return msgs, nil
 }
 
 func (c *Client) PublishEvent(ctx context.Context, exchangeName, routingKey string, payload interface{}) error {

@@ -24,7 +24,7 @@ func registerConsumers(
 	authClient consumer.AuthClient,
 	mailer consumer.Mailer,
 ) (*consumerRunner, error) {
-	workspaceReadyConsumer, err := consumer.NewWorkspaceReadyConsumer(consumer.WorkspaceReadyConsumerParams{
+	workspaceReadyConsumer := consumer.NewWorkspaceReadyConsumer(consumer.WorkspaceReadyConsumerParams{
 		TxManager:           txManager,
 		Client:              rmqClient,
 		InboxService:        inboxService,
@@ -32,11 +32,8 @@ func registerConsumers(
 		AuthClient:          authClient,
 		Mailer:              mailer,
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize WorkspaceReadyConsumer: %w", err)
-	}
 
-	userCreatedConsumer, err := consumer.NewUserCreatedConsumer(consumer.UserCreatedConsumerParams{
+	userCreatedConsumer := consumer.NewUserCreatedConsumer(consumer.UserCreatedConsumerParams{
 		TxManager:           txManager,
 		Client:              rmqClient,
 		InboxService:        inboxService,
@@ -44,19 +41,13 @@ func registerConsumers(
 		AuthClient:          authClient,
 		Mailer:              mailer,
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize UserCreatedConsumer: %w", err)
-	}
 
-	orderCreatedConsumer, err := consumer.NewOrderCreatedConsumer(consumer.OrderCreatedConsumerParams{
+	orderCreatedConsumer := consumer.NewOrderCreatedConsumer(consumer.OrderCreatedConsumerParams{
 		TxManager:           txManager,
 		Client:              rmqClient,
 		InboxService:        inboxService,
 		NotificationService: notifService,
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize OrderCreatedConsumer: %w", err)
-	}
 
 	return &consumerRunner{
 		workspaceReadyConsumer: workspaceReadyConsumer,

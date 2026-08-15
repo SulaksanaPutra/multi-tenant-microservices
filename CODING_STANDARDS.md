@@ -241,6 +241,25 @@ if details != nil {
 }
 ```
 
+### Rule 5.6: Mandatory Transactional Inbox Deduplication for Domain Event Consumers
+* All AMQP consumers processing domain events that cause state mutations MUST use an `InboxService` or `InboxRepository` (`ClaimEvent`) within a transaction boundary to guard against duplicate event processing.
+* **PROHIBITED:** Directly invoking business services from `handleDelivery` without an inbox check when processing domain events. Duplicate messages due to network redelivery must be safely ACKed and discarded.
+
+### Rule 5.7: Poison Pill Resilience & Dead Letter Queue (DLQ) Thresholding
+* Consumers calling `d.Nack(false, true)` (requeue = true) MUST inspect delivery attempt count headers (`x-delivery-count` on Quorum Queues or `x-death` on Classic Queues).
+* If delivery attempt count exceeds the retry threshold (e.g. 3 attempts), the consumer MUST log a DLQ warning and reject without requeue (`d.Nack(false, false)`) to prevent unbounded poison pill retry storms.
+
+### Rule 5.8: Pure Dependency Injection in Consumer Constructors
+* `New*Consumer` constructors MUST be pure factory functions without network side-effects.
+* **PROHIBITED:** Calling `setupTopology()`, `DeclareExchange()`, `QueueDeclare()`, or network I/O inside `New*Consumer`. AMQP topology setup and queue consumption MUST be deferred to `Start(ctx)` / `runConsumerLoop()`.
+
+### Rule 5.9: Consumer-Side AMQP Interface Abstraction (Dependency Inversion)
+* Consumers in `internal/consumer` MUST declare and accept a consumer-side interface (e.g. `AMQPClient`) rather than holding a concrete struct pointer to `*rabbitmq.Client`.
+
+### Rule 5.10: Package-Level Consumer Interface Consolidation (`amqp.go` / `interfaces.go`)
+* Packages in `internal/consumer` MUST centralize shared transport infrastructure contracts (`AMQPClient`, `TxManager`, `InboxService`) into a dedicated `internal/consumer/amqp.go` (or `interfaces.go`) file.
+* Use-case-specific domain interfaces (e.g. `OrderNotificationService`, `Mailer`, `PaymentInitiator`) remain co-located directly in their respective consumer feature files.
+
 ---
 
 ## 6. DTO, Domain Entity & Database Naming Standards

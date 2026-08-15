@@ -19,38 +19,25 @@ type OrderNotificationService interface {
 
 type OrderCreatedConsumerParams struct {
 	TxManager           TxManager
-	Client              *rabbitmq.Client
+	Client              AMQPClient
 	InboxService        InboxService
 	NotificationService OrderNotificationService
 }
 
 type OrderCreatedConsumer struct {
 	txManager           TxManager
-	client              *rabbitmq.Client
+	client              AMQPClient
 	inboxService        InboxService
 	notificationService OrderNotificationService
 }
 
-func NewOrderCreatedConsumer(params OrderCreatedConsumerParams) (*OrderCreatedConsumer, error) {
-	if params.InboxService == nil {
-		return nil, errors.New("inboxService is required")
-	}
-	if params.NotificationService == nil {
-		return nil, errors.New("notificationService is required")
-	}
-
-	consumer := &OrderCreatedConsumer{
+func NewOrderCreatedConsumer(params OrderCreatedConsumerParams) *OrderCreatedConsumer {
+	return &OrderCreatedConsumer{
 		txManager:           params.TxManager,
 		client:              params.Client,
 		inboxService:        params.InboxService,
 		notificationService: params.NotificationService,
 	}
-
-	if err := consumer.setupTopology(); err != nil {
-		return nil, err
-	}
-
-	return consumer, nil
 }
 
 func (c *OrderCreatedConsumer) setupTopology() error {
@@ -94,18 +81,9 @@ func (c *OrderCreatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) 
 		return err
 	}
 
-	if c.client == nil || c.client.Channel == nil {
-		return errors.New("channel is nil")
-	}
-
-	msgs, err := c.client.Channel.Consume(
-		domain.QueueNotificationOrderCreated,  // queue
-		"notification-order-created-consumer", // consumer tag
-		false,                                 // auto-ack
-		false,                                 // exclusive
-		false,                                 // no-local
-		false,                                 // no-wait
-		nil,                                   // args
+	msgs, err := c.client.Consume(
+		domain.QueueNotificationOrderCreated,
+		"notification-order-created-consumer",
 	)
 	if err != nil {
 		return fmt.Errorf("failed to start consume: %w", err)
@@ -144,6 +122,14 @@ func (c *OrderCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.De
 		log.Printf("Error unmarshaling OrderCreated payload: %v", err)
 		_ = d.Nack(false, false)
 		return err
+	}
+
+	deliveryCount := getDeliveryCount(d.Headers)
+	if deliveryCount >= 3 {
+		log.Printf("[DLQ] OrderCreatedConsumer: Max delivery count reached for event_id='%s' order_id='%s' (delivery_count=%d). Routing to DLQ.",
+			evt.EventID, evt.OrderID, deliveryCount)
+		_ = d.Nack(false, false)
+		return errors.New("max delivery count reached")
 	}
 
 	log.Printf("OrderCreatedConsumer processing event_id='%s' for order_id='%s' tenant_id='%s'", evt.EventID, evt.OrderID, evt.TenantID)

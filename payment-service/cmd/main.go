@@ -135,7 +135,15 @@ func main() {
 	go sweeper.Start(context.Background())
 	defer sweeper.Stop()
 
-	orderCreatedConsumer := consumer.NewOrderCreatedConsumer(rmqClient, paymentService, logger)
+	inboxService := service.NewInboxService(inboxRepository)
+
+	orderCreatedConsumer := consumer.NewOrderCreatedConsumer(consumer.OrderCreatedConsumerParams{
+		Client:         rmqClient,
+		TxManager:      txManager,
+		InboxService:   inboxService,
+		PaymentService: paymentService,
+		Logger:         logger,
+	})
 	if err := orderCreatedConsumer.Start(context.Background()); err != nil {
 		logger.Warn("failed to start order.created consumer", "err", err)
 	}

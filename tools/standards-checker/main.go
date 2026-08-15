@@ -133,6 +133,23 @@ func scanService(repoRoot, service string, strict bool) []Violation {
 		}
 	}
 
+	// Rule 5.10 — Services with internal/consumer must declare shared transport interface in internal/consumer/amqp.go (or interfaces.go)
+	consumerDir := filepath.Join(serviceDir, "internal", "consumer")
+	if dirHasGoFiles(consumerDir) {
+		amqpFile := filepath.Join(consumerDir, "amqp.go")
+		interfacesFile := filepath.Join(consumerDir, "interfaces.go")
+		if !fileExists(amqpFile) && !fileExists(interfacesFile) {
+			violations = append(violations, Violation{
+				Service: service,
+				Rule:    "5.10",
+				ID:      "missing-consumer-amqp-interface-file",
+				Path:    filepath.ToSlash(filepath.Join(service, "internal", "consumer", "amqp.go")),
+				Line:    1,
+				Message: "Consumer package lacks a centralized transport interface file (`internal/consumer/amqp.go` or `interfaces.go`) defining package-level AMQPClient contract",
+			})
+		}
+	}
+
 	// Rule 8.1 — Every internal Go source file must ship a corresponding *_test.go file
 	internalDir := filepath.Join(serviceDir, "internal")
 	if _, err := os.Stat(internalDir); err == nil {
@@ -282,6 +299,13 @@ func checkFile(fset *token.FileSet, file *ast.File, service, relPath string, isT
 				add(imp.Pos(), "2.2", "layer-imports-repository", "imports Layer 3 (`internal/repository`/`internal/publisher`) from Layer 1 — depend on Layer 2 (service) via interface instead")
 			}
 		}
+
+		// Rule 5.9 — Consumer directly importing third-party AMQP driver
+		if strings.Contains(relPath, "/consumer/") && !isTest {
+			if pathVal == "github.com/rabbitmq/amqp091-go" {
+				add(imp.Pos(), "5.9", "consumer-driver-import", "consumer directly imports `github.com/rabbitmq/amqp091-go` — encapsulate transport channel consumption in `internal/infrastructure/rabbitmq`")
+			}
+		}
 	}
 
 	// 2. AST Inspection
@@ -301,6 +325,24 @@ func checkFile(fset *token.FileSet, file *ast.File, service, relPath string, isT
 						}
 					}
 				}
+			}
+
+			// Rule 5.8 — AMQP Consumer constructors must not perform eager network I/O or topology setup
+			if strings.Contains(relPath, "/consumer/") && !isTest && strings.HasPrefix(fn.Name.Name, "New") && fn.Body != nil {
+				ast.Inspect(fn.Body, func(bodyNode ast.Node) bool {
+					if call, ok := bodyNode.(*ast.CallExpr); ok {
+						callName := ""
+						if ident, ok := call.Fun.(*ast.Ident); ok {
+							callName = ident.Name
+						} else if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+							callName = sel.Sel.Name
+						}
+						if callName == "setupTopology" || callName == "DeclareExchange" || callName == "QueueDeclare" || callName == "QueueBind" || callName == "DeclareAndBindQueue" {
+							add(call.Pos(), "5.8", "consumer-constructor-io", fmt.Sprintf("New* constructor invokes eager network/topology method `%s` — defer topology setup to Start(ctx) or runConsumerLoop", callName))
+						}
+					}
+					return true
+				})
 			}
 
 			// Rule 3.1 — Collection queries named Get* returning slice
@@ -362,6 +404,8 @@ func checkFile(fset *token.FileSet, file *ast.File, service, relPath string, isT
 								typeName := sel.Sel.Name
 								if (strings.Contains(relPath, "/handler/") || strings.Contains(relPath, "/consumer/")) && pkgName == "service" {
 									add(field.Pos(), "2.2", "struct-concrete-dependency", fmt.Sprintf("struct field uses concrete pointer `*%s.%s` — depend on an interface defined in the consuming package instead", pkgName, typeName))
+								} else if strings.Contains(relPath, "/consumer/") && pkgName == "rabbitmq" {
+									add(field.Pos(), "2.2", "struct-concrete-dependency", fmt.Sprintf("consumer struct field uses concrete pointer `*%s.%s` — define an AMQP interface in consumer package instead", pkgName, typeName))
 								} else if strings.Contains(relPath, "/service/") && (pkgName == "repository" || pkgName == "publisher" || pkgName == "provider") {
 									add(field.Pos(), "2.2", "struct-concrete-dependency", fmt.Sprintf("struct field uses concrete pointer `*%s.%s` — depend on an interface defined in the consuming package instead", pkgName, typeName))
 								}
@@ -387,6 +431,17 @@ func checkFile(fset *token.FileSet, file *ast.File, service, relPath string, isT
 							val := strings.Trim(lit.Value, `"`)
 							if !strings.Contains(val, "%") || strings.Contains(val, "%%") {
 								add(fn.Pos(), "4.3", "fmt-errorf-static", fmt.Sprintf("fmt.Errorf(\"%s\") has no format verb and no %%w — prefer errors.New or add %%w", val))
+							}
+						}
+					}
+				}
+
+				// Rule 5.7 — Consumer Nack(false, true) without delivery count check
+				if strings.Contains(relPath, "/consumer/") && !isTest && sel.Sel.Name == "Nack" {
+					if len(fn.Args) >= 2 {
+						if ident, ok := fn.Args[1].(*ast.Ident); ok && ident.Name == "true" {
+							if !hasDeliveryCountLogic(file) {
+								add(fn.Pos(), "5.7", "consumer-unbounded-requeue", "consumer calls `Nack(false, true)` with unbounded requeue without checking delivery count / headers — route to DLQ after max retries")
 							}
 						}
 					}
@@ -440,12 +495,76 @@ func checkFile(fset *token.FileSet, file *ast.File, service, relPath string, isT
 		return true
 	})
 
+	// Rule 5.6 — Domain event consumers must implement Inbox deduplication guard
+	if !isTest {
+		checkConsumerInboxGuard(file, relPath, service, add)
+	}
+
 	// Rule 6.3 — internal_* files must declare Internal* struct
 	if isInternalFile(relPath) && !hasInternalType(file) {
 		add(file.Pos(), "6.3", "internal-file-without-internal-type", "internal_* file must declare an `Internal*` handler/service struct")
 	}
 
 	return violations
+}
+
+func hasDeliveryCountLogic(file *ast.File) bool {
+	hasCheck := false
+	ast.Inspect(file, func(n ast.Node) bool {
+		if ident, ok := n.(*ast.Ident); ok {
+			lower := strings.ToLower(ident.Name)
+			if strings.Contains(lower, "deliverycount") || strings.Contains(lower, "maxdeliver") {
+				hasCheck = true
+				return false
+			}
+		}
+		if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+			val := strings.Trim(lit.Value, `"'`)
+			if val == "x-delivery-count" || val == "x-death" {
+				hasCheck = true
+				return false
+			}
+		}
+		return true
+	})
+	return hasCheck
+}
+
+func checkConsumerInboxGuard(file *ast.File, relPath, service string, add func(token.Pos, string, string, string)) {
+	if !strings.Contains(relPath, "/consumer/") || strings.HasSuffix(relPath, "_test.go") {
+		return
+	}
+	// Infra provisioner is worker-based OS command executor; order-service infra consumers are DDL sync
+	if service == "infra-provisioner" || service == "order-service" {
+		return
+	}
+
+	hasDomainEvent := false
+	var eventPos token.Pos
+	hasInbox := false
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		if ident, ok := n.(*ast.Ident); ok {
+			name := ident.Name
+			if strings.HasSuffix(name, "Event") && name != "Event" && !strings.Contains(name, "Publisher") {
+				hasDomainEvent = true
+				if eventPos == token.NoPos {
+					eventPos = ident.Pos()
+				}
+			}
+			if strings.Contains(name, "Inbox") || strings.Contains(name, "ClaimEvent") {
+				hasInbox = true
+			}
+		}
+		return true
+	})
+
+	if hasDomainEvent && !hasInbox {
+		if eventPos == token.NoPos {
+			eventPos = file.Pos()
+		}
+		add(eventPos, "5.6", "consumer-missing-inbox-guard", "consumer processes domain event without an InboxService/ClaimEvent idempotency guard")
+	}
 }
 
 func isBasicType(name string) bool {

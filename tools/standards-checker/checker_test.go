@@ -284,3 +284,178 @@ func TestCheckDockerStandards_Rule9_ArchetypeCStandaloneComposeProhibited(t *tes
 		t.Errorf("Expected violation 'archetype-c-standalone-compose', got violations: %+v", violations)
 	}
 }
+
+func TestCheckFile_Rule5_8_ConsumerConstructorIO(t *testing.T) {
+	src := `package consumer
+
+type OrderConsumer struct{}
+
+func NewOrderConsumer() (*OrderConsumer, error) {
+	c := &OrderConsumer{}
+	if err := c.setupTopology(); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func (c *OrderConsumer) setupTopology() error {
+	return nil
+}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "order_consumer.go", src, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse Go source: %v", err)
+	}
+
+	violations := checkFile(fset, file, "notification-service", "internal/consumer/order_consumer.go", false, false)
+	hasViolation := false
+	for _, v := range violations {
+		if v.ID == "consumer-constructor-io" {
+			hasViolation = true
+			break
+		}
+	}
+	if !hasViolation {
+		t.Errorf("Expected violation 'consumer-constructor-io', got violations: %+v", violations)
+	}
+}
+
+func TestCheckFile_Rule2_2_ConsumerConcreteRabbitMQDependency(t *testing.T) {
+	src := `package consumer
+
+import "notification-service/internal/infrastructure/rabbitmq"
+
+type OrderConsumer struct {
+	client *rabbitmq.Client
+}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "order_consumer.go", src, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse Go source: %v", err)
+	}
+
+	violations := checkFile(fset, file, "notification-service", "internal/consumer/order_consumer.go", false, false)
+	hasViolation := false
+	for _, v := range violations {
+		if v.ID == "struct-concrete-dependency" {
+			hasViolation = true
+			break
+		}
+	}
+	if !hasViolation {
+		t.Errorf("Expected violation 'struct-concrete-dependency', got violations: %+v", violations)
+	}
+}
+
+func TestCheckFile_Rule5_7_ConsumerUnboundedRequeue(t *testing.T) {
+	src := `package consumer
+
+type Delivery struct{}
+
+func (d Delivery) Nack(multiple, requeue bool) error {
+	return nil
+}
+
+type OrderConsumer struct{}
+
+func (c *OrderConsumer) handleDelivery(d Delivery) {
+	_ = d.Nack(false, true)
+}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "order_consumer.go", src, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse Go source: %v", err)
+	}
+
+	violations := checkFile(fset, file, "payment-service", "internal/consumer/order_consumer.go", false, false)
+	hasViolation := false
+	for _, v := range violations {
+		if v.ID == "consumer-unbounded-requeue" {
+			hasViolation = true
+			break
+		}
+	}
+	if !hasViolation {
+		t.Errorf("Expected violation 'consumer-unbounded-requeue', got violations: %+v", violations)
+	}
+}
+
+func TestCheckFile_Rule5_6_ConsumerMissingInboxGuard(t *testing.T) {
+	src := `package consumer
+
+import "payment-service/internal/domain"
+
+type OrderConsumer struct{}
+
+func (c *OrderConsumer) handleDelivery(evt domain.OrderCreatedEvent) {
+	// missing Inbox claiming
+}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "order_consumer.go", src, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse Go source: %v", err)
+	}
+
+	violations := checkFile(fset, file, "payment-service", "internal/consumer/order_consumer.go", false, false)
+	hasViolation := false
+	for _, v := range violations {
+		if v.ID == "consumer-missing-inbox-guard" {
+			hasViolation = true
+			break
+		}
+	}
+	if !hasViolation {
+		t.Errorf("Expected violation 'consumer-missing-inbox-guard', got violations: %+v", violations)
+	}
+}
+
+func TestCheckFile_Rule5_9_ConsumerDriverImport(t *testing.T) {
+	src := `package consumer
+
+import amqp "github.com/rabbitmq/amqp091-go"
+
+type OrderConsumer struct{}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "order_consumer.go", src, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse Go source: %v", err)
+	}
+
+	violations := checkFile(fset, file, "notification-service", "internal/consumer/order_consumer.go", false, false)
+	hasViolation := false
+	for _, v := range violations {
+		if v.ID == "consumer-driver-import" {
+			hasViolation = true
+			break
+		}
+	}
+	if !hasViolation {
+		t.Errorf("Expected violation 'consumer-driver-import', got violations: %+v", violations)
+	}
+}
+
+func TestScanService_Rule5_10_MissingConsumerAMQPInterfaceFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	consumerDir := filepath.Join(tmpDir, "internal", "consumer")
+	_ = os.MkdirAll(consumerDir, 0755)
+	_ = os.WriteFile(filepath.Join(consumerDir, "order_consumer.go"), []byte("package consumer\n"), 0644)
+	_ = os.WriteFile(filepath.Join(consumerDir, "order_consumer_test.go"), []byte("package consumer\n"), 0644)
+
+	violations := scanService(filepath.Dir(tmpDir), filepath.Base(tmpDir), false)
+	hasViolation := false
+	for _, v := range violations {
+		if v.ID == "missing-consumer-amqp-interface-file" {
+			hasViolation = true
+			break
+		}
+	}
+	if !hasViolation {
+		t.Errorf("Expected violation 'missing-consumer-amqp-interface-file', got violations: %+v", violations)
+	}
+}
+

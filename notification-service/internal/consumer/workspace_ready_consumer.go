@@ -14,7 +14,7 @@ import (
 
 type WorkspaceReadyConsumerParams struct {
 	TxManager           TxManager
-	Client              *rabbitmq.Client
+	Client              AMQPClient
 	InboxService        InboxService
 	NotificationService NotificationService
 	AuthClient          AuthClient
@@ -23,15 +23,15 @@ type WorkspaceReadyConsumerParams struct {
 
 type WorkspaceReadyConsumer struct {
 	txManager           TxManager
-	client              *rabbitmq.Client
+	client              AMQPClient
 	inboxService        InboxService
 	notificationService NotificationService
 	authClient          AuthClient
 	mailer              Mailer
 }
 
-func NewWorkspaceReadyConsumer(params WorkspaceReadyConsumerParams) (*WorkspaceReadyConsumer, error) {
-	consumer := &WorkspaceReadyConsumer{
+func NewWorkspaceReadyConsumer(params WorkspaceReadyConsumerParams) *WorkspaceReadyConsumer {
+	return &WorkspaceReadyConsumer{
 		txManager:           params.TxManager,
 		client:              params.Client,
 		inboxService:        params.InboxService,
@@ -39,12 +39,6 @@ func NewWorkspaceReadyConsumer(params WorkspaceReadyConsumerParams) (*WorkspaceR
 		authClient:          params.AuthClient,
 		mailer:              params.Mailer,
 	}
-
-	if err := consumer.setupTopology(); err != nil {
-		return nil, err
-	}
-
-	return consumer, nil
 }
 
 func (c *WorkspaceReadyConsumer) setupTopology() error {
@@ -88,18 +82,9 @@ func (c *WorkspaceReadyConsumer) runConsumerLoop(appCtx, connCtx context.Context
 		return err
 	}
 
-	if c.client == nil || c.client.Channel == nil {
-		return errors.New("channel is nil")
-	}
-
-	msgs, err := c.client.Channel.Consume(
-		domain.QueueNotificationWorkspaceReady,  // queue
-		"notification-workspace-ready-consumer", // consumer tag
-		false,                                   // auto-ack
-		false,                                   // exclusive
-		false,                                   // no-local
-		false,                                   // no-wait
-		nil,                                     // args
+	msgs, err := c.client.Consume(
+		domain.QueueNotificationWorkspaceReady,
+		"notification-workspace-ready-consumer",
 	)
 	if err != nil {
 		return fmt.Errorf("failed to start consume: %w", err)
@@ -127,16 +112,9 @@ func (c *WorkspaceReadyConsumer) runConsumerLoop(appCtx, connCtx context.Context
 }
 
 func (c *WorkspaceReadyConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
-	// =========================================================================
-	// Routing Key Guard: contract enforcement at the consumer boundary.
-	// Rejects any message whose routing key does not match this consumer's
-	// declared contract. This defends against ghost AMQP bindings that can
-	// accumulate from topology misconfigurations, ops errors, or E2E test
-	// queue state leaking between consecutive runs.
-	// =========================================================================
 	if d.RoutingKey != domain.RoutingKeyWorkspaceReady && d.RoutingKey != "" {
-		log.Printf("[WARN] WorkspaceReadyConsumer: Received misrouted message with routing_key='%s' (expected '%s'). Discarding. Check AMQP queue topology for ghost bindings.", d.RoutingKey, domain.RoutingKeyWorkspaceReady)
-		_ = d.Ack(false) // Ack to drain from queue; no valid handler exists on this consumer
+		log.Printf("[WARN] WorkspaceReadyConsumer: Received misrouted message with routing_key='%s' (expected '%s'). Discarding.", d.RoutingKey, domain.RoutingKeyWorkspaceReady)
+		_ = d.Ack(false)
 		return nil
 	}
 
@@ -147,12 +125,16 @@ func (c *WorkspaceReadyConsumer) handleDelivery(ctx context.Context, d rabbitmq.
 		return err
 	}
 
+	deliveryCount := getDeliveryCount(d.Headers)
+	if deliveryCount >= 3 {
+		log.Printf("[DLQ] WorkspaceReadyConsumer: Max delivery count reached for event_id='%s' tenant_id='%s' (delivery_count=%d). Routing to DLQ.",
+			evt.EventID, evt.TenantID, deliveryCount)
+		_ = d.Nack(false, false)
+		return errors.New("max delivery count reached")
+	}
+
 	log.Printf("WorkspaceReadyConsumer processing event_id='%s' for tenant_id='%s'", evt.EventID, evt.TenantID)
 
-	// Phase 1: DB-only work inside the transaction boundary.
-	//  EInbox guard (ClaimEvent) and barrier read (GetBarrierEvents) are Layer 1 responsibilities.
-	//  ENotificationService writes the pending audit log and returns dispatch details.
-	//  ENo external I/O (SMTP, HTTP) is allowed inside this closure.
 	var sendDetails *service.ProcessEventOutput
 	err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 		inboxInput := service.ClaimInboxInput{
@@ -162,7 +144,6 @@ func (c *WorkspaceReadyConsumer) handleDelivery(ctx context.Context, d rabbitmq.
 			Payload:   d.Body,
 		}
 
-		// Step 1: Transactional inbox guard  Ededuplicates the event atomically.
 		isDup, err := c.inboxService.ClaimEvent(txCtx, inboxInput)
 		if err != nil {
 			return fmt.Errorf("inbox guard failed: %w", err)
@@ -172,13 +153,11 @@ func (c *WorkspaceReadyConsumer) handleDelivery(ctx context.Context, d rabbitmq.
 			return nil
 		}
 
-		// Step 2: Read the full barrier state for this tenant (consistent inside the tx).
 		events, err := c.inboxService.ListBarrierEvents(txCtx, evt.TenantID)
 		if err != nil {
 			return fmt.Errorf("failed to fetch barrier events: %w", err)
 		}
 
-		// Step 3: Evaluate barrier and persist pending audit log if conditions are met.
 		input := service.ProcessEventInput{
 			EventID:    evt.EventID,
 			TenantID:   evt.TenantID,
@@ -200,20 +179,18 @@ func (c *WorkspaceReadyConsumer) handleDelivery(ctx context.Context, d rabbitmq.
 		return err
 	}
 
-	// Phase 2: Dispatch email AFTER the transaction commits.
-	// DB connection is released; SMTP timeout cannot hold DB locks or cause rollback.
 	if sendDetails != nil {
 		setupToken, fetchErr := c.authClient.FetchSetupToken(ctx, sendDetails.UserID, sendDetails.TenantID, sendDetails.RecipientEmail)
 		if fetchErr != nil {
-			log.Printf("WorkspaceReadyConsumer: Failed to fetch setup token from auth-service for tenant='%s': %v  ENACKing for retry.", sendDetails.TenantID, fetchErr)
+			log.Printf("WorkspaceReadyConsumer: Failed to fetch setup token from auth-service for tenant='%s': %v — NACKing for retry.", sendDetails.TenantID, fetchErr)
 			_ = d.Nack(false, true)
 			return fetchErr
 		}
 
 		if _, _, mailErr := c.mailer.SendWelcomeEmail(sendDetails.RecipientEmail, sendDetails.TenantID, sendDetails.TenantName, sendDetails.TenantSlug, sendDetails.OwnerName, setupToken); mailErr != nil {
-			log.Printf("WorkspaceReadyConsumer: SMTP dispatch failed for event_id='%s' recipient='%s': %v  ENACKing for retry.",
+			log.Printf("WorkspaceReadyConsumer: SMTP dispatch failed for event_id='%s' recipient='%s': %v — NACKing for retry.",
 				evt.EventID, sendDetails.RecipientEmail, mailErr)
-			_ = d.Nack(false, true) // Requeue  Einbox ON CONFLICT ensures idempotent retry
+			_ = d.Nack(false, true)
 			return mailErr
 		}
 		log.Printf("WorkspaceReadyConsumer: Welcome email dispatched to '%s' for tenant='%s'", sendDetails.RecipientEmail, sendDetails.TenantID)

@@ -41,7 +41,7 @@ type Mailer interface {
 
 type UserCreatedConsumerParams struct {
 	TxManager           TxManager
-	Client              *rabbitmq.Client
+	Client              AMQPClient
 	InboxService        InboxService
 	NotificationService NotificationService
 	AuthClient          AuthClient
@@ -50,15 +50,15 @@ type UserCreatedConsumerParams struct {
 
 type UserCreatedConsumer struct {
 	txManager           TxManager
-	client              *rabbitmq.Client
+	client              AMQPClient
 	inboxService        InboxService
 	notificationService NotificationService
 	authClient          AuthClient
 	mailer              Mailer
 }
 
-func NewUserCreatedConsumer(params UserCreatedConsumerParams) (*UserCreatedConsumer, error) {
-	consumer := &UserCreatedConsumer{
+func NewUserCreatedConsumer(params UserCreatedConsumerParams) *UserCreatedConsumer {
+	return &UserCreatedConsumer{
 		txManager:           params.TxManager,
 		client:              params.Client,
 		inboxService:        params.InboxService,
@@ -66,12 +66,6 @@ func NewUserCreatedConsumer(params UserCreatedConsumerParams) (*UserCreatedConsu
 		authClient:          params.AuthClient,
 		mailer:              params.Mailer,
 	}
-
-	if err := consumer.setupTopology(); err != nil {
-		return nil, err
-	}
-
-	return consumer, nil
 }
 
 func (c *UserCreatedConsumer) setupTopology() error {
@@ -115,18 +109,9 @@ func (c *UserCreatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) e
 		return err
 	}
 
-	if c.client == nil || c.client.Channel == nil {
-		return errors.New("channel is nil")
-	}
-
-	msgs, err := c.client.Channel.Consume(
-		domain.QueueNotificationUserCreated,  // queue
-		"notification-user-created-consumer", // consumer tag
-		false,                                // auto-ack
-		false,                                // exclusive
-		false,                                // no-local
-		false,                                // no-wait
-		nil,                                  // args
+	msgs, err := c.client.Consume(
+		domain.QueueNotificationUserCreated,
+		"notification-user-created-consumer",
 	)
 	if err != nil {
 		return fmt.Errorf("failed to start consume: %w", err)
@@ -154,16 +139,9 @@ func (c *UserCreatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) e
 }
 
 func (c *UserCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
-	// =========================================================================
-	// Routing Key Guard: contract enforcement at the consumer boundary.
-	// Rejects any message whose routing key does not match this consumer's
-	// declared contract. This defends against ghost AMQP bindings that can
-	// accumulate from topology misconfigurations, ops errors, or E2E test
-	// queue state leaking between consecutive runs.
-	// =========================================================================
 	if d.RoutingKey != domain.RoutingKeyUserCreated && d.RoutingKey != "" {
-		log.Printf("[WARN] UserCreatedConsumer: Received misrouted message with routing_key='%s' (expected '%s'). Discarding. Check AMQP queue topology for ghost bindings.", d.RoutingKey, domain.RoutingKeyUserCreated)
-		_ = d.Ack(false) // Ack to drain from queue; no valid handler exists on this consumer
+		log.Printf("[WARN] UserCreatedConsumer: Received misrouted message with routing_key='%s' (expected '%s'). Discarding.", d.RoutingKey, domain.RoutingKeyUserCreated)
+		_ = d.Ack(false)
 		return nil
 	}
 
@@ -174,12 +152,16 @@ func (c *UserCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Del
 		return err
 	}
 
+	deliveryCount := getDeliveryCount(d.Headers)
+	if deliveryCount >= 3 {
+		log.Printf("[DLQ] UserCreatedConsumer: Max delivery count reached for event_id='%s' user_id='%s' (delivery_count=%d). Routing to DLQ.",
+			evt.EventID, evt.UserID, deliveryCount)
+		_ = d.Nack(false, false)
+		return errors.New("max delivery count reached")
+	}
+
 	log.Printf("UserCreatedConsumer processing event_id='%s' for user_id='%s' email='%s'", evt.EventID, evt.UserID, evt.Email)
 
-	// Phase 1: DB-only work inside the transaction boundary.
-	//  EInbox guard (ClaimEvent) and barrier read (GetBarrierEvents) are Layer 1 responsibilities.
-	//  ENotificationService writes the pending audit log and returns dispatch details.
-	//  ENo external I/O (SMTP, HTTP) is allowed inside this closure.
 	var sendDetails *service.ProcessEventOutput
 	err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 		inboxInput := service.ClaimInboxInput{
@@ -189,7 +171,6 @@ func (c *UserCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Del
 			Payload:   d.Body,
 		}
 
-		// Step 1: Transactional inbox guard  Ededuplicates the event atomically.
 		isDup, err := c.inboxService.ClaimEvent(txCtx, inboxInput)
 		if err != nil {
 			return fmt.Errorf("inbox guard failed: %w", err)
@@ -199,13 +180,11 @@ func (c *UserCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Del
 			return nil
 		}
 
-		// Step 2: Read the full barrier state for this tenant (consistent inside the tx).
 		events, err := c.inboxService.ListBarrierEvents(txCtx, evt.TenantID)
 		if err != nil {
 			return fmt.Errorf("failed to fetch barrier events: %w", err)
 		}
 
-		// Step 3: Evaluate barrier and persist pending audit log if conditions are met.
 		input := service.ProcessEventInput{
 			EventID:    evt.EventID,
 			UserID:     evt.UserID,
@@ -228,20 +207,18 @@ func (c *UserCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Del
 		return err
 	}
 
-	// Phase 2: Dispatch email AFTER the transaction commits.
-	// DB connection is released; SMTP timeout cannot hold DB locks or cause rollback.
 	if sendDetails != nil {
 		setupToken, fetchErr := c.authClient.FetchSetupToken(ctx, sendDetails.UserID, sendDetails.TenantID, sendDetails.RecipientEmail)
 		if fetchErr != nil {
-			log.Printf("UserCreatedConsumer: Failed to fetch setup token from auth-service for tenant='%s': %v  ENACKing for retry.", sendDetails.TenantID, fetchErr)
+			log.Printf("UserCreatedConsumer: Failed to fetch setup token from auth-service for tenant='%s': %v — NACKing for retry.", sendDetails.TenantID, fetchErr)
 			_ = d.Nack(false, true)
 			return fetchErr
 		}
 
 		if _, _, mailErr := c.mailer.SendWelcomeEmail(sendDetails.RecipientEmail, sendDetails.TenantID, sendDetails.TenantName, sendDetails.TenantSlug, sendDetails.OwnerName, setupToken); mailErr != nil {
-			log.Printf("UserCreatedConsumer: SMTP dispatch failed for event_id='%s' recipient='%s': %v  ENACKing for retry.",
+			log.Printf("UserCreatedConsumer: SMTP dispatch failed for event_id='%s' recipient='%s': %v — NACKing for retry.",
 				evt.EventID, sendDetails.RecipientEmail, mailErr)
-			_ = d.Nack(false, true) // Requeue  Einbox ON CONFLICT ensures idempotent retry
+			_ = d.Nack(false, true)
 			return mailErr
 		}
 		log.Printf("UserCreatedConsumer: Welcome email dispatched to '%s' for tenant='%s'", sendDetails.RecipientEmail, sendDetails.TenantID)

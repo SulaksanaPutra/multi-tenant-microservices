@@ -197,4 +197,32 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			t.Error("expected requeue=true on transient tx failure")
 		}
 	})
+
+	t.Run("max_delivery_count_nacks_without_requeue_for_dlq", func(t *testing.T) {
+		c := &OrderCreatedConsumer{
+			txManager:           &mockTxManager{},
+			inboxService:        &mockInboxService{},
+			notificationService: &mockNotificationService{},
+		}
+
+		mockAck := &mockAcknowledger{}
+		d := rabbitmq.Delivery{
+			Acknowledger: mockAck,
+			Body:         validBody,
+			RoutingKey:   domain.RoutingKeyOrderCreated,
+			Headers: map[string]interface{}{
+				"x-delivery-count": 3,
+			},
+		}
+
+		if err := c.handleDelivery(context.Background(), d); err == nil {
+			t.Error("expected max delivery count error")
+		}
+		if !mockAck.nackCalled {
+			t.Error("expected message to be NACKed on max delivery count")
+		}
+		if mockAck.requeueVal {
+			t.Error("expected requeue=false for DLQ routing")
+		}
+	})
 }
