@@ -16,6 +16,7 @@
 #   shared_db         -> data-plane-db (5435)
 #   auth_db           -> auth-db       (5436)
 #   notification_db   -> notification-db (5437)
+#   payment_db        -> payment-db      (5438)
 # The tier is taken from --tier <tier>, else $TIER, else infrastructure/.env.
 #
 # What it clears:
@@ -24,6 +25,8 @@
 #                           user_permission_versions
 #   * user_db            -> users, memberships, inbox, outbox
 #   * notification_db    -> notifications, inbox
+#   * payment_db         -> payments, payment_attempts, payment_tenant_configs,
+#                           payment_outbox, payment_inbox
 #   * tenant_manager_db  -> tenants, tenant_infrastructures, outbox, inbox
 #   * shared_db          -> all dynamically provisioned tnt_*_order_db schemas
 #   * dedicated tenant DB containers (postgres-tenant-*)
@@ -77,6 +80,7 @@ db_port() {
     user_db)           [ "$tier" = "premium" ] && echo 5434 || echo "$PGPORT" ;;
     tenant_manager_db) [ "$tier" = "premium" ] && echo 5433 || echo "$PGPORT" ;;
     notification_db)   [ "$tier" = "premium" ] && echo 5437 || echo "$PGPORT" ;;
+    payment_db)        [ "$tier" = "premium" ] && echo 5438 || echo "$PGPORT" ;;
     shared_db)         [ "$tier" = "premium" ] && echo 5435 || echo "$PGPORT" ;;
     *) echo "$PGPORT" ;;
   esac
@@ -89,7 +93,7 @@ psql_cmd() { # psql_cmd <port> <dbname> <sql>
   psql -h "$PGHOST" -p "$port" -U "$PGUSER" -d "$db" -v ON_ERROR_STOP=1 -c "$sql" >/dev/null
 }
 
-echo "[clean-e2e-data] 1/6 Cleaning auth_db ..."
+echo "[clean-e2e-data] 1/7 Cleaning auth_db ..."
 psql_cmd "$(db_port auth_db)" auth_db '
   TRUNCATE TABLE public.user_credentials,
                    public.user_tenant_memberships,
@@ -102,7 +106,7 @@ psql_cmd "$(db_port auth_db)" auth_db '
                    public.inbox RESTART IDENTITY CASCADE;
 '
 
-echo "[clean-e2e-data] 2/6 Cleaning user_db ..."
+echo "[clean-e2e-data] 2/7 Cleaning user_db ..."
 psql_cmd "$(db_port user_db)" user_db '
   TRUNCATE TABLE public.users,
                    public.user_tenant_memberships,
@@ -110,13 +114,22 @@ psql_cmd "$(db_port user_db)" user_db '
                    public.outbox RESTART IDENTITY CASCADE;
 '
 
-echo "[clean-e2e-data] 3/6 Cleaning notification_db ..."
+echo "[clean-e2e-data] 3/7 Cleaning notification_db ..."
 psql_cmd "$(db_port notification_db)" notification_db '
   TRUNCATE TABLE public.notifications,
                    public.inbox RESTART IDENTITY CASCADE;
 '
 
-echo "[clean-e2e-data] 4/6 Cleaning tenant_manager_db ..."
+echo "[clean-e2e-data] 4/7 Cleaning payment_db ..."
+psql_cmd "$(db_port payment_db)" payment_db '
+  TRUNCATE TABLE public.payments,
+                   public.payment_attempts,
+                   public.payment_tenant_configs,
+                   public.payment_outbox,
+                   public.payment_inbox RESTART IDENTITY CASCADE;
+'
+
+echo "[clean-e2e-data] 5/7 Cleaning tenant_manager_db ..."
 psql_cmd "$(db_port tenant_manager_db)" tenant_manager_db '
   TRUNCATE TABLE public.tenants,
                    public.tenant_infrastructures,
@@ -124,7 +137,7 @@ psql_cmd "$(db_port tenant_manager_db)" tenant_manager_db '
                    public.inbox RESTART IDENTITY CASCADE;
 '
 
-echo "[clean-e2e-data] 5/6 Dropping dynamic shared_db tenant schemas ..."
+echo "[clean-e2e-data] 6/7 Dropping dynamic shared_db tenant schemas ..."
 psql -h "$PGHOST" -p "$(db_port shared_db)" -U "$PGUSER" -d shared_db -v ON_ERROR_STOP=1 -c "
 DO \$\$
 DECLARE
@@ -161,7 +174,8 @@ for q in infra_provisioner_workspace_initiated \
          tenant_service_order_db_ready \
          user_service_workspace_initiated \
          auth_service_user_created_membership \
-         auth_service_user_created_membership_dlq; do
+         auth_service_user_created_membership_dlq \
+         payment_service_order_created; do
   rabbit_purge "$q"
 done
 

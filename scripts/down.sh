@@ -20,7 +20,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 teardown() {
   local purge="$1"   # "" or "-v"
   echo "==> Stopping services (${purge:-volumes preserved})..."
-  for svc in notification-service order-service user-service tenant-service auth-service; do
+  for svc in notification-service payment-service order-service user-service tenant-service auth-service; do
     (cd "$ROOT/$svc" && docker compose down $purge)
   done
   (cd "$ROOT/infrastructure" && docker compose --profile per-service-db down $purge)

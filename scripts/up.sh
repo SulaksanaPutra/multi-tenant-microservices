@@ -13,7 +13,7 @@
 #   lite     one shared postgres container for everything; dedicated tenants are
 #            per-tenant databases + roles inside it (DEDICATED_ISOLATION_MODE=same_instance)
 #   standard shared postgres for the control plane; dedicated container per tenant (default)
-#   premium  one dedicated postgres per service (auth-db/user-db/tenant-db/notification-db
+#   premium  one dedicated postgres per service (auth-db/user-db/tenant-db/notification-db/payment-db
 #            + data-plane-db for shared_db); dedicated container per tenant
 set -euo pipefail
 
@@ -25,8 +25,8 @@ if command -v git >/dev/null 2>&1 && [ -d "$ROOT/.git" ]; then
   git config core.hooksPath "$ROOT/.githooks" || true
 fi
 
-DEPLOY_DIRS=(auth-service tenant-service user-service order-service notification-service)
-TEST_DIRS=(auth-service tenant-service user-service order-service notification-service infra-provisioner)
+DEPLOY_DIRS=(auth-service tenant-service user-service order-service payment-service notification-service)
+TEST_DIRS=(auth-service tenant-service user-service order-service payment-service notification-service infra-provisioner)
 E2E_MIGRATION_FILTER='TestE2E_TC_E2E_030|TestE2E_TC_E2E_032|TestE2E_TC_E2E_033'
 
 # ---------------------------------------------------------------------------
@@ -69,17 +69,17 @@ deploy() {
     lite)
       export DEDICATED_ISOLATION_MODE=same_instance
       export SHARED_DB_HOST=postgres
-      export AUTH_DB_HOST=postgres USER_DB_HOST=postgres TENANT_DB_HOST=postgres NOTIFICATION_DB_HOST=postgres
+      export AUTH_DB_HOST=postgres USER_DB_HOST=postgres TENANT_DB_HOST=postgres NOTIFICATION_DB_HOST=postgres PAYMENT_DB_HOST=postgres
       ;;
     standard)
       export DEDICATED_ISOLATION_MODE=container
       export SHARED_DB_HOST=postgres
-      export AUTH_DB_HOST=postgres USER_DB_HOST=postgres TENANT_DB_HOST=postgres NOTIFICATION_DB_HOST=postgres
+      export AUTH_DB_HOST=postgres USER_DB_HOST=postgres TENANT_DB_HOST=postgres NOTIFICATION_DB_HOST=postgres PAYMENT_DB_HOST=postgres
       ;;
     premium)
       export DEDICATED_ISOLATION_MODE=container
       export SHARED_DB_HOST=data-plane-db
-      export AUTH_DB_HOST=auth-db USER_DB_HOST=user-db TENANT_DB_HOST=tenant-db NOTIFICATION_DB_HOST=notification-db
+      export AUTH_DB_HOST=auth-db USER_DB_HOST=user-db TENANT_DB_HOST=tenant-db NOTIFICATION_DB_HOST=notification-db PAYMENT_DB_HOST=payment-db
       profile_args="--profile per-service-db"
       ;;
     *)

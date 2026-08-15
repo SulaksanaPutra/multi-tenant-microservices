@@ -12,7 +12,7 @@
 +-----------------------------------------------------------------------------------+
 
 [ Client App ]
-      │  HTTP Requests (POST /api/auth/login, POST /api/tenants/register, POST/GET /api/orders)
+      │  HTTP Requests (POST /api/auth/login, POST /api/tenants/register, POST/GET /api/orders, POST /api/payments/*)
       ▼
 [ Traefik Gateway :8000 ]
       │
@@ -30,21 +30,24 @@
       │                                             ▼ (Publish: workspace.initiated)
       │                                     [ RabbitMQ Broker ]
       │                                             │
-      │         ┌───────────────────────────────────┼─────────────────────────┬─────────────────────────┐
-      │         ▼                                   ▼                         ▼                         ▼
-      └─────► POST / GET /api/orders   [ infra-provisioner ]      [ user-service :8081 ]   [ notification-service :8083 ]
-               (Bearer <JWT>)          (Docker Worker, QoS=1)                 │               (Bearer <JWT>)
-                     │                         │                              ▼                         │
-                     ▼                         │                          [ userDB ]                    ▼
-            [ order-service :8084 ]            ▼ Publish:                                         [ notificationDB ]
-              (RS256 JWT Verification) infrastructure.provisioned                                  [ Mailpit SMTP ]
-                     │                         │
-                     ▼ (Runs SQL Migrations)   │
-           [ Tenant Database ] ◄───────────────┘
-          (Shared or Dedicated)
-                     │
-                     ▼ Emits: tenant.order_db.ready
-            [ tenant-service ] ──► (Passively Activates Workspace & Upserts Routing Metadata)
+      │         ┌───────────────────────────────────┼─────────────────────────┬─────────────────────────┬─────────────────────────┐
+      │         ▼                                   ▼                         ▼                         ▼                         ▼
+      ├─────► POST / GET /api/orders   [ infra-provisioner ]      [ user-service :8081 ]   [ notification-service :8083 ]   [ payment-service :8086 ]
+      │        (Bearer <JWT>)          (Docker Worker, QoS=1)                 │               (Bearer <JWT>)               (Provider Adapters / Webhooks)
+      │              │                         │                              ▼                         │                         │
+      │              ▼                         │                          [ userDB ]                    ▼                         ▼
+      │     [ order-service :8084 ]            ▼ Publish:                                         [ notificationDB ]            [ paymentDB ]
+      │       (RS256 JWT Verification) infrastructure.provisioned                                  [ Mailpit SMTP ]         (Outbox & Webhook FSM)
+      │              │                         │
+      │              ▼ (Runs SQL Migrations)   │
+      │    [ Tenant Database ] ◄───────────────┘
+      │   (Shared or Dedicated)
+      │              │
+      │              ▼ Emits: tenant.order_db.ready
+      │     [ tenant-service ] ──► (Passively Activates Workspace & Upserts Routing Metadata)
+      │
+      └─────► POST /api/payments/webhook/:provider, GET /api/payments/:id
+               (HMAC Signature / Bearer JWT)
 ```
 
 ---
@@ -54,28 +57,28 @@
 ### 2.1 Microservice Boot & Domain Permission Registration (`POST /internal/auth/permissions/register`)
 
 ```text
-+-----------------------------------------------------------------------------------+
-|               Microservice Boot & Domain Permission Registration                  |
-+-----------------------------------------------------------------------------------+
++-------------------------------------------------------------------------------------------------------+
+|                         Microservice Boot & Domain Permission Registration                            |
++-------------------------------------------------------------------------------------------------------+
 
-[ order-service Boot ]       [ notification-service Boot ]     [ user-service Boot ]
-          │                               │                           │
-          │ POST /internal/auth/          │ POST /internal/auth/      │ POST /internal/auth/
-          │ permissions/register          │ permissions/register      │ permissions/register
-          │ (X-Internal-Service-Token)    │ (X-Internal-Service-Token)│ (X-Internal-Service-Token)
-          ▼                               ▼                           ▼
-  ┌───────────────────────────────────────────────────────────────────────────┐
-  │                         [ auth-service :8085 ]                            │
-  │  1. Receives domain permission declarations                               │
-  │  2. Executes idempotent upsert: ON CONFLICT (name) DO UPDATE              │
-  │  3. Non-blocking HTTP semaphore prevents startup stampedes                │
-  └─────────────────────────────────────┬─────────────────────────────────────┘
-                                        ▼
-                            [ auth_db.permissions ]
-                     (Centralized Opaque Permission Store)
+[ order-service Boot ]       [ notification-service Boot ]     [ user-service Boot ]       [ payment-service Boot ]
+          │                               │                           │                           │
+          │ POST /internal/auth/          │ POST /internal/auth/      │ POST /internal/auth/      │ POST /internal/auth/
+          │ permissions/register          │ permissions/register      │ permissions/register      │ permissions/register
+          │ (X-Internal-Service-Token)    │ (X-Internal-Service-Token)│ (X-Internal-Service-Token)│ (X-Internal-Service-Token)
+          ▼                               ▼                           ▼                           ▼
+  ┌───────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │                                     [ auth-service :8085 ]                                        │
+  │  1. Receives domain permission declarations                                                       │
+  │  2. Executes idempotent upsert: ON CONFLICT (name) DO UPDATE                                      │
+  │  3. Non-blocking HTTP semaphore prevents startup stampedes                                        │
+  └─────────────────────────────────────────────────┬─────────────────────────────────────────────────┘
+                                                    ▼
+                                        [ auth_db.permissions ]
+                                 (Centralized Opaque Permission Store)
 ```
 
-* **Domain-Driven Permission Ownership:** Domain services (`order-service`, `notification-service`, `user-service`) own their atomic capability strings (e.g. `orders:create`, `orders:read`).
+* **Domain-Driven Permission Ownership:** Domain services (`order-service`, `notification-service`, `user-service`, `payment-service`) own their atomic capability strings (e.g. `orders:create`, `payments:read`, `payments:manage`).
 * **Non-Blocking Registration:** Services register capabilities at startup via an internal HTTP semaphore contract (`POST /internal/auth/permissions/register`). `auth-service` persists them as opaque strings without needing compile-time knowledge of domain semantics.
 
 ---
@@ -456,9 +459,34 @@ Upgrading/downgrading a workspace between **`shared`** (schema-per-tenant on the
     │  │ [ infra-provisioner ] publishes tenant.migration_failed                      │                   │
     │  │ [ tenant-service ] MigrationFailedConsumer -> RollbackFailedMigration:       │                   │
     │  │    status back to active + emit tenant.infrastructure_changed (unfreeze)     │                   │
-    │  └──────────────────────────────────────────────────────────────────────    - [`infra-provisioner/README.md`](infra-provisioner/README.md) - Archetype C: Isolated Docker container provisioner, same-instance tenant database provisioning & QoS=1 AMQP worker.
-    - [`user-service/README.md`](user-service/README.md) - Archetype A: Identity profile management & `workspace.initiated` event listener.
-    - [`payment-service/README.md`](payment-service/README.md) - Archetype A: Provider Adapter pattern, async payment instructions (VA/QRIS), multi-provider fallback, and webhook idempotency.
+    │  └──────────────────────────────────────────────────────────────────────────────┘                   │
+    └─────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+Key properties of the maintenance window:
+
+* **Immediate plan persistence:** The new plan is written synchronously on request; only the *cutover* is asynchronous.
+* **Zero-downtime intent, bounded freeze:** While `MIGRATING`, the tenant's data-plane traffic is shielded with **HTTP 423 Locked** rather than serving stale/duplicated writes; the window ends when `tenant.infrastructure_changed` clears the flag (success *or* rollback).
+* **Sticky freeze:** `MIGRATING` persists on every order-service replica until a `tenant.infrastructure_changed` broadcast arrives — a network-split-safe guard against serving during an incomplete cutover.
+* **Failure isolation:** Any provisioning/migration failure restores the original schema, tears down the temporary dedicated resource (container **or** same-instance database), and rolls the tenant back to `active` via `tenant.migration_failed` — the plan column may keep the requested value while infrastructure is reverted, forcing an explicit retry or further reconciliation.
+* **Both directions are symmetric:** shared → dedicated and dedicated → shared run the identical code path; the plan string (and `DEDICATED_ISOLATION_MODE`) simply drives infra-provisioner behavior. A downgrade migrates the data back into the shared schema and then releases the dedicated resource (purges the container or drops the per-tenant database).
+
+---
+
+## 3. Microservice Layer Hierarchy & Documentation Topology
+
+This workspace enforces strict **Clean Architecture boundaries** across all microservices. The documentation follows a **2-Tier Macro/Micro Model**:
+
+1. **Macro System Mesh (Root Documentation):** Focuses on global orchestration, cross-cutting distributed workflows, security boundaries, and AMQP contracts (see Sections 1, 2 & 4).
+2. **Clean Architecture Standards ([docs/00-clean-architecture-standards-and-layer-hierarchy.md](docs/00-clean-architecture-standards-and-layer-hierarchy.md)):** Comprehensive documentation of Layer 1 (Adapters), Layer 2 (Service Core), Layer 3 (Persistence), transaction ownership rules (`txManager.WithTransaction`), and flow diagrams.
+3. **Micro Domain Services (Service READMEs):** Each microservice maintains its local domain contracts, archetype declaration, and local exception rationale:
+   - [`order-service/README.md`](order-service/README.md) - Archetype A: Dynamic DSN resolution, PoolRegistry & `MigrationService` exemption.
+   - [`notification-service/README.md`](notification-service/README.md) - Archetype B: Barrier Sync pattern & Mailpit SMTP delivery outside tx.
+   - [`tenant-service/README.md`](tenant-service/README.md) - Archetype A: Control-plane registry, Outbox worker & infrastructure routing update.
+   - [`auth-service/README.md`](auth-service/README.md) - Archetype A: RS256 JWT key pair, refresh token hashing, permissions registration & `user.created` membership copy consumer.
+   - [`infra-provisioner/README.md`](infra-provisioner/README.md) - Archetype C: Isolated Docker container provisioner, same-instance tenant database provisioning & QoS=1 AMQP worker.
+   - [`user-service/README.md`](user-service/README.md) - Archetype A: Identity profile management & `workspace.initiated` event listener.
+   - [`payment-service/README.md`](payment-service/README.md) - Archetype A: Provider Adapter pattern, async payment instructions (VA/QRIS), multi-provider fallback, and webhook idempotency.
 
 ---
 
@@ -564,21 +592,37 @@ microservice-api/
 │   ├── migrations/               # 00001_init_notification_schema.sql, 00002_backfill_... (embedded)
 │   └── Dockerfile
 │
+├── payment-service/              # Multi-Tenant Payment Gateway Adapter & Provider Registry
+│   ├── cmd/                      # Port 8086 - router.go & main.go HTTP server + AMQP consumers/workers
+│   ├── internal/
+│   │   ├── consumer/             # order.created AMQP event listener
+│   │   ├── crypto/               # AES-GCM credential encryption/decryption
+│   │   ├── domain/               # Payment entities, FSM, events & provider contracts
+│   │   ├── handler/              # Payment, Webhook & Tenant PSP Config HTTP handlers
+│   │   ├── infrastructure/       # Postgres, RabbitMQ & AuthClient adapters
+│   │   ├── migration/            # Embedded goose migrations runner
+│   │   ├── provider/             # ProviderRegistry, Circuit Breaker, Mock & DirectBank adapters
+│   │   ├── repository/           # Payment, Attempt, Config, Inbox & Outbox repositories
+│   │   ├── service/              # PaymentService core & transactional outbox publisher
+│   │   └── worker/               # OutboxWorker & ExpirationSweeper background tickers
+│   ├── migrations/               # 00001_init_payment_schema.sql, 00002_add_payment_tenant_configs.sql
+│   └── Dockerfile
+│
 ├── infrastructure/               # Shared Infrastructure & Docker Topology
 │   ├── .env.example              # Committed env template (incl. TIER=standard default)
 │   ├── .env                      # Local infra config — TIER= (lite | standard | premium), DB/queue ports
-│   ├── init.sql                  # One-shot database bootstrap (user_db, auth_db, tenant_manager_db, notification_db)
+│   ├── init.sql                  # One-shot database bootstrap (user_db, auth_db, tenant_manager_db, notification_db, payment_db)
 │   ├── docker-compose.yml        # Postgres, RabbitMQ, Mailpit, Traefik, Infra-Provisioner, Web-UI
 │   │                             #   + premium per-service DBs behind the "per-service-db" profile
-│   │                             #     (auth-db, user-db, tenant-db, notification-db, data-plane-db)
+│   │                             #     (auth-db, user-db, tenant-db, notification-db, data-plane-db, payment-db)
 │   └── web-ui/                   # Functional Web UI
 │
 ├── scripts/                      # Step-by-step deploy / test wizards
 │   ├── up.sh                     # Wizard: choose tier -> deploy -> run unit / e2e tests? (optional)
 │   └── down.sh                   # Wizard: purge mail/queues? -> stop services -> wipe volumes?
 │
-├── docs/                         # Architectural Deep-Dives & Technical Design Challenges (Docs 0 - 21)
-│   └── 21-how-do-we-implement-unified-identity-and-workspace-selection.md
+├── docs/                         # Architectural Deep-Dives & Technical Design Challenges (Docs 0 - 23)
+│   └── 23-how-do-we-design-a-resilient-multi-tenant-payment-adapter-with-automatic-fallback.md
 │
 └── e2e-tests/                    # Automated Integration Tests
     └── register_e2e_test.go      # Dynamic registration & order flow test suite
@@ -597,11 +641,12 @@ microservice-api/
 | **user-service** | `8081` | `user-service:8081` | User profile service |
 | **auth-service** | `8085` | `http://localhost:8085` | RS256 JWT token issuer & authentication service |
 | **notification-service** | `8083` | `notification-service:8083` | Email notification worker |
+| **payment-service** | `8086` | `payment-service:8086` | Multi-tenant payment gateway adapter & provider registry |
 | **infra-provisioner** | *None* | *Internal Worker* | Docker container / tenant database provisioner (QoS=1, isolated socket) |
 | **RabbitMQ Management**| `15672` | `http://localhost:15672` | Queue dashboard (`guest` / `guest`) |
 | **Mailpit Dashboard** | `8025` | `http://localhost:8025` | Mock email inbox UI |
 
-> **Premium tier only:** the shared `postgres` container stays on `5432` (kept as an idle host so default compose behavior and `localhost:5432` debugging still work), while the control-plane services connect to their own `auth-db`, `user-db`, `tenant-db`, `notification-db` containers and the order data plane uses `data-plane-db` — all on `microservice-network`, none expose host ports.
+> **Premium tier only:** the shared `postgres` container stays on `5432` (kept as an idle host so default compose behavior and `localhost:5432` debugging still work), while the control-plane services connect to their own `auth-db`, `user-db`, `tenant-db`, `notification-db`, `payment-db` containers and the order data plane uses `data-plane-db` — all on `microservice-network`, none expose host ports.
 
 ---
 
@@ -635,6 +680,11 @@ microservice-api/
 | **user-service** | `PUT /api/users/me` | Bearer JWT | `users:write` | Update current user profile details |
 | **order-service** | `GET /api/orders` | Bearer JWT | `orders:read` | List orders for isolated tenant DB |
 | **order-service** | `POST /api/orders` | Bearer JWT | `orders:create` | Create order entry in isolated tenant DB |
+| **payment-service** | `POST /api/payments/webhook/:provider` | None (HMAC Signature) | None | Unauthenticated PSP webhook callback |
+| **payment-service** | `GET /api/payments/:id` | Bearer JWT | `payments:read` | Retrieve payment details by payment ID |
+| **payment-service** | `GET /api/payments/by-order/:orderID` | Bearer JWT | `payments:read` | Retrieve payment details by tenant order ID |
+| **payment-service** | `PUT /api/payments/config` | Bearer JWT | `payments:manage` | Configure tenant PSP provider priority chain and encrypted credentials |
+| **payment-service** | `GET /api/payments/config` | Bearer JWT | `payments:manage` | Retrieve tenant PSP provider priority chain and configuration |
 | **notification-service** | `GET /api/notifications` | Bearer JWT | `notifications:read` | List user notifications |
 
 ---
@@ -662,11 +712,11 @@ microservice-api/
 
 The platform supports **three deployment tiers** selected once at startup. The tier is read from `TIER=` in `infrastructure/.env` by [`scripts/up.sh`](scripts/up.sh). The default tier is **standard**.
 
-| Tier | Control-plane DBs (auth / user / tenant / notification) | `shared_db` (order data plane) | Dedicated tenant data plane | `DEDICATED_ISOLATION_MODE` |
+| Tier | Control-plane DBs (auth / user / tenant / notification / payment) | `shared_db` (order data plane) | Dedicated tenant data plane | `DEDICATED_ISOLATION_MODE` |
 | :--- | :--- | :--- | :--- | :--- |
 | **lite** | shared `postgres` container | shared `postgres` container | per-tenant **database + role** inside the shared `postgres` container | `same_instance` |
 | **standard** (default) | shared `postgres` container | shared `postgres` container | dedicated **postgres container** per tenant (`postgres-tenant-<id>`) | `container` |
-| **premium** | one dedicated postgres per service (`auth-db`, `user-db`, `tenant-db`, `notification-db`) | dedicated `data-plane-db` container | dedicated **postgres container** per tenant | `container` |
+| **premium** | one dedicated postgres per service (`auth-db`, `user-db`, `tenant-db`, `notification-db`, `payment-db`) | dedicated `data-plane-db` container | dedicated **postgres container** per tenant | `container` |
 
 * **lite** — lowest cost and easiest to debug: everything shares one PostgreSQL instance. "Dedicated" tenants get their own database + role inside that instance (isolated credentials via `REVOKE CONNECT ON DATABASE ... FROM PUBLIC`).
 * **standard** — the default. The control plane is consolidated in one instance; each dedicated-plan tenant gets a hard-isolated PostgreSQL container (512MB RAM / 0.5 CPU).
@@ -694,7 +744,7 @@ The platform supports **three deployment tiers** selected once at startup. The t
 
 Switching tiers requires a fresh state — there is **no live tier-to-tier migration** (i will develop it in the future, maybe)  — so answer "yes" to the wipe-volume prompt when switching:
 
-> **Manual alternative:** direct `docker compose` per service still works and deploys the standard topology — `(cd infrastructure && docker compose up -d --build)` then the five service dirs in dependency order. The full e2e suite (`cd e2e-tests && go test -p 1 ./...`) is only safe on a fresh standard deployment; several tests stop/restart containers and leave the stack degraded afterwards.
+> **Manual alternative:** direct `docker compose` per service still works and deploys the standard topology — `(cd infrastructure && docker compose up -d --build)` then the six service dirs in dependency order. The full e2e suite (`cd e2e-tests && go test -p 1 ./...`) is only safe on a fresh standard deployment; several tests stop/restart containers and leave the stack degraded afterwards.
 
 ---
 

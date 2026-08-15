@@ -23,6 +23,7 @@ services:
       - "traefik.enable=true"
       - "traefik.docker.network=microservice-network"
       - "traefik.http.routers.payment-service.rule=PathPrefix(`/api/payments`)"
+      - "traefik.http.routers.payment-service.entrypoints=web"
       - "traefik.http.routers.payment-service.priority=10"
       - "traefik.http.services.payment-service.loadbalancer.server.port=${PORT:-8086}"
     networks:

@@ -218,38 +218,6 @@ services:
       retries: 5
     networks:
       - microservice-network
-
-  payment-service:
-    build:
-      context: ../payment-service
-      dockerfile: Dockerfile
-    container_name: payment-service
-    restart: always
-    environment:
-      PAYMENT_SERVICE_PORT: "8086"
-      POSTGRES_HOST: ${PAYMENT_DB_HOST:-postgres}
-      POSTGRES_PORT: "5432"
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: payment_db
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-      AUTH_SERVICE_URL: http://auth-service:8085
-      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-default_internal_service_token}
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=microservice-network"
-      - "traefik.http.routers.payment-service.rule=PathPrefix(`/api/payments`)"
-      - "traefik.http.routers.payment-service.entrypoints=web"
-      - "traefik.http.routers.payment-service.priority=10"
-      - "traefik.http.services.payment-service.loadbalancer.server.port=8086"
-    networks:
-      - microservice-network
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-
   payment-db:
     image: postgres:16-alpine
     container_name: payment-db
