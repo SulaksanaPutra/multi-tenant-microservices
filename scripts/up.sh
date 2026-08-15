@@ -88,6 +88,11 @@ deploy() {
       ;;
   esac
 
+  export RABBITMQ_URL="${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}"
+  export AUTH_SERVICE_URL="${AUTH_SERVICE_URL:-http://auth-service:8085}"
+  export TENANT_SERVICE_URL="${TENANT_SERVICE_URL:-http://tenant-service:8082}"
+  export SMTP_HOST="${SMTP_HOST:-mailpit}"
+
   echo "==> Deploying tier '$tier' (DEDICATED_ISOLATION_MODE=$DEDICATED_ISOLATION_MODE)"
   (cd "$ROOT/infrastructure" && docker compose $profile_args up -d --build)
   for svc in "${DEPLOY_DIRS[@]}"; do

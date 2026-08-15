@@ -51,14 +51,14 @@ purge_rabbitmq() {
   fi
   # shellcheck disable=SC2016
   local queues
-  queues="$(docker exec rabbitmq rabbitmqctl -s list_queues name --no-table-headers 2>/dev/null || true)"
+  queues="$(docker exec rabbitmq rabbitmqctl -s list_queues name --no-table-headers 2>/dev/null | grep -v '^amq\.gen' || true)"
   if [ -z "$queues" ]; then
     echo "==> No RabbitMQ queues to purge."
     return 0
   fi
   while IFS= read -r queue; do
     [ -z "$queue" ] && continue
-    if docker exec rabbitmq rabbitmqctl purge_queue "$queue" >/dev/null; then
+    if docker exec rabbitmq rabbitmqctl purge_queue "$queue" >/dev/null 2>&1; then
       echo "==> Purged RabbitMQ queue '$queue'."
     else
       echo "==> Warning: could not purge queue '$queue'." >&2
@@ -72,16 +72,11 @@ purge_rabbitmq() {
 
 confirm() {
   local prompt="$1"
-  local default="${2:-n}"
-  local answer
-  while true; do
-    read -r -p "$prompt [y/N] " answer
-    case "${answer:-$default}" in
-      y|Y|yes|YES) return 0 ;;
-      n|N|no|NO|"") return 1 ;;
-      *) echo "Please answer yes or no." ;;
-    esac
-  done
+  read -r -p "$prompt [y/N] " answer
+  case "$answer" in
+    [yY][eE][sS]|[yY]) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # ---------------------------------------------------------------------------
@@ -95,7 +90,7 @@ wizard() {
   echo ""
 
   # Step 1 — purge mail / queue state (while containers are still up)
-  echo "Step 1/3 — Purge mail / queue state"
+  echo "Step 1/2 — Purge mail / queue state"
   if confirm "Purge Mailpit messages and RabbitMQ queues?"; then
     purge_mailpit
     purge_rabbitmq
@@ -105,16 +100,11 @@ wizard() {
 
   # Step 2 — stop platform
   echo ""
-  echo "Step 2/3 — Stop platform"
-  teardown ""
-
-  # Step 3 — wipe volumes
-  echo ""
-  echo "Step 3/3 — Clean volumes"
+  echo "Step 2/2 — Teardown platform"
   if confirm "Wipe volumes for a fresh state?"; then
     teardown "-v"
   else
-    echo "Keeping volumes."
+    teardown ""
   fi
 
   echo ""

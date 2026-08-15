@@ -6,14 +6,14 @@ services:
     container_name: tenant-service
     restart: always
     environment:
+      PORT: ${PORT:-8082}
       DB_HOST: ${TENANT_DB_HOST:-postgres}
-      DB_PORT: 5432
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_NAME: tenant_manager_db
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-tenant_manager_db}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-default_internal_service_token}
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-      PORT: 8082
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
       AUTH_JWT_PUBLIC_KEY_PEM: ${AUTH_JWT_PUBLIC_KEY_PEM}
 
     ports:

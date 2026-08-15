@@ -204,6 +204,10 @@ func scanService(repoRoot, service string, strict bool) []Violation {
 		return nil
 	})
 
+	// Rule 9 — Docker & Deployment standards (context-aware per archetype)
+	dockerViolations := checkDockerStandards(repoRoot, service, serviceDir)
+	violations = append(violations, dockerViolations...)
+
 	return violations
 }
 
@@ -580,3 +584,155 @@ func printHumanReport(violations []Violation) {
 	}
 	fmt.Printf("\nTotal: %d violations across %d services\n", len(violations), len(byService))
 }
+
+func checkDockerStandards(repoRoot, service, serviceDir string) []Violation {
+	var violations []Violation
+	add := func(relPath, rule, id, msg string, line int) {
+		violations = append(violations, Violation{
+			Service: service,
+			Rule:    rule,
+			ID:      id,
+			Path:    relPath,
+			Line:    line,
+			Message: msg,
+		})
+	}
+
+	isArchetypeC := (service == "infra-provisioner")
+	isArchetypeB := (service == "notification-service")
+	isArchetypeA := (!isArchetypeC && !isArchetypeB)
+
+	// Rule 9.1 — Every service must have a .dockerignore containing .env
+	dockerIgnorePath := filepath.Join(serviceDir, ".dockerignore")
+	relDockerIgnore, _ := filepath.Rel(repoRoot, dockerIgnorePath)
+	relDockerIgnore = filepath.ToSlash(relDockerIgnore)
+
+	if !fileExists(dockerIgnorePath) {
+		add(relDockerIgnore, "9.1", "missing-dockerignore", "service directory lacks a `.dockerignore` file", 1)
+	} else {
+		content, err := os.ReadFile(dockerIgnorePath)
+		if err == nil {
+			lines := strings.Split(string(content), "\n")
+			hasEnv := false
+			for _, l := range lines {
+				if strings.TrimSpace(l) == ".env" {
+					hasEnv = true
+					break
+				}
+			}
+			if !hasEnv {
+				add(relDockerIgnore, "9.1", "dockerignore-missing-env", "`.dockerignore` does not include `.env` to prevent host secrets from leaking into container images", 1)
+			}
+		}
+	}
+
+	// Rule 9.2 — Dockerfile must exist and use BuildKit cache mounts
+	dockerfilePath := filepath.Join(serviceDir, "Dockerfile")
+	relDockerfile, _ := filepath.Rel(repoRoot, dockerfilePath)
+	relDockerfile = filepath.ToSlash(relDockerfile)
+
+	if !fileExists(dockerfilePath) {
+		add(relDockerfile, "9.2", "missing-dockerfile", "service directory lacks a `Dockerfile`", 1)
+	} else {
+		content, err := os.ReadFile(dockerfilePath)
+		if err == nil {
+			dfStr := string(content)
+			if !strings.Contains(dfStr, "--mount=type=cache,target=/go/pkg/mod") {
+				add(relDockerfile, "9.2", "dockerfile-missing-mod-cache-mount", "Dockerfile must use BuildKit cache mount `--mount=type=cache,target=/go/pkg/mod` for `go mod download`", 1)
+			}
+			if !strings.Contains(dfStr, "--mount=type=cache,target=/root/.cache/go-build") {
+				add(relDockerfile, "9.2", "dockerfile-missing-build-cache-mount", "Dockerfile must use BuildKit cache mount `--mount=type=cache,target=/root/.cache/go-build` for `go build`", 1)
+			}
+		}
+	}
+
+	// Rule 9.3 & 9.4 — Docker Compose standards (context-aware per archetype)
+	composePath := filepath.Join(serviceDir, "docker-compose.yml")
+	relCompose, _ := filepath.Rel(repoRoot, composePath)
+	relCompose = filepath.ToSlash(relCompose)
+
+	if isArchetypeC {
+		// Archetype C (infra-provisioner) must NOT have a standalone root docker-compose.yml
+		if fileExists(composePath) {
+			add(relCompose, "9.3", "archetype-c-standalone-compose", "Archetype C (`infra-provisioner`) is platform infrastructure and must be declared in `infrastructure/docker-compose.yml`, not as a standalone root compose file", 1)
+		}
+	} else {
+		// Archetype A & B must have a root docker-compose.yml
+		if !fileExists(composePath) {
+			add(relCompose, "9.3", "missing-docker-compose", "Archetype A/B service must have a root `docker-compose.yml` for independent deployment", 1)
+		} else {
+			content, err := os.ReadFile(composePath)
+			if err == nil {
+				lines := strings.Split(string(content), "\n")
+				for idx, line := range lines {
+					trimmed := strings.TrimSpace(line)
+					lineNum := idx + 1
+
+					// Rule 9.4 — No hardcoded environment variables in docker-compose.yml
+					if strings.HasPrefix(trimmed, "PORT:") {
+						val := strings.TrimSpace(strings.TrimPrefix(trimmed, "PORT:"))
+						if !strings.Contains(val, "${") {
+							add(relCompose, "9.4", "hardcoded-compose-port", fmt.Sprintf("`PORT: %s` in docker-compose.yml is hardcoded — use `${PORT:-...}` dynamic syntax", val), lineNum)
+						}
+					}
+
+					if strings.HasPrefix(trimmed, "DB_HOST:") {
+						val := strings.TrimSpace(strings.TrimPrefix(trimmed, "DB_HOST:"))
+						if !strings.Contains(val, "${") {
+							add(relCompose, "9.4", "hardcoded-compose-db-host", fmt.Sprintf("`DB_HOST: %s` in docker-compose.yml is hardcoded — use `${<SERVICE>_DB_HOST:-postgres}` dynamic syntax", val), lineNum)
+						}
+					}
+
+					if strings.HasPrefix(trimmed, "SHARED_DB_HOST:") {
+						val := strings.TrimSpace(strings.TrimPrefix(trimmed, "SHARED_DB_HOST:"))
+						if !strings.Contains(val, "${") {
+							add(relCompose, "9.4", "hardcoded-compose-shared-db-host", fmt.Sprintf("`SHARED_DB_HOST: %s` in docker-compose.yml is hardcoded — use `${SHARED_DB_HOST:-postgres}` dynamic syntax", val), lineNum)
+						}
+					}
+
+					if strings.HasPrefix(trimmed, "RABBITMQ_URL:") {
+						val := strings.TrimSpace(strings.TrimPrefix(trimmed, "RABBITMQ_URL:"))
+						if !strings.Contains(val, "${") {
+							add(relCompose, "9.4", "hardcoded-compose-rabbitmq-url", fmt.Sprintf("`RABBITMQ_URL: %s` in docker-compose.yml is hardcoded — use `${RABBITMQ_URL:-...}` dynamic syntax", val), lineNum)
+						}
+					}
+
+					if strings.HasPrefix(trimmed, "AUTH_SERVICE_URL:") {
+						val := strings.TrimSpace(strings.TrimPrefix(trimmed, "AUTH_SERVICE_URL:"))
+						if !strings.Contains(val, "${") {
+							add(relCompose, "9.4", "hardcoded-compose-auth-url", fmt.Sprintf("`AUTH_SERVICE_URL: %s` in docker-compose.yml is hardcoded — use `${AUTH_SERVICE_URL:-...}` dynamic syntax", val), lineNum)
+						}
+					}
+
+					if strings.HasPrefix(trimmed, "TENANT_SERVICE_URL:") {
+						val := strings.TrimSpace(strings.TrimPrefix(trimmed, "TENANT_SERVICE_URL:"))
+						if !strings.Contains(val, "${") {
+							add(relCompose, "9.4", "hardcoded-compose-tenant-url", fmt.Sprintf("`TENANT_SERVICE_URL: %s` in docker-compose.yml is hardcoded — use `${TENANT_SERVICE_URL:-...}` dynamic syntax", val), lineNum)
+						}
+					}
+
+					if strings.HasPrefix(trimmed, "SMTP_HOST:") {
+						val := strings.TrimSpace(strings.TrimPrefix(trimmed, "SMTP_HOST:"))
+						if !strings.Contains(val, "${") {
+							add(relCompose, "9.4", "hardcoded-compose-smtp-host", fmt.Sprintf("`SMTP_HOST: %s` in docker-compose.yml is hardcoded — use `${SMTP_HOST:-mailpit}` dynamic syntax", val), lineNum)
+						}
+					}
+				}
+
+				// Archetype A specific: Traefik routing rules
+				if isArchetypeA {
+					composeStr := string(content)
+					if !strings.Contains(composeStr, "traefik.enable=true") {
+						add(relCompose, "9.3", "missing-traefik-enable", "Archetype A HTTP service must declare `traefik.enable=true` label in docker-compose.yml", 1)
+					}
+					if !strings.Contains(composeStr, "traefik.http.routers") {
+						add(relCompose, "9.3", "missing-traefik-router", "Archetype A HTTP service must declare Traefik HTTP router labels in docker-compose.yml", 1)
+					}
+				}
+			}
+		}
+	}
+
+	return violations
+}
+

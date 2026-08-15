@@ -3,6 +3,8 @@ package main
 import (
 	"go/parser"
 	"go/token"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -213,4 +215,72 @@ type TestStruct struct {
 	}
 }
 
+func TestCheckDockerStandards_Rule9_HardcodedPort(t *testing.T) {
+	tmpDir := t.TempDir()
+	// write .dockerignore
+	_ = os.WriteFile(filepath.Join(tmpDir, ".dockerignore"), []byte(".env\n.git\n"), 0644)
+	// write Dockerfile with cache mounts
+	dfContent := `FROM golang:alpine AS builder
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+RUN --mount=type=cache,target=/root/.cache/go-build go build -o app
+`
+	_ = os.WriteFile(filepath.Join(tmpDir, "Dockerfile"), []byte(dfContent), 0644)
+	// write docker-compose with hardcoded port
+	composeContent := `services:
+  test-service:
+    environment:
+      PORT: 8085
+      DB_HOST: ${AUTH_DB_HOST:-postgres}
+`
+	_ = os.WriteFile(filepath.Join(tmpDir, "docker-compose.yml"), []byte(composeContent), 0644)
 
+	violations := checkDockerStandards(tmpDir, "auth-service", tmpDir)
+	hasHardcodedPort := false
+	for _, v := range violations {
+		if v.ID == "hardcoded-compose-port" {
+			hasHardcodedPort = true
+			break
+		}
+	}
+	if !hasHardcodedPort {
+		t.Errorf("Expected violation 'hardcoded-compose-port', got violations: %+v", violations)
+	}
+}
+
+func TestCheckDockerStandards_Rule9_MissingDockerignoreEnv(t *testing.T) {
+	tmpDir := t.TempDir()
+	// write .dockerignore without .env
+	_ = os.WriteFile(filepath.Join(tmpDir, ".dockerignore"), []byte(".git\n.idea\n"), 0644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "Dockerfile"), []byte("--mount=type=cache,target=/go/pkg/mod\n--mount=type=cache,target=/root/.cache/go-build\n"), 0644)
+
+	violations := checkDockerStandards(tmpDir, "infra-provisioner", tmpDir)
+	hasMissingEnv := false
+	for _, v := range violations {
+		if v.ID == "dockerignore-missing-env" {
+			hasMissingEnv = true
+			break
+		}
+	}
+	if !hasMissingEnv {
+		t.Errorf("Expected violation 'dockerignore-missing-env', got violations: %+v", violations)
+	}
+}
+
+func TestCheckDockerStandards_Rule9_ArchetypeCStandaloneComposeProhibited(t *testing.T) {
+	tmpDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(tmpDir, ".dockerignore"), []byte(".env\n"), 0644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "Dockerfile"), []byte("--mount=type=cache,target=/go/pkg/mod\n--mount=type=cache,target=/root/.cache/go-build\n"), 0644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "docker-compose.yml"), []byte("services:\n  infra:\n"), 0644)
+
+	violations := checkDockerStandards(tmpDir, "infra-provisioner", tmpDir)
+	hasProhibitedCompose := false
+	for _, v := range violations {
+		if v.ID == "archetype-c-standalone-compose" {
+			hasProhibitedCompose = true
+			break
+		}
+	}
+	if !hasProhibitedCompose {
+		t.Errorf("Expected violation 'archetype-c-standalone-compose', got violations: %+v", violations)
+	}
+}

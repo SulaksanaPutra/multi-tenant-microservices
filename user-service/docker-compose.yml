@@ -6,13 +6,13 @@ services:
     container_name: user-service
     restart: always
     environment:
+      PORT: ${PORT:-8081}
       DB_HOST: ${USER_DB_HOST:-postgres}
-      DB_PORT: 5432
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_NAME: user_db
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-      PORT: 8081
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-user_db}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
       AUTH_JWT_PUBLIC_KEY_PEM: ${AUTH_JWT_PUBLIC_KEY_PEM}
 
     ports:

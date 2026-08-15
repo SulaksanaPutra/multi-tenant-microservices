@@ -6,16 +6,16 @@ services:
     container_name: order-service
     restart: always
     environment:
+      PORT: ${PORT:-8084}
       SHARED_DB_HOST: ${SHARED_DB_HOST:-postgres}
-      SHARED_DB_PORT: 5432
-      SHARED_DB_USER: postgres
-      SHARED_DB_PASSWORD: postgres
-      SHARED_DB_NAME: shared_db
+      SHARED_DB_PORT: ${SHARED_DB_PORT:-5432}
+      SHARED_DB_USER: ${SHARED_DB_USER:-postgres}
+      SHARED_DB_PASSWORD: ${SHARED_DB_PASSWORD:-postgres}
+      SHARED_DB_NAME: ${SHARED_DB_NAME:-shared_db}
       SHARED_DB_SECRET: ${SHARED_DB_SECRET:-default_shared_db_secret_key}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-default_internal_service_token}
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-      TENANT_SERVICE_URL: http://tenant-service:8082
-      PORT: 8084
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
+      TENANT_SERVICE_URL: ${TENANT_SERVICE_URL:-http://tenant-service:8082}
       AUTH_JWT_PUBLIC_KEY_PEM: ${AUTH_JWT_PUBLIC_KEY_PEM}
 
     ports:
