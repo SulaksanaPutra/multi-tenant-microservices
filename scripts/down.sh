@@ -29,6 +29,7 @@ teardown() {
   docker ps -aq --filter "name=postgres-tenant-" | xargs -r docker rm -f >/dev/null 2>&1 || true
 
   if [ "$purge" = "-v" ]; then
+    rm -f "$ROOT/.active-tier"
     echo "==> Platform torn down and volumes wiped (fresh state)."
   else
     echo "==> Platform stopped (volumes preserved)."

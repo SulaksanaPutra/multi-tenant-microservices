@@ -58,7 +58,16 @@ var (
 // per-service postgres containers on dedicated host ports (see infrastructure/
 // docker-compose.yml, per-service-db profile). Run: TIER=premium go test ./...
 func init() {
-	if os.Getenv("TIER") != "premium" {
+	tier := os.Getenv("TIER")
+	if tier == "" {
+		if data, err := os.ReadFile("../.active-tier"); err == nil {
+			tier = strings.TrimSpace(string(data))
+			if tier != "" {
+				_ = os.Setenv("TIER", tier)
+			}
+		}
+	}
+	if tier != "premium" {
 		return
 	}
 	tenantDBDSN = "host=localhost port=5433 user=postgres password=postgres dbname=tenant_manager_db sslmode=disable"

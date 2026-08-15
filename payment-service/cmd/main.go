@@ -135,7 +135,7 @@ func main() {
 	go sweeper.Start(context.Background())
 	defer sweeper.Stop()
 
-	orderCreatedConsumer := consumer.NewOrderCreatedConsumer(rmqClient.Channel, paymentService, logger)
+	orderCreatedConsumer := consumer.NewOrderCreatedConsumer(rmqClient, paymentService, logger)
 	if err := orderCreatedConsumer.Start(context.Background()); err != nil {
 		logger.Warn("failed to start order.created consumer", "err", err)
 	}

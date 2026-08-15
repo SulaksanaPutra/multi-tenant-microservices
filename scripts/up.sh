@@ -29,12 +29,17 @@ DEPLOY_DIRS=(auth-service tenant-service user-service order-service payment-serv
 TEST_DIRS=(auth-service tenant-service user-service order-service payment-service notification-service infra-provisioner)
 E2E_MIGRATION_FILTER='TestE2E_TC_E2E_030|TestE2E_TC_E2E_032|TestE2E_TC_E2E_033'
 
+STATE_FILE="$ROOT/.active-tier"
+
 # ---------------------------------------------------------------------------
 # Tier helpers
 # ---------------------------------------------------------------------------
 
 read_tier() {
   local t="${TIER:-}"
+  if [ -z "$t" ] && [ -f "$STATE_FILE" ]; then
+    t="$(tr -d '[:space:]' < "$STATE_FILE")"
+  fi
   if [ -z "$t" ] && [ -f "$ENV_FILE" ]; then
     t="$(sed -n 's/^TIER=//p' "$ENV_FILE" | tr -d '[:space:]' | tail -1)"
   fi
@@ -43,10 +48,7 @@ read_tier() {
 
 set_tier() {
   local tier="$1"
-  if [ -f "$ENV_FILE" ]; then
-    grep -v '^TIER=' "$ENV_FILE" > "$ENV_FILE.tmp" && mv "$ENV_FILE.tmp" "$ENV_FILE"
-  fi
-  printf 'TIER=%s\n' "$tier" >> "$ENV_FILE"
+  printf '%s\n' "$tier" > "$STATE_FILE"
 }
 
 tier_description() {

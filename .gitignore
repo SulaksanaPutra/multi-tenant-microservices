@@ -2,6 +2,7 @@
 .env
 *.env
 !.env.example
+.active-tier
 
 # Repomix AI Codebase Map output
 repomix-output.xml

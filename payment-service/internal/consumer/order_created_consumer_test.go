@@ -3,7 +3,6 @@ package consumer
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"testing"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -12,29 +11,28 @@ import (
 	"payment-service/internal/service"
 )
 
-type mockChannel struct {
-	queueDeclareErr error
-	queueBindErr    error
-	consumeErr      error
-	deliveryCh      chan amqp.Delivery
+type mockAMQPClient struct {
+	connCtx context.Context
+	ch      *amqp.Channel
 }
 
-func (m *mockChannel) QueueDeclare(name string, durable, autoDelete, exclusive, noWait bool, args amqp.Table) (amqp.Queue, error) {
-	if m.queueDeclareErr != nil {
-		return amqp.Queue{}, m.queueDeclareErr
+func (m *mockAMQPClient) ConnContext() context.Context {
+	if m.connCtx != nil {
+		return m.connCtx
 	}
-	return amqp.Queue{Name: name}, nil
+	return context.Background()
 }
 
-func (m *mockChannel) QueueBind(name, key, exchange string, noWait bool, args amqp.Table) error {
-	return m.queueBindErr
+func (m *mockAMQPClient) WaitUntilReady(ctx context.Context) error {
+	return nil
 }
 
-func (m *mockChannel) Consume(queue, consumer string, autoAck, exclusive, noLocal, noWait bool, args amqp.Table) (<-chan amqp.Delivery, error) {
-	if m.consumeErr != nil {
-		return nil, m.consumeErr
-	}
-	return m.deliveryCh, nil
+func (m *mockAMQPClient) DeclareExchange(name, kind string) error {
+	return nil
+}
+
+func (m *mockAMQPClient) GetChannel() *amqp.Channel {
+	return m.ch
 }
 
 type mockInitiator struct {
@@ -48,25 +46,10 @@ func (m *mockInitiator) InitiatePayment(ctx context.Context, tenantID, orderID s
 	return &service.PaymentOutput{ID: "pay_1"}, nil
 }
 
-func TestOrderCreatedConsumer_SetupTopology(t *testing.T) {
-	ch := &mockChannel{}
-	svc := &mockInitiator{}
-	c := NewOrderCreatedConsumer(ch, svc, nil)
-
-	if err := c.SetupTopology(); err != nil {
-		t.Fatalf("unexpected error in SetupTopology: %v", err)
-	}
-
-	ch.queueDeclareErr = errors.New("declare failed")
-	if err := c.SetupTopology(); err == nil {
-		t.Error("expected error when QueueDeclare fails")
-	}
-}
-
 func TestOrderCreatedConsumer_HandleDelivery_UnmarshalError(t *testing.T) {
-	ch := &mockChannel{}
+	client := &mockAMQPClient{}
 	svc := &mockInitiator{}
-	c := NewOrderCreatedConsumer(ch, svc, nil)
+	c := NewOrderCreatedConsumer(client, svc, nil)
 
 	// Delivery with invalid JSON payload
 	d := amqp.Delivery{
@@ -78,7 +61,7 @@ func TestOrderCreatedConsumer_HandleDelivery_UnmarshalError(t *testing.T) {
 }
 
 func TestOrderCreatedConsumer_HandleDelivery_Success(t *testing.T) {
-	ch := &mockChannel{}
+	client := &mockAMQPClient{}
 	var calledOrder string
 	svc := &mockInitiator{
 		initiateFn: func(ctx context.Context, tenantID, orderID string, amount float64, currency string) (*service.PaymentOutput, error) {
@@ -86,7 +69,7 @@ func TestOrderCreatedConsumer_HandleDelivery_Success(t *testing.T) {
 			return &service.PaymentOutput{ID: "pay_test"}, nil
 		},
 	}
-	c := NewOrderCreatedConsumer(ch, svc, nil)
+	c := NewOrderCreatedConsumer(client, svc, nil)
 
 	payload, _ := json.Marshal(domain.OrderCreatedEvent{
 		EventID:  "evt_1",

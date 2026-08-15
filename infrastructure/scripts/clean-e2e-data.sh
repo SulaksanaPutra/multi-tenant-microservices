@@ -65,8 +65,18 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+STATE_FILE="$ROOT/.active-tier"
+
+if [ -z "$tier" ] && [ -f "$STATE_FILE" ]; then
+  tier="$(tr -d '[:space:]' < "$STATE_FILE")"
+fi
 if [ -z "$tier" ] && [ -f "$ENV_FILE" ]; then
   tier="$(sed -n 's/^TIER=//p' "$ENV_FILE" | tr -d '[:space:]' | tail -1)"
+fi
+if [ -z "$tier" ] || [ "$tier" = "standard" ]; then
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'auth-db'; then
+    tier="premium"
+  fi
 fi
 tier="${tier:-standard}"
 

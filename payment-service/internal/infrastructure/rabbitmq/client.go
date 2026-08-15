@@ -157,6 +157,12 @@ func (c *Client) WaitUntilReady(ctx context.Context) error {
 	}
 }
 
+func (c *Client) GetChannel() *amqp.Channel {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Channel
+}
+
 func (c *Client) DeclareExchange(name, kind string) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

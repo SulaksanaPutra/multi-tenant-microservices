@@ -3,6 +3,7 @@ package consumer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -12,10 +13,11 @@ import (
 	"payment-service/internal/service"
 )
 
-type AMQPChannel interface {
-	QueueDeclare(name string, durable, autoDelete, exclusive, noWait bool, args amqp.Table) (amqp.Queue, error)
-	QueueBind(name, key, exchange string, noWait bool, args amqp.Table) error
-	Consume(queue, consumer string, autoAck, exclusive, noLocal, noWait bool, args amqp.Table) (<-chan amqp.Delivery, error)
+type AMQPClient interface {
+	ConnContext() context.Context
+	WaitUntilReady(ctx context.Context) error
+	DeclareExchange(name, kind string) error
+	GetChannel() *amqp.Channel
 }
 
 type PaymentInitiator interface {
@@ -23,24 +25,55 @@ type PaymentInitiator interface {
 }
 
 type OrderCreatedConsumer struct {
-	channel        AMQPChannel
+	client         AMQPClient
 	paymentService PaymentInitiator
 	logger         *slog.Logger
 }
 
-func NewOrderCreatedConsumer(channel AMQPChannel, paymentService PaymentInitiator, logger *slog.Logger) *OrderCreatedConsumer {
+func NewOrderCreatedConsumer(client AMQPClient, paymentService PaymentInitiator, logger *slog.Logger) *OrderCreatedConsumer {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &OrderCreatedConsumer{
-		channel:        channel,
+		client:         client,
 		paymentService: paymentService,
 		logger:         logger,
 	}
 }
 
-func (c *OrderCreatedConsumer) SetupTopology() error {
-	_, err := c.channel.QueueDeclare(
+func (c *OrderCreatedConsumer) Start(ctx context.Context) error {
+	go func() {
+		for {
+			connCtx := c.client.ConnContext()
+			if err := c.runConsumerLoop(ctx, connCtx); err != nil {
+				c.logger.Warn("consumer loop exited with error", "err", err)
+			}
+
+			if ctx.Err() != nil {
+				return
+			}
+
+			c.logger.Info("waiting for RabbitMQ reconnection...")
+			if err := c.client.WaitUntilReady(ctx); err != nil {
+				return
+			}
+			c.logger.Info("reconnected to RabbitMQ; restarting OrderCreatedConsumer...")
+		}
+	}()
+	return nil
+}
+
+func (c *OrderCreatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
+	ch := c.client.GetChannel()
+	if ch == nil {
+		return errors.New("rabbitmq channel is nil")
+	}
+
+	if err := c.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
+		return fmt.Errorf("failed to declare exchange: %w", err)
+	}
+
+	_, err := ch.QueueDeclare(
 		domain.QueuePaymentServiceOrderCreated,
 		true,  // durable
 		false, // autoDelete
@@ -52,7 +85,7 @@ func (c *OrderCreatedConsumer) SetupTopology() error {
 		return fmt.Errorf("failed to declare queue %s: %w", domain.QueuePaymentServiceOrderCreated, err)
 	}
 
-	err = c.channel.QueueBind(
+	err = ch.QueueBind(
 		domain.QueuePaymentServiceOrderCreated,
 		domain.RoutingKeyOrderCreated,
 		domain.ExchangeCompanyEvents,
@@ -63,15 +96,7 @@ func (c *OrderCreatedConsumer) SetupTopology() error {
 		return fmt.Errorf("failed to bind queue to exchange: %w", err)
 	}
 
-	return nil
-}
-
-func (c *OrderCreatedConsumer) Start(ctx context.Context) error {
-	if err := c.SetupTopology(); err != nil {
-		return err
-	}
-
-	deliveries, err := c.channel.Consume(
+	deliveries, err := ch.Consume(
 		domain.QueuePaymentServiceOrderCreated,
 		"payment-service-order-created",
 		false, // autoAck
@@ -86,23 +111,22 @@ func (c *OrderCreatedConsumer) Start(ctx context.Context) error {
 
 	c.logger.Info("started OrderCreatedConsumer listening on queue", "queue", domain.QueuePaymentServiceOrderCreated)
 
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				c.logger.Info("stopping OrderCreatedConsumer")
-				return
-			case d, ok := <-deliveries:
-				if !ok {
-					c.logger.Warn("delivery channel closed for OrderCreatedConsumer")
-					return
-				}
-				c.handleDelivery(ctx, d)
+	for {
+		select {
+		case <-appCtx.Done():
+			c.logger.Info("stopping OrderCreatedConsumer (application context done)")
+			return appCtx.Err()
+		case <-connCtx.Done():
+			c.logger.Warn("stopping OrderCreatedConsumer (connection context closed)")
+			return connCtx.Err()
+		case d, ok := <-deliveries:
+			if !ok {
+				c.logger.Warn("delivery channel closed for OrderCreatedConsumer")
+				return errors.New("delivery channel closed")
 			}
+			c.handleDelivery(appCtx, d)
 		}
-	}()
-
-	return nil
+	}
 }
 
 func (c *OrderCreatedConsumer) handleDelivery(ctx context.Context, d amqp.Delivery) {

@@ -406,11 +406,14 @@ func TestE2E_TC_E2E_030_PlanUpgrade_MigrationContract(t *testing.T) {
 	}
 }
 
-// isSameInstanceMode reports whether the deployment uses same_instance data-plane
-// isolation (the lite tier), where "dedicated" tenants get a database inside the
-// shared postgres container rather than a separate postgres container.
 func isSameInstanceMode() bool {
-	return os.Getenv("TIER") == "lite"
+	tier := os.Getenv("TIER")
+	if tier == "" {
+		if data, err := os.ReadFile("../.active-tier"); err == nil {
+			tier = strings.TrimSpace(string(data))
+		}
+	}
+	return tier == "lite"
 }
 
 // listOrderCustomerIDs GETs the tenant's orders and returns the customer_id values.
