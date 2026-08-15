@@ -33,10 +33,11 @@ Each Go microservice is structured into standard layers:
 | Layer / Package | Responsibilities | Allowed Dependencies | Prohibited Practices |
 | :--- | :--- | :--- | :--- |
 | **`domain`** | Holds pure domain model structs (`User`, `Tenant`, `Order`) and sentinel errors (`ErrNotFound`). | **None** (Stdlib only) | No framework imports, no DB drivers, no HTTP/AMQP tags. |
-| **`service`** | Implements core application workflows, input validation, and business invariants. | `domain`, consumer-side interfaces | Must NOT depend on `gin.Context` or HTTP transport types. |
+| **`service`** | Domain-Driven Business Core: Implements pure domain invariants and single-domain workflows. | `domain`, consumer-side repo interfaces | Must NOT depend on `gin.Context`, HTTP transport types, or peer domain services (no cross-domain in Layer 2). |
 | **`repository`** | Executes SQL queries against PostgreSQL. Pushes domain structs into storage. | `domain`, `txcontext`, `infrastructure` | Must NOT contain transport logic or HTTP response formatting. |
-| **`handler`** | Binds JSON payloads, validates transport schemas, calls application services, writes HTTP responses. | `domain`, `service` (interface), `httputil` | Must NOT write SQL queries or handle raw DB transactions directly. |
-| **`consumer`** | Consumes AMQP event messages from RabbitMQ queues, delegates to domain services/provisioners. | `domain`, `service`, `infrastructure` | Must NOT perform raw SQL mutations outside service boundaries. |
+| **`handler`** | Unit of Action: Binds JSON payloads, validates schemas, orchestrates domain services, manages `txManager.WithTransaction`, writes HTTP responses. | `domain`, `service` (interface), `httputil`, `txcontext` | Must NOT write SQL queries or handle raw DB connections directly. |
+| **`consumer`** | Unit of Action: Consumes AMQP messages, coordinates `InboxService` deduplication, executes `txManager.WithTransaction`, delegates to domain services. | `domain`, `service` (interface), `infrastructure` | Must NOT perform raw SQL mutations outside service boundaries. |
+| **`worker`** | Unit of Action: Background process loops (e.g. outbox polling), manages claim-publish-mark lifecycles. | `domain`, `repository` (interface), `publisher` (interface) | Must NOT contain core domain business logic. |
 | **`migration`** | Applies embedded goose SQL migrations against the control-plane DB at boot (versioned, advisory-locked). | stdlib (`database/sql`), goose, `migrations/` embed | Must NOT contain business logic or runtime per-tenant DDL (see Rule 7.2). |
 | **`composition` (`cmd`)**| Instantiates concrete structs, wires dependency trees, starts servers and background workers. | All packages | Must NOT contain business logic or inline SQL queries. |
 
@@ -59,7 +60,7 @@ func NewUserService(repo UserRepository) UserService
 ### Rule 2.2: Consumer-Side Interface Ownership
 Interfaces MUST be defined by the **consumer package** requiring the dependency, not by the provider package. This applies universally to repositories, services, mailers, workers, and publisher adapters.
 ```go
-// GOOD: Declared in internal/handler/user_handler.go
+// GOOD: Declared in internal/handler/interfaces.go
 type UserService interface {
     GetUserByID(ctx context.Context, id string) (*domain.User, error)
     ListUsers(ctx context.Context) ([]domain.User, error)
@@ -71,17 +72,29 @@ type UserRepository interface {
     ListUsers(ctx context.Context) ([]domain.User, error)
 }
 
-// GOOD: Declared in internal/service/notification_service.go
-type Mailer interface {
-    SendWelcomeEmail(recipientEmail, tenantID string) (string, string, error)
-}
-
-// GOOD: Declared in internal/worker/outbox_worker.go
+// GOOD: Declared in internal/worker/interfaces.go
 type TenantEventPublisher interface {
     PublishWorkspaceInitiated(ctx context.Context, evt domain.WorkspaceInitiatedEvent) error
     PublishWorkspaceReady(ctx context.Context, evt domain.WorkspaceReadyEvent) error
 }
 ```
+
+### Rule 2.3: Layer 1 Centralized Outbound Ports Manifest (`interfaces.go`)
+Every Layer 1 driving package (`internal/consumer`, `internal/handler`, `internal/worker`) MUST centralize ALL outbound dependency contracts into a single `interfaces.go` file within that package, accompanied by an `interfaces_test.go` verifying compile-time interface satisfaction (`var _ Contract = (*mockContract)(nil)`).
+* **`internal/consumer/interfaces.go`**: Declares transport contracts (`AMQPClient`, `TxManager`, `InboxService`) and domain service contracts (`OrderNotificationService`, `AuthClient`, etc.).
+* **`internal/handler/interfaces.go`**: Declares application service contracts consumed by HTTP controllers (`AuthService`, `RoleService`, `UserService`, etc.).
+* **`internal/worker/interfaces.go`**: Declares persistence and publisher adapter contracts consumed by background workers (`OutboxRepository`, `TenantEventPublisher`, etc.).
+* **PROHIBITED:** Scattering inline interface definitions across individual `*_handler.go`, `*_consumer.go`, or `*_worker.go` files. Centralizing Layer 1 interfaces establishes a predictable, transparent outbound ports manifest for each driving boundary.
+
+### Rule 2.4: Application Service Domain Purity & Isolation (No Cross-Domain in Layer 2)
+Layer 2 Application Services (`internal/service`) MUST remain strictly Domain-Driven and cohesive to their own domain boundaries:
+* **Single Domain Cohesion:** A service (e.g. `UserService`) only consumes repository interfaces directly bound to its own domain entities (e.g. `UserRepository`).
+* **FORBIDDEN: Cross-Domain Service Coupling:** Application services MUST NOT import, consume, or orchestrate other peer services or foreign domain repositories.
+* **Choreography Lives in Layer 1:** When a business use case requires touching multiple domains or executing atomic multi-service transactions, the orchestration and transaction coordination (`txManager.WithTransaction`) MUST live **exclusively in Layer 1** (`handler`, `consumer`, or `worker`), which orchestrates calls across separate domain services.
+* **Prohibited Imports in Layer 2:**
+  - Services must NOT import Layer 1 packages (`internal/handler`, `internal/consumer`, `internal/worker`).
+  - Services must NOT import peer service packages or hold foreign domain service structs.
+  - Services must NOT import `database/sql` (except for the sanctioned `order-service` `MigrationService` exception in Rule 7.2).
 
 ---
 
@@ -256,9 +269,9 @@ if details != nil {
 ### Rule 5.9: Consumer-Side AMQP Interface Abstraction (Dependency Inversion)
 * Consumers in `internal/consumer` MUST declare and accept a consumer-side interface (e.g. `AMQPClient`) rather than holding a concrete struct pointer to `*rabbitmq.Client`.
 
-### Rule 5.10: Package-Level Consumer Interface Consolidation (`amqp.go` / `interfaces.go`)
-* Packages in `internal/consumer` MUST centralize shared transport infrastructure contracts (`AMQPClient`, `TxManager`, `InboxService`) into a dedicated `internal/consumer/amqp.go` (or `interfaces.go`) file.
-* Use-case-specific domain interfaces (e.g. `OrderNotificationService`, `Mailer`, `PaymentInitiator`) remain co-located directly in their respective consumer feature files.
+### Rule 5.10: Package-Level Consumer Outbound Ports Manifest (`interfaces.go`)
+* Packages in `internal/consumer` MUST centralize ALL outbound dependency contracts (transport infrastructure contracts like `AMQPClient`, `TxManager`, `InboxService` AND domain service contracts like `OrderNotificationService`, `AuthClient`, `PaymentInitiator`) into a dedicated `internal/consumer/interfaces.go` file (per Rule 2.3).
+* **PROHIBITED:** Scattering inline interface definitions across individual `*_consumer.go` files or keeping obsolete `amqp.go` files. Centralizing into `interfaces.go` ensures a single, predictable ports manifest.
 
 ---
 

@@ -6,9 +6,6 @@ import (
 	"time"
 )
 
-type PaymentSweeper interface {
-	SweepExpiredPayments(ctx context.Context, ttl time.Duration) (int, error)
-}
 
 type ExpirationSweeper struct {
 	paymentService PaymentSweeper

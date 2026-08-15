@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
@@ -10,9 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type InternalAuthAppService interface {
-	CreatePasswordSetupToken(ctx context.Context, input service.InternalCreateSetupTokenInput) (string, error)
-}
 
 type InternalCreateSetupTokenRequest struct {
 	UserID   string `json:"user_id"   binding:"required"`

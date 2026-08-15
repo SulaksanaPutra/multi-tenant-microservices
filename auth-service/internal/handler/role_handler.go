@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -15,16 +14,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type RoleService interface {
-	CreateRole(ctx context.Context, input service.CreateRoleInput) (*service.RoleOutput, error)
-	GetRole(ctx context.Context, roleID string) (*service.RoleOutput, error)
-	ListRolesForTenant(ctx context.Context, tenantID string) ([]service.RoleOutput, error)
-	UpdateRolePermissions(ctx context.Context, input service.UpdateRolePermissionsInput) error
-	DeleteRole(ctx context.Context, roleID string) error
-	AssignUserRole(ctx context.Context, input service.AssignUserRoleInput) error
-	GetUserRole(ctx context.Context, userID, tenantID string) (*service.UserRoleOutput, error)
-	ListUserRolesForTenant(ctx context.Context, tenantID string, userIDs []string) ([]service.UserRoleAssignmentOutput, error)
-}
 
 type CreateRoleRequest struct {
 	TenantID      string   `json:"tenant_id"`

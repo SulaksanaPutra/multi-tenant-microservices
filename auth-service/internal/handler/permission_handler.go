@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"net/http"
 	"time"
 
@@ -11,9 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type PermissionService interface {
-	ListPermissions(ctx context.Context) ([]service.PermissionOutput, error)
-}
 
 // PermissionResponse is the transport DTO for a permission catalog entry.
 type PermissionResponse struct {

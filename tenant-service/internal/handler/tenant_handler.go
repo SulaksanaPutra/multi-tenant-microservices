@@ -1,23 +1,15 @@
 package handler
 
 import (
-	"context"
 	"net/http"
 	"time"
 
-	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
-
 	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
+	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
 	"tenant-service/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
-
-type TenantServiceInterface interface {
-	GetTenantByID(ctx context.Context, tenantID string) (*service.TenantOutput, error)
-	UpdateTenant(ctx context.Context, input service.UpdateTenantServiceInput) error
-	ChangeTenantPlan(ctx context.Context, input service.ChangeTenantPlanInput) error
-}
 
 type TenantHandler struct {
 	workspaceService TenantServiceInterface

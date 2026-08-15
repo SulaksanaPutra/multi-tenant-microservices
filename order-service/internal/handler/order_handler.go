@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -44,16 +43,6 @@ func toOrderResponse(o service.OrderOutput) OrderResponse {
 		UpdatedAt:  o.UpdatedAt,
 	}
 }
-
-// OrderService is the consumer-side interface expected by OrderHandler.
-type OrderService interface {
-	ListOrders(ctx context.Context) ([]service.OrderOutput, error)
-	CreateOrder(ctx context.Context, input service.CreateOrderInput) (*service.OrderOutput, error)
-}
-
-// OrderServiceFactory constructs an OrderService for a given tenant configuration.
-// It is supplied by the composition root so Layer 1 never constructs repositories.
-type OrderServiceFactory func(cfg tenantdb.Config) OrderService
 
 type OrderHandler struct {
 	factory OrderServiceFactory

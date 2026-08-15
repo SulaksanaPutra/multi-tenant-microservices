@@ -1,24 +1,17 @@
 package handler
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"time"
 
-	"user-service/internal/domain"
 	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
+	"user-service/internal/domain"
 	"user-service/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
-
-type UserService interface {
-	ListUsers(ctx context.Context, tenantID string) ([]service.UserOutput, error)
-	GetUserByID(ctx context.Context, userID string) (*service.UserOutput, error)
-	UpdateUser(ctx context.Context, input service.UpdateUserInput) error
-}
 
 type UserHandler struct {
 	userService UserService

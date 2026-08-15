@@ -1,26 +1,17 @@
 package handler
 
 import (
-	"context"
 	"errors"
 	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
-	"payment-service/internal/domain"
 	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
+	"payment-service/internal/domain"
 	"payment-service/internal/service"
 )
-
-type PaymentService interface {
-	GetPaymentByID(ctx context.Context, id string) (*service.PaymentOutput, error)
-	GetPaymentByOrderID(ctx context.Context, tenantID, orderID string) (*service.PaymentOutput, error)
-	ProcessWebhook(ctx context.Context, providerID domain.ProviderType, headers map[string]string, body []byte) error
-	SavePSPConfig(ctx context.Context, config *domain.TenantPSPConfig) error
-	GetPSPConfig(ctx context.Context, tenantID string) (*service.TenantPSPConfigOutput, error)
-}
 
 type PaymentHandler struct {
 	paymentService PaymentService

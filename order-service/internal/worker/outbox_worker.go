@@ -16,38 +16,6 @@ const (
 	defaultBatchSize     = 50
 )
 
-// OutboxRepository is the consumer-side interface expected by OutboxWorker.
-type OutboxRepository interface {
-	RecoverStuckClaims(ctx context.Context, eventType string) error
-	FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error)
-	MarkFailed(ctx context.Context, id string, err error) error
-	MarkPublished(ctx context.Context, id string) error
-}
-
-// OrderEventPublisher is the consumer-side interface expected by OutboxWorker.
-type OrderEventPublisher interface {
-	PublishOrderCreated(ctx context.Context, evt domain.OrderCreatedEvent) error
-}
-
-// TenantDBResolver resolves the database configuration for a tenant.
-// It returns domain.ErrTenantMigrating when the tenant is locked for migration.
-type TenantDBResolver interface {
-	GetTenantDB(ctx context.Context, tenantID string) (tenantdb.Config, error)
-}
-
-// TenantLister enumerates the tenants currently materialized in the local RoutingRegistry.
-type TenantLister interface {
-	TenantIDs() []string
-}
-
-// RoutingStatusChecker allows the OutboxWorker to check the MIGRATING lock state
-// of a tenant before polling. Implemented by registry.RoutingRegistry.
-type RoutingStatusChecker interface {
-	GetStatus(tenantID string) string
-}
-
-// OutboxRepoFactory builds an outbox repository bound to a tenant's resolved database/schema.
-type OutboxRepoFactory func(cfg tenantdb.Config) OutboxRepository
 
 // OutboxWorker polls the per-tenant outbox tables of every tenant materialized in the
 // local RoutingRegistry and publishes order.created events to RabbitMQ.

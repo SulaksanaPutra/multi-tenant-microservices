@@ -479,3 +479,73 @@ func TestScanService_Rule5_9_MissingRabbitMQConsumeMethod(t *testing.T) {
 	}
 }
 
+func TestScanService_Rule2_3_MissingHandlerInterfacesFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	handlerDir := filepath.Join(tmpDir, "internal", "handler")
+	_ = os.MkdirAll(handlerDir, 0755)
+	_ = os.WriteFile(filepath.Join(handlerDir, "order_handler.go"), []byte("package handler\n"), 0644)
+	_ = os.WriteFile(filepath.Join(handlerDir, "order_handler_test.go"), []byte("package handler\n"), 0644)
+
+	violations := scanService(filepath.Dir(tmpDir), filepath.Base(tmpDir), false)
+	hasViolation := false
+	for _, v := range violations {
+		if v.ID == "missing-handler-interfaces-file" {
+			hasViolation = true
+			break
+		}
+	}
+	if !hasViolation {
+		t.Errorf("Expected violation 'missing-handler-interfaces-file', got violations: %+v", violations)
+	}
+}
+
+func TestScanService_Rule2_3_MissingWorkerInterfacesFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	workerDir := filepath.Join(tmpDir, "internal", "worker")
+	_ = os.MkdirAll(workerDir, 0755)
+	_ = os.WriteFile(filepath.Join(workerDir, "outbox_worker.go"), []byte("package worker\n"), 0644)
+	_ = os.WriteFile(filepath.Join(workerDir, "outbox_worker_test.go"), []byte("package worker\n"), 0644)
+
+	violations := scanService(filepath.Dir(tmpDir), filepath.Base(tmpDir), false)
+	hasViolation := false
+	for _, v := range violations {
+		if v.ID == "missing-worker-interfaces-file" {
+			hasViolation = true
+			break
+		}
+	}
+	if !hasViolation {
+		t.Errorf("Expected violation 'missing-worker-interfaces-file', got violations: %+v", violations)
+	}
+}
+
+func TestCheckFile_Rule2_4_ServiceImportsDrivingLayer(t *testing.T) {
+	src := `package service
+
+import (
+	"context"
+	"order-service/internal/handler"
+)
+
+type DummyService struct{}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "dummy_service.go", src, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse Go source: %v", err)
+	}
+
+	violations := checkFile(fset, file, "order-service", "internal/service/dummy_service.go", false, false)
+	hasViolation := false
+	for _, v := range violations {
+		if v.ID == "service-imports-driving-layer" {
+			hasViolation = true
+			break
+		}
+	}
+	if !hasViolation {
+		t.Errorf("Expected violation 'service-imports-driving-layer', got violations: %+v", violations)
+	}
+}
+
+

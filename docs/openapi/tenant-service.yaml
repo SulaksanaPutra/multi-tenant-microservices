@@ -19,7 +19,7 @@ paths:
             x-service: tenant-service
             x-source:
                 - tenant-service/cmd/router.go:46
-                - tenant-service/internal/handler/internal_tenant_handler.go:35
+                - tenant-service/internal/handler/internal_tenant_handler.go:29
             parameters:
                 - name: tenant_id
                   in: path
@@ -46,7 +46,7 @@ paths:
             x-service: tenant-service
             x-source:
                 - tenant-service/cmd/router.go:26
-                - tenant-service/internal/handler/workspace_handler.go:46
+                - tenant-service/internal/handler/workspace_handler.go:37
             requestBody:
                 required: true
                 content:

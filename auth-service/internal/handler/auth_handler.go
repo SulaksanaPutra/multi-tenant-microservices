@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"errors"
 	"net/http"
 
@@ -13,13 +12,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type AuthService interface {
-	SetupPassword(ctx context.Context, input service.SetupPasswordInput) (*service.TokenPair, error)
-	Login(ctx context.Context, input service.LoginInput) (*service.LoginOutput, error)
-	SelectWorkspace(ctx context.Context, input service.SelectWorkspaceInput) (*service.TokenPair, error)
-	RefreshToken(ctx context.Context, input service.RefreshTokenInput) (*service.TokenPair, error)
-	Logout(ctx context.Context, input service.LogoutInput) error
-}
 
 type SetupPasswordRequest struct {
 	Token    string `json:"token"    binding:"required"`

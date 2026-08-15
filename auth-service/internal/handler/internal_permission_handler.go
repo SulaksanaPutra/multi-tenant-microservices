@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
@@ -10,10 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type InternalPermissionService interface {
-	RegisterPermissions(ctx context.Context, input service.InternalRegisterPermissionsInput) error
-	GetUserPermissionVersion(ctx context.Context, userID, tenantID string) (int64, error)
-}
 
 type InternalPermissionItemRequest struct {
 	Name        string `json:"name"        binding:"required"`

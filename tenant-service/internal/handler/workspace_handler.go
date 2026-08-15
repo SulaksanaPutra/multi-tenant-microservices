@@ -21,15 +21,6 @@ type RegisterWorkspaceResponse struct {
 	Status string `json:"status"`
 }
 
-// TxManager is the consumer-side interface expected by WorkspaceHandler.
-type TxManager interface {
-	WithTransaction(ctx context.Context, fn func(txCtx context.Context) error) error
-}
-
-// WorkspaceService is the consumer-side interface expected by WorkspaceHandler.
-type WorkspaceService interface {
-	RegisterWorkspace(ctx context.Context, input service.RegisterWorkspaceInput) (*service.RegisterWorkspaceOutput, error)
-}
 
 type WorkspaceHandler struct {
 	txManager        TxManager

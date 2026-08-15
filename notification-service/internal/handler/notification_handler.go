@@ -1,15 +1,13 @@
 package handler
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"time"
 
-	"notification-service/internal/domain"
 	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
-	"notification-service/internal/service"
+	"notification-service/internal/domain"
 
 	"github.com/gin-gonic/gin"
 )
@@ -23,11 +21,6 @@ type NotificationLogResponse struct {
 	Status      string    `json:"status"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
-}
-
-// NotificationService is the consumer-side interface expected by NotificationHandler.
-type NotificationService interface {
-	ListNotifications(ctx context.Context, tenantID string) ([]service.NotificationLogOutput, error)
 }
 
 type NotificationHandler struct {

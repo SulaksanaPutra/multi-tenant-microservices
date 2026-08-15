@@ -1,11 +1,9 @@
 package handler
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
-	"tenant-service/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -16,10 +14,6 @@ type InternalGetInfrastructureResponse struct {
 	DBName     string `json:"db_name"`
 	DBUser     string `json:"db_user"`
 	SchemaName string `json:"schema_name"`
-}
-
-type InternalTenantInfrastructureService interface {
-	GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*service.RoutingOutput, error)
 }
 
 type InternalTenantHandler struct {

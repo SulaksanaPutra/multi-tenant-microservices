@@ -133,18 +133,48 @@ func scanService(repoRoot, service string, strict bool) []Violation {
 		}
 	}
 
-	// Rule 5.10 — Services with internal/consumer must declare ALL outbound ports in internal/consumer/interfaces.go
+	// Rule 2.3 / 5.10 — Layer 1 packages (consumer, handler, worker) must declare ALL outbound ports in interfaces.go
 	consumerDir := filepath.Join(serviceDir, "internal", "consumer")
 	if dirHasGoFiles(consumerDir) {
 		interfacesFile := filepath.Join(consumerDir, "interfaces.go")
 		if !fileExists(interfacesFile) {
 			violations = append(violations, Violation{
 				Service: service,
-				Rule:    "5.10",
+				Rule:    "2.3",
 				ID:      "missing-consumer-interfaces-file",
 				Path:    filepath.ToSlash(filepath.Join(service, "internal", "consumer", "interfaces.go")),
 				Line:    1,
-				Message: "Consumer package must declare all outbound ports in `internal/consumer/interfaces.go` (the package's centralized ports manifest)",
+				Message: "Consumer package must declare all outbound ports in `internal/consumer/interfaces.go` (Rule 2.3: Layer 1 Outbound Ports Manifest)",
+			})
+		}
+	}
+
+	handlerDir = filepath.Join(serviceDir, "internal", "handler")
+	if dirHasGoFiles(handlerDir) {
+		handlerInterfacesFile := filepath.Join(handlerDir, "interfaces.go")
+		if !fileExists(handlerInterfacesFile) {
+			violations = append(violations, Violation{
+				Service: service,
+				Rule:    "2.3",
+				ID:      "missing-handler-interfaces-file",
+				Path:    filepath.ToSlash(filepath.Join(service, "internal", "handler", "interfaces.go")),
+				Line:    1,
+				Message: "Handler package must declare all outbound service contracts in `internal/handler/interfaces.go` (Rule 2.3: Layer 1 Outbound Ports Manifest)",
+			})
+		}
+	}
+
+	workerDir := filepath.Join(serviceDir, "internal", "worker")
+	if dirHasGoFiles(workerDir) {
+		workerInterfacesFile := filepath.Join(workerDir, "interfaces.go")
+		if !fileExists(workerInterfacesFile) {
+			violations = append(violations, Violation{
+				Service: service,
+				Rule:    "2.3",
+				ID:      "missing-worker-interfaces-file",
+				Path:    filepath.ToSlash(filepath.Join(service, "internal", "worker", "interfaces.go")),
+				Line:    1,
+				Message: "Worker package must declare all outbound adapter contracts in `internal/worker/interfaces.go` (Rule 2.3: Layer 1 Outbound Ports Manifest)",
 			})
 		}
 	}
@@ -306,6 +336,13 @@ func checkFile(fset *token.FileSet, file *ast.File, service, relPath string, isT
 		if strings.Contains(relPath, "/service/") && !strings.Contains(relPath, "order-service/internal/service/migration_service") {
 			if pathVal == "database/sql" {
 				add(imp.Pos(), "4.4", "sql-in-service", "`database/sql` imported in service layer — repositories must translate driver errors to domain sentinels")
+			}
+		}
+
+		// Rule 2.4 — Service layer importing Layer 1 driving packages (handler/consumer/worker)
+		if strings.Contains(relPath, "/service/") && !isTest {
+			if strings.HasSuffix(pathVal, "internal/handler") || strings.HasSuffix(pathVal, "internal/consumer") || strings.HasSuffix(pathVal, "internal/worker") {
+				add(imp.Pos(), "2.4", "service-imports-driving-layer", fmt.Sprintf("service layer imports Layer 1 driving package `%s` — cross-domain choreography and unit of action belongs in Layer 1", pathVal))
 			}
 		}
 
