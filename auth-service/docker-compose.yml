@@ -1,5 +1,6 @@
 services:
   auth-service:
+    image: auth-service:latest
     build:
       context: .
       dockerfile: Dockerfile

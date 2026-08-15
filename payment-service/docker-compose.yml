@@ -1,5 +1,6 @@
 services:
   payment-service:
+    image: payment-service:latest
     build:
       context: .
       dockerfile: Dockerfile

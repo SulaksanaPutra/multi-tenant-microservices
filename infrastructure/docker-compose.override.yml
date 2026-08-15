@@ -4,6 +4,7 @@
 # flags are needed. Remove it (or rename) to go back to the production build.
 services:
   web-ui:
+    image: platform-web-ui:dev
     build:
       context: ./web-ui
       dockerfile: Dockerfile.dev

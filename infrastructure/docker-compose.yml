@@ -1,4 +1,4 @@
-name: microservice-api
+name: platform-infrastructure
 
 services:
   postgres:
@@ -69,6 +69,7 @@ services:
       - microservice-network
 
   infra-provisioner:
+    image: platform-infra-provisioner:latest
     build:
       context: ../infra-provisioner
       dockerfile: Dockerfile
@@ -91,6 +92,7 @@ services:
         condition: service_healthy
 
   web-ui:
+    image: platform-web-ui:latest
     build:
       context: ./web-ui
       dockerfile: Dockerfile

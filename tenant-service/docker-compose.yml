@@ -1,5 +1,6 @@
 services:
   tenant-service:
+    image: tenant-service:latest
     build:
       context: .
       dockerfile: Dockerfile

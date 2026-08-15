@@ -1,5 +1,6 @@
 services:
   user-service:
+    image: user-service:latest
     build:
       context: .
       dockerfile: Dockerfile

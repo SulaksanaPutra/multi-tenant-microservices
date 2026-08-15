@@ -1,5 +1,6 @@
 services:
   notification-service:
+    image: notification-service:latest
     build:
       context: .
       dockerfile: Dockerfile
