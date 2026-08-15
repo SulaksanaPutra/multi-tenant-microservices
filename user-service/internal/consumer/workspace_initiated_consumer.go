@@ -12,21 +12,6 @@ import (
 	"user-service/internal/service"
 )
 
-// TxManager is the consumer-side interface expected by WorkspaceInitiatedConsumer.
-type TxManager interface {
-	WithTransaction(ctx context.Context, fn func(txCtx context.Context) error) error
-}
-
-// UserService is the consumer-side interface expected by WorkspaceInitiatedConsumer.
-type UserService interface {
-	CreateUserFromWorkspace(ctx context.Context, input service.CreateUserFromWorkspaceInput) error
-}
-
-// InboxService is the consumer-side interface expected by WorkspaceInitiatedConsumer.
-type InboxService interface {
-	ClaimEvent(txCtx context.Context, eventID string) (bool, error)
-}
-
 type WorkspaceInitiatedConsumerParams struct {
 	TxManager    TxManager
 	Client       AMQPClient

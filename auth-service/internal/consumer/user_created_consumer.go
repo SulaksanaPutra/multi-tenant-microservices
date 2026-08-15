@@ -13,22 +13,6 @@ import (
 	"auth-service/internal/service"
 )
 
-// TxManager is the consumer-side interface expected by UserCreatedConsumer.
-type TxManager interface {
-	WithTransaction(ctx context.Context, fn func(txCtx context.Context) error) error
-}
-
-// InboxService is the consumer-side interface expected by UserCreatedConsumer.
-type InboxService interface {
-	ClaimEvent(txCtx context.Context, input service.ClaimInboxInput) (bool, error)
-}
-
-// MembershipService mirrors service.MembershipService.AddMembership so the
-// event-fed copy writes the same table as the password-setup write-through.
-type MembershipService interface {
-	AddMembership(ctx context.Context, userID, tenantID string) error
-}
-
 type UserCreatedConsumerParams struct {
 	TxManager         TxManager
 	Client            AMQPClient

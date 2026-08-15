@@ -12,18 +12,6 @@ import (
 	"payment-service/internal/service"
 )
 
-type TxManager interface {
-	WithTransaction(ctx context.Context, fn func(txCtx context.Context) error) error
-}
-
-type InboxService interface {
-	ClaimEvent(txCtx context.Context, input service.ClaimInboxInput) (bool, error)
-}
-
-type PaymentInitiator interface {
-	InitiatePayment(ctx context.Context, tenantID, orderID string, amount float64, currency string) (*service.PaymentOutput, error)
-}
-
 type OrderCreatedConsumerParams struct {
 	Client         AMQPClient
 	TxManager      TxManager

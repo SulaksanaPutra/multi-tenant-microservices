@@ -12,33 +12,6 @@ import (
 	"notification-service/internal/service"
 )
 
-// TxManager is the consumer-side interface expected by UserCreatedConsumer.
-type TxManager interface {
-	WithTransaction(ctx context.Context, fn func(txCtx context.Context) error) error
-}
-
-// NotificationService is the consumer-side interface expected by UserCreatedConsumer.
-type NotificationService interface {
-	ProcessEventAndTrySendWelcome(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error)
-	UpdateNotificationStatus(ctx context.Context, logID string, status string) error
-}
-
-// InboxService is the consumer-side interface expected by UserCreatedConsumer.
-type InboxService interface {
-	ClaimEvent(txCtx context.Context, input service.ClaimInboxInput) (bool, error)
-	ListBarrierEvents(txCtx context.Context, tenantID string) ([]domain.InboxMessage, error)
-}
-
-// AuthClient is the consumer-side interface expected by UserCreatedConsumer.
-type AuthClient interface {
-	FetchSetupToken(ctx context.Context, userID, tenantID, email string) (string, error)
-}
-
-// Mailer is the consumer-side interface expected by UserCreatedConsumer.
-type Mailer interface {
-	SendWelcomeEmail(recipientEmail, tenantID, tenantName, tenantSlug, ownerName, setupToken string) (string, string, error)
-}
-
 type UserCreatedConsumerParams struct {
 	TxManager           TxManager
 	Client              AMQPClient

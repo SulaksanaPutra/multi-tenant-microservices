@@ -439,7 +439,7 @@ type OrderConsumer struct{}
 	}
 }
 
-func TestScanService_Rule5_10_MissingConsumerAMQPInterfaceFile(t *testing.T) {
+func TestScanService_Rule5_10_MissingConsumerInterfacesFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	consumerDir := filepath.Join(tmpDir, "internal", "consumer")
 	_ = os.MkdirAll(consumerDir, 0755)
@@ -449,13 +449,13 @@ func TestScanService_Rule5_10_MissingConsumerAMQPInterfaceFile(t *testing.T) {
 	violations := scanService(filepath.Dir(tmpDir), filepath.Base(tmpDir), false)
 	hasViolation := false
 	for _, v := range violations {
-		if v.ID == "missing-consumer-amqp-interface-file" {
+		if v.ID == "missing-consumer-interfaces-file" {
 			hasViolation = true
 			break
 		}
 	}
 	if !hasViolation {
-		t.Errorf("Expected violation 'missing-consumer-amqp-interface-file', got violations: %+v", violations)
+		t.Errorf("Expected violation 'missing-consumer-interfaces-file', got violations: %+v", violations)
 	}
 }
 

@@ -18,14 +18,6 @@ type MigrationFailedConsumerParams struct {
 	MigrationRollbackService MigrationRollbackService
 }
 
-// MigrationRollbackService is the consumer-side interface expected by
-// MigrationFailedConsumer. It exposes the business operation that resets a
-// tenant to ACTIVE and stages the unfreeze broadcast; the repository work is
-// owned by the Layer-2 service.
-type MigrationRollbackService interface {
-	RollbackFailedMigration(ctx context.Context, tenantID string) error
-}
-
 type MigrationFailedConsumer struct {
 	txManager                TxManager
 	client                   AMQPClient

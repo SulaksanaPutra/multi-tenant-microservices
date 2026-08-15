@@ -133,19 +133,18 @@ func scanService(repoRoot, service string, strict bool) []Violation {
 		}
 	}
 
-	// Rule 5.10 — Services with internal/consumer must declare shared transport interface in internal/consumer/amqp.go (or interfaces.go)
+	// Rule 5.10 — Services with internal/consumer must declare ALL outbound ports in internal/consumer/interfaces.go
 	consumerDir := filepath.Join(serviceDir, "internal", "consumer")
 	if dirHasGoFiles(consumerDir) {
-		amqpFile := filepath.Join(consumerDir, "amqp.go")
 		interfacesFile := filepath.Join(consumerDir, "interfaces.go")
-		if !fileExists(amqpFile) && !fileExists(interfacesFile) {
+		if !fileExists(interfacesFile) {
 			violations = append(violations, Violation{
 				Service: service,
 				Rule:    "5.10",
-				ID:      "missing-consumer-amqp-interface-file",
-				Path:    filepath.ToSlash(filepath.Join(service, "internal", "consumer", "amqp.go")),
+				ID:      "missing-consumer-interfaces-file",
+				Path:    filepath.ToSlash(filepath.Join(service, "internal", "consumer", "interfaces.go")),
 				Line:    1,
-				Message: "Consumer package lacks a centralized transport interface file (`internal/consumer/amqp.go` or `interfaces.go`) defining package-level AMQPClient contract",
+				Message: "Consumer package must declare all outbound ports in `internal/consumer/interfaces.go` (the package's centralized ports manifest)",
 			})
 		}
 	}

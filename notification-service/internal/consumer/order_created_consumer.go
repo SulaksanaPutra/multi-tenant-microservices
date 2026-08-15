@@ -12,11 +12,6 @@ import (
 	"notification-service/internal/service"
 )
 
-// OrderNotificationService is the consumer-side interface expected by OrderCreatedConsumer.
-type OrderNotificationService interface {
-	CreateOrderNotification(ctx context.Context, evt domain.OrderCreatedEvent) error
-}
-
 type OrderCreatedConsumerParams struct {
 	TxManager           TxManager
 	Client              AMQPClient

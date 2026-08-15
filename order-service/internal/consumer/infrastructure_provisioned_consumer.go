@@ -14,16 +14,6 @@ import (
 	"order-service/internal/registry"
 )
 
-// OrderDBReadyPublisher is the consumer-side interface expected by InfrastructureProvisionedConsumer.
-type OrderDBReadyPublisher interface {
-	PublishTenantOrderDBReady(ctx context.Context, evt domain.TenantOrderDBReadyEvent) error
-}
-
-// MigrationService is the consumer-side interface expected by InfrastructureProvisionedConsumer.
-type MigrationService interface {
-	MigrateTenantDB(ctx context.Context, dsn, schemaName string) error
-}
-
 type InfrastructureProvisionedConsumer struct {
 	client                AMQPClient
 	orderDBReadyPublisher OrderDBReadyPublisher

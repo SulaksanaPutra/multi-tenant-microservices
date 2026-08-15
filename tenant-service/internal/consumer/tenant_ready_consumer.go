@@ -13,21 +13,6 @@ import (
 	"tenant-service/internal/service"
 )
 
-// TxManager is the consumer-side interface expected by TenantOrderDBReadyConsumer.
-type TxManager interface {
-	WithTransaction(ctx context.Context, fn func(txCtx context.Context) error) error
-}
-
-// InboxService is the consumer-side interface expected by TenantOrderDBReadyConsumer.
-type InboxService interface {
-	ClaimEvent(txCtx context.Context, eventID string) (bool, error)
-}
-
-// TenantInfrastructureService is the consumer-side interface expected by TenantOrderDBReadyConsumer.
-type TenantInfrastructureService interface {
-	HandleInfrastructureUpdate(ctx context.Context, input service.InfrastructureUpdateInput) error
-}
-
 type TenantOrderDBReadyConsumerParams struct {
 	TxManager                   TxManager
 	Client                      AMQPClient
