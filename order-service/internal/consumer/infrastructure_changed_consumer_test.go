@@ -91,3 +91,14 @@ func TestInfrastructureChangedConsumer_HandleDelivery(t *testing.T) {
 		}
 	})
 }
+
+func TestNewInfrastructureChangedConsumer(t *testing.T) {
+	c := NewInfrastructureChangedConsumer(InfrastructureChangedConsumerParams{
+		Client:          &mockAMQPInterfaceClient{},
+		PoolRegistry:    registry.NewPoolRegistry(),
+		RoutingRegistry: registry.NewRoutingRegistry(),
+	})
+	if c == nil {
+		t.Fatal("expected non-nil consumer")
+	}
+}

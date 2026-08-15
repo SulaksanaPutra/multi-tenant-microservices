@@ -38,7 +38,7 @@ type Migrator interface {
 }
 
 type WorkspaceInitiatedConsumer struct {
-	client                       *rabbitmq.Client
+	client                       AMQPClient
 	infrastructureEventPublisher InfrastructureEventPublisher
 	provisioner                  Provisioner
 	migrator                     Migrator
@@ -50,7 +50,7 @@ type WorkspaceInitiatedConsumer struct {
 }
 
 type WorkspaceInitiatedConsumerParams struct {
-	Client                     *rabbitmq.Client
+	Client                     AMQPClient
 	InfrastructureEventHandler InfrastructureEventPublisher
 	Provisioner                Provisioner
 	Migrator                   Migrator
@@ -63,7 +63,7 @@ type WorkspaceInitiatedConsumerParams struct {
 
 type Params = WorkspaceInitiatedConsumerParams
 
-func NewWorkspaceInitiatedConsumer(params WorkspaceInitiatedConsumerParams) (*WorkspaceInitiatedConsumer, error) {
+func NewWorkspaceInitiatedConsumer(params WorkspaceInitiatedConsumerParams) *WorkspaceInitiatedConsumer {
 	sharedHost := params.SharedDBHost
 	if sharedHost == "" {
 		sharedHost = "postgres"
@@ -85,7 +85,7 @@ func NewWorkspaceInitiatedConsumer(params WorkspaceInitiatedConsumerParams) (*Wo
 		isolationMode = "container"
 	}
 
-	consumer := &WorkspaceInitiatedConsumer{
+	return &WorkspaceInitiatedConsumer{
 		client:                       params.Client,
 		infrastructureEventPublisher: params.InfrastructureEventHandler,
 		provisioner:                  params.Provisioner,
@@ -96,12 +96,6 @@ func NewWorkspaceInitiatedConsumer(params WorkspaceInitiatedConsumerParams) (*Wo
 		sharedDBPass:                 sharedPass,
 		isolationMode:                isolationMode,
 	}
-
-	if err := consumer.setupTopology(); err != nil {
-		return nil, err
-	}
-
-	return consumer, nil
 }
 
 func (c *WorkspaceInitiatedConsumer) setupTopology() error {
@@ -109,9 +103,7 @@ func (c *WorkspaceInitiatedConsumer) setupTopology() error {
 		return fmt.Errorf("failed to declare exchange '%s': %w", domain.ExchangeCompanyEvents, err)
 	}
 
-	if err := c.client.DeclareAndBindQueue(
-		domain.QueueInfraProvisionerWorkspace, domain.ExchangeCompanyEvents, domain.RoutingKeyWorkspaceInitiated,
-	); err != nil {
+	if err := c.client.DeclareAndBindQueue(domain.QueueInfraProvisionerWorkspace, domain.ExchangeCompanyEvents, domain.RoutingKeyWorkspaceInitiated); err != nil {
 		return fmt.Errorf("failed to bind queue '%s': %w", domain.QueueInfraProvisionerWorkspace, err)
 	}
 
@@ -147,23 +139,15 @@ func (c *WorkspaceInitiatedConsumer) runConsumerLoop(appCtx, connCtx context.Con
 		return err
 	}
 
-	if c.client == nil || c.client.Channel == nil {
-		return errors.New("channel is nil")
-	}
-
-	_ = c.client.Channel.Qos(1, 0, false)
-
-	msgs, err := c.client.Channel.Consume(
+	msgs, err := c.client.Consume(
 		domain.QueueInfraProvisionerWorkspace,
 		"infra-provisioner-worker",
-		false, // manual ack
-		false, false, false, nil,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to start consume: %w", err)
 	}
 
-	log.Printf("InfraProvisioner: Listening for '%s' events on queue '%s' (QoS prefetch=1)...", domain.RoutingKeyWorkspaceInitiated, domain.QueueInfraProvisionerWorkspace)
+	log.Printf("InfraProvisioner: Listening for '%s' events on queue '%s'...", domain.RoutingKeyWorkspaceInitiated, domain.QueueInfraProvisionerWorkspace)
 
 	for {
 		select {
@@ -190,6 +174,14 @@ func (c *WorkspaceInitiatedConsumer) handleDelivery(ctx context.Context, d rabbi
 		log.Printf("WorkspaceInitiatedConsumer Error: Bad payload JSON: %v", err)
 		_ = d.Nack(false, false) // unrecoverable bad JSON
 		return err
+	}
+
+	deliveryCount := getDeliveryCount(d.Headers)
+	if deliveryCount >= 3 {
+		log.Printf("[DLQ] WorkspaceInitiatedConsumer: Max delivery count reached for event_id='%s' tenant_id='%s' (delivery_count=%d). Routing to DLQ.",
+			evt.EventID, evt.TenantID, deliveryCount)
+		_ = d.Nack(false, false)
+		return errors.New("max delivery count reached")
 	}
 
 	log.Printf("WorkspaceInitiatedConsumer: Processing infrastructure for tenant='%s' plan='%s'", evt.TenantID, evt.Plan)

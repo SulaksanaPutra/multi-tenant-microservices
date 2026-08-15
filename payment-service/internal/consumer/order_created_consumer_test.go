@@ -6,9 +6,8 @@ import (
 	"errors"
 	"testing"
 
-	amqp "github.com/rabbitmq/amqp091-go"
-
 	"payment-service/internal/domain"
+	"payment-service/internal/infrastructure/rabbitmq"
 	"payment-service/internal/service"
 )
 
@@ -39,14 +38,12 @@ func (m *mockAcknowledger) Reject(tag uint64, requeue bool) error {
 }
 
 type mockAMQPClient struct {
-	connCtx context.Context
-	ch      *amqp.Channel
+	declareErr error
+	bindErr    error
+	consumeErr error
 }
 
 func (m *mockAMQPClient) ConnContext() context.Context {
-	if m.connCtx != nil {
-		return m.connCtx
-	}
 	return context.Background()
 }
 
@@ -55,11 +52,17 @@ func (m *mockAMQPClient) WaitUntilReady(ctx context.Context) error {
 }
 
 func (m *mockAMQPClient) DeclareExchange(name, kind string) error {
-	return nil
+	return m.declareErr
 }
 
-func (m *mockAMQPClient) GetChannel() *amqp.Channel {
-	return m.ch
+func (m *mockAMQPClient) DeclareAndBindQueue(queueName, exchangeName, routingKey string) error {
+	return m.bindErr
+}
+
+func (m *mockAMQPClient) Consume(queueName, consumerTag string) (<-chan rabbitmq.Delivery, error) {
+	ch := make(chan rabbitmq.Delivery)
+	close(ch)
+	return ch, m.consumeErr
 }
 
 type mockTxManager struct {
@@ -128,7 +131,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			PaymentService: paymentSvc,
 		})
 
-		d := amqp.Delivery{
+		d := rabbitmq.Delivery{
 			Acknowledger: mockAck,
 			RoutingKey:   domain.RoutingKeyOrderCreated,
 			Body:         validBody,
@@ -169,7 +172,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			PaymentService: paymentSvc,
 		})
 
-		d := amqp.Delivery{
+		d := rabbitmq.Delivery{
 			Acknowledger: mockAck,
 			RoutingKey:   domain.RoutingKeyOrderCreated,
 			Body:         validBody,
@@ -194,7 +197,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			PaymentService: &mockInitiator{},
 		})
 
-		d := amqp.Delivery{
+		d := rabbitmq.Delivery{
 			Acknowledger: mockAck,
 			RoutingKey:   domain.RoutingKeyOrderCreated,
 			Body:         []byte("invalid json"),
@@ -219,7 +222,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			PaymentService: &mockInitiator{},
 		})
 
-		d := amqp.Delivery{
+		d := rabbitmq.Delivery{
 			Acknowledger: mockAck,
 			RoutingKey:   domain.RoutingKeyOrderCreated,
 			Body:         validBody,
@@ -247,7 +250,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			PaymentService: &mockInitiator{},
 		})
 
-		d := amqp.Delivery{
+		d := rabbitmq.Delivery{
 			Acknowledger: mockAck,
 			RoutingKey:   "user.created", // misrouted
 			Body:         validBody,
@@ -275,7 +278,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			PaymentService: paymentSvc,
 		})
 
-		d := amqp.Delivery{
+		d := rabbitmq.Delivery{
 			Acknowledger: mockAck,
 			RoutingKey:   domain.RoutingKeyOrderCreated,
 			Body:         validBody,

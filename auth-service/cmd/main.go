@@ -116,18 +116,14 @@ func main() {
 		log.Printf("Auth Service: Warning — failed to connect RabbitMQ (%v); user.created membership copy consumer disabled until restart.", rmqErr)
 	} else {
 		defer rmqClient.Close()
-		userCreatedConsumer, consumerErr := consumer.NewUserCreatedConsumer(consumer.UserCreatedConsumerParams{
+		userCreatedConsumer := consumer.NewUserCreatedConsumer(consumer.UserCreatedConsumerParams{
 			TxManager:         txManager,
 			Client:            rmqClient,
 			InboxService:      inboxService,
 			MembershipService: membershipService,
 		})
-		if consumerErr != nil {
-			log.Printf("Auth Service: Warning — failed to initialize UserCreatedConsumer (%v); membership copy consumer disabled.", consumerErr)
-		} else {
-			if err := userCreatedConsumer.Start(context.Background()); err != nil {
-				log.Printf("Auth Service: Warning — failed to start UserCreatedConsumer (%v); membership copy consumer disabled.", err)
-			}
+		if err := userCreatedConsumer.Start(context.Background()); err != nil {
+			log.Printf("Auth Service: Warning — failed to start UserCreatedConsumer (%v); membership copy consumer disabled.", err)
 		}
 	}
 

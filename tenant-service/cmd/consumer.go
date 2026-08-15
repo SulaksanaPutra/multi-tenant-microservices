@@ -22,25 +22,19 @@ func registerConsumers(
 	inboxService *service.InboxService,
 	workspaceService *service.WorkspaceService,
 ) (*consumerRunner, error) {
-	c, err := consumer.NewTenantOrderDBReadyConsumer(consumer.TenantOrderDBReadyConsumerParams{
+	c := consumer.NewTenantOrderDBReadyConsumer(consumer.TenantOrderDBReadyConsumerParams{
 		TxManager:                   txManager,
 		Client:                      rmqClient,
 		TenantInfrastructureService: tenantInfrastructureService,
 		InboxService:                inboxService,
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to register TenantOrderDBReadyConsumer: %w", err)
-	}
 
-	mfConsumer, err := consumer.NewMigrationFailedConsumer(consumer.MigrationFailedConsumerParams{
-		TxManager:            txManager,
-		Client:               rmqClient,
-		InboxService:         inboxService,
+	mfConsumer := consumer.NewMigrationFailedConsumer(consumer.MigrationFailedConsumerParams{
+		TxManager:                txManager,
+		Client:                   rmqClient,
+		InboxService:             inboxService,
 		MigrationRollbackService: workspaceService,
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to register MigrationFailedConsumer: %w", err)
-	}
 
 	return &consumerRunner{
 		tenantOrderDBReadyConsumer: c,

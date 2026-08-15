@@ -161,14 +161,15 @@ func TestTenantOrderDBReadyConsumer_HandleDelivery(t *testing.T) {
 		}
 	})
 
-	t.Run("nil_inbox_service_constructor_error", func(t *testing.T) {
-		_, err := NewTenantOrderDBReadyConsumer(TenantOrderDBReadyConsumerParams{
+	t.Run("pure_constructor_initialization", func(t *testing.T) {
+		c := NewTenantOrderDBReadyConsumer(TenantOrderDBReadyConsumerParams{
 			TxManager:                   &mockTxManager{},
+			Client:                      &mockAMQPInterfaceClient{},
 			TenantInfrastructureService: &mockTenantInfrastructureService{},
-			InboxService:                nil,
+			InboxService:                &mockInboxService{},
 		})
-		if err == nil {
-			t.Error("expected error when InboxService is nil in constructor")
+		if c == nil {
+			t.Fatal("expected non-nil consumer")
 		}
 	})
 
@@ -224,4 +225,43 @@ func TestTenantOrderDBReadyConsumer_HandleDelivery(t *testing.T) {
 			t.Error("expected requeue=true for transient service error")
 		}
 	})
+
+	t.Run("max_delivery_count_nacks_without_requeue_for_dlq", func(t *testing.T) {
+		c := &TenantOrderDBReadyConsumer{
+			txManager:                   &mockTxManager{},
+			inboxService:                &mockInboxService{},
+			tenantInfrastructureService: &mockTenantInfrastructureService{},
+		}
+
+		mockAck := &mockAcknowledger{}
+		d := rabbitmq.Delivery{
+			Acknowledger: mockAck,
+			Body:         validBody,
+			Headers: map[string]interface{}{
+				"x-delivery-count": 3,
+			},
+		}
+
+		if err := c.handleDelivery(context.Background(), d); err == nil {
+			t.Error("expected max delivery count error")
+		}
+		if !mockAck.nackCalled {
+			t.Error("expected message to be NACKed")
+		}
+		if mockAck.requeueVal {
+			t.Error("expected requeue=false for DLQ")
+		}
+	})
+}
+
+func TestNewTenantOrderDBReadyConsumer(t *testing.T) {
+	c := NewTenantOrderDBReadyConsumer(TenantOrderDBReadyConsumerParams{
+		TxManager:                   &mockTxManager{},
+		Client:                      &mockAMQPInterfaceClient{},
+		TenantInfrastructureService: &mockTenantInfrastructureService{},
+		InboxService:                &mockInboxService{},
+	})
+	if c == nil {
+		t.Fatal("expected non-nil consumer")
+	}
 }

@@ -25,7 +25,7 @@ type MigrationService interface {
 }
 
 type InfrastructureProvisionedConsumer struct {
-	client                *rabbitmq.Client
+	client                AMQPClient
 	orderDBReadyPublisher OrderDBReadyPublisher
 	migrationService      MigrationService
 	poolRegistry          *registry.PoolRegistry
@@ -35,7 +35,7 @@ type InfrastructureProvisionedConsumer struct {
 }
 
 type InfrastructureProvisionedConsumerParams struct {
-	Client           *rabbitmq.Client
+	Client           AMQPClient
 	Publisher        OrderDBReadyPublisher
 	MigrationService MigrationService
 	PoolRegistry     *registry.PoolRegistry
@@ -44,13 +44,13 @@ type InfrastructureProvisionedConsumerParams struct {
 	SharedDBPass     string
 }
 
-func NewInfrastructureProvisionedConsumer(params InfrastructureProvisionedConsumerParams) (*InfrastructureProvisionedConsumer, error) {
+func NewInfrastructureProvisionedConsumer(params InfrastructureProvisionedConsumerParams) *InfrastructureProvisionedConsumer {
 	pass := params.SharedDBPass
 	if pass == "" {
 		pass = "postgres"
 	}
 
-	consumer := &InfrastructureProvisionedConsumer{
+	return &InfrastructureProvisionedConsumer{
 		client:                params.Client,
 		orderDBReadyPublisher: params.Publisher,
 		migrationService:      params.MigrationService,
@@ -59,12 +59,6 @@ func NewInfrastructureProvisionedConsumer(params InfrastructureProvisionedConsum
 		sharedSecret:          params.SharedSecret,
 		sharedDBPass:          pass,
 	}
-
-	if err := consumer.setupTopology(); err != nil {
-		return nil, fmt.Errorf("failed to setup topology for InfrastructureProvisionedConsumer: %w", err)
-	}
-
-	return consumer, nil
 }
 
 func (c *InfrastructureProvisionedConsumer) setupTopology() error {
@@ -110,15 +104,9 @@ func (c *InfrastructureProvisionedConsumer) runConsumerLoop(appCtx, connCtx cont
 		return fmt.Errorf("failed to setup topology: %w", err)
 	}
 
-	if c.client == nil || c.client.Channel == nil {
-		return errors.New("channel is nil")
-	}
-
-	msgs, err := c.client.Channel.Consume(
+	msgs, err := c.client.Consume(
 		domain.QueueOrderServiceInfraProvisioned,
 		"order-service-infra-consumer",
-		false, // manual ack
-		false, false, false, nil,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to start consume: %w", err)

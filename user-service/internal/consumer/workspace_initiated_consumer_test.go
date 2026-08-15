@@ -306,5 +306,44 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 			t.Error("expected user service NOT to be called for misrouted message")
 		}
 	})
+
+	t.Run("max_delivery_count_nacks_without_requeue_for_dlq", func(t *testing.T) {
+		c := &WorkspaceInitiatedConsumer{
+			txManager:    &mockTxManager{},
+			inboxService: &mockInboxService{},
+			userService:  &mockUserService{},
+		}
+
+		mockAck := &mockAcknowledger{}
+		d := rabbitmq.Delivery{
+			Acknowledger: mockAck,
+			Body:         validBody,
+			Headers: map[string]interface{}{
+				"x-delivery-count": 3,
+			},
+		}
+
+		if err := c.handleDelivery(context.Background(), d); err == nil {
+			t.Error("expected max delivery count error")
+		}
+		if !mockAck.nackCalled {
+			t.Error("expected message to be NACKed")
+		}
+		if mockAck.requeueVal {
+			t.Error("expected requeue=false for DLQ")
+		}
+	})
+}
+
+func TestNewWorkspaceInitiatedConsumer(t *testing.T) {
+	c := NewWorkspaceInitiatedConsumer(WorkspaceInitiatedConsumerParams{
+		TxManager:    &mockTxManager{},
+		Client:       &mockAMQPInterfaceClient{},
+		InboxService: &mockInboxService{},
+		UserService:  &mockUserService{},
+	})
+	if c == nil {
+		t.Fatal("expected non-nil consumer")
+	}
 }
 

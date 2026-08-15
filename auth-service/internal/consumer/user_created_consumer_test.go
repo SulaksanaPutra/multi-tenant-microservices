@@ -360,3 +360,18 @@ func TestGetDeliveryCount_Empty(t *testing.T) {
 		t.Errorf("expected 0 for empty headers, got %d", got)
 	}
 }
+
+func TestNewUserCreatedConsumer(t *testing.T) {
+	c := NewUserCreatedConsumer(UserCreatedConsumerParams{
+		TxManager:         &mockTxManager{},
+		Client:            &mockAMQPInterfaceClient{},
+		InboxService:      &mockInboxService{},
+		MembershipService: &mockMembershipService{},
+	})
+	if c == nil {
+		t.Fatal("expected non-nil consumer")
+	}
+	if c.maxDeliveries != domain.MaxAuthUserCreatedDeliveries {
+		t.Errorf("expected default maxDeliveries %d, got %d", domain.MaxAuthUserCreatedDeliveries, c.maxDeliveries)
+	}
+}

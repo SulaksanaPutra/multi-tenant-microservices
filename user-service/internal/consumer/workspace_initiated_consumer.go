@@ -29,35 +29,25 @@ type InboxService interface {
 
 type WorkspaceInitiatedConsumerParams struct {
 	TxManager    TxManager
-	Client       *rabbitmq.Client
+	Client       AMQPClient
 	InboxService InboxService
 	UserService  UserService
 }
 
 type WorkspaceInitiatedConsumer struct {
 	txManager    TxManager
-	client       *rabbitmq.Client
+	client       AMQPClient
 	inboxService InboxService
 	userService  UserService
 }
 
-func NewWorkspaceInitiatedConsumer(params WorkspaceInitiatedConsumerParams) (*WorkspaceInitiatedConsumer, error) {
-	if params.InboxService == nil {
-		return nil, errors.New("inboxService is required")
-	}
-
-	consumer := &WorkspaceInitiatedConsumer{
+func NewWorkspaceInitiatedConsumer(params WorkspaceInitiatedConsumerParams) *WorkspaceInitiatedConsumer {
+	return &WorkspaceInitiatedConsumer{
 		txManager:    params.TxManager,
 		client:       params.Client,
 		inboxService: params.InboxService,
 		userService:  params.UserService,
 	}
-
-	if err := consumer.setupTopology(); err != nil {
-		return nil, err
-	}
-
-	return consumer, nil
 }
 
 func (c *WorkspaceInitiatedConsumer) setupTopology() error {
@@ -101,18 +91,9 @@ func (c *WorkspaceInitiatedConsumer) runConsumerLoop(appCtx, connCtx context.Con
 		return err
 	}
 
-	if c.client == nil || c.client.Channel == nil {
-		return errors.New("channel is nil")
-	}
-
-	msgs, err := c.client.Channel.Consume(
-		domain.QueueUserServiceWorkspaceInitiated, // queue
-		"user-service-worker",                     // consumer tag
-		false,                                     // auto-ack
-		false,                                     // exclusive
-		false,                                     // no-local
-		false,                                     // no-wait
-		nil,                                       // args
+	msgs, err := c.client.Consume(
+		domain.QueueUserServiceWorkspaceInitiated,
+		"user-service-worker",
 	)
 	if err != nil {
 		return fmt.Errorf("failed to start consume: %w", err)
@@ -140,16 +121,9 @@ func (c *WorkspaceInitiatedConsumer) runConsumerLoop(appCtx, connCtx context.Con
 }
 
 func (c *WorkspaceInitiatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
-	// =========================================================================
-	// Routing Key Guard: contract enforcement at the consumer boundary.
-	// Rejects any message whose routing key does not match this consumer's
-	// declared contract. This defends against ghost AMQP bindings that can
-	// accumulate from topology misconfigurations, ops errors, or E2E test
-	// queue state leaking between consecutive runs.
-	// =========================================================================
 	if d.RoutingKey != domain.RoutingKeyWorkspaceInitiated && d.RoutingKey != "" {
-		log.Printf("[WARN] WorkspaceInitiatedConsumer: Received misrouted message with routing_key='%s' (expected '%s'). Discarding. Check AMQP queue topology for ghost bindings.", d.RoutingKey, domain.RoutingKeyWorkspaceInitiated)
-		_ = d.Ack(false) // Ack to drain from queue; no valid handler exists on this consumer
+		log.Printf("[WARN] WorkspaceInitiatedConsumer: Received misrouted message with routing_key='%s' (expected '%s'). Discarding.", d.RoutingKey, domain.RoutingKeyWorkspaceInitiated)
+		_ = d.Ack(false)
 		return nil
 	}
 
@@ -160,11 +134,17 @@ func (c *WorkspaceInitiatedConsumer) handleDelivery(ctx context.Context, d rabbi
 		return err
 	}
 
+	deliveryCount := getDeliveryCount(d.Headers)
+	if deliveryCount >= 3 {
+		log.Printf("[DLQ] WorkspaceInitiatedConsumer: Max delivery count reached for event_id='%s' tenant_id='%s' (delivery_count=%d). Routing to DLQ.",
+			evt.EventID, evt.TenantID, deliveryCount)
+		_ = d.Nack(false, false)
+		return errors.New("max delivery count reached")
+	}
+
 	log.Printf("WorkspaceInitiatedConsumer processing event_id='%s' for tenant_id='%s'", evt.EventID, evt.TenantID)
 
-	// Wrap Consumer execution inside Unit of Work (Transaction boundary)
 	err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-		// 1. Transactional Inbox Guard via InboxService
 		isDup, err := c.inboxService.ClaimEvent(txCtx, evt.EventID)
 		if err != nil {
 			return fmt.Errorf("inbox guard failure: %w", err)
@@ -174,7 +154,6 @@ func (c *WorkspaceInitiatedConsumer) handleDelivery(ctx context.Context, d rabbi
 			return nil
 		}
 
-		// 2. Execute Domain logic (Create user profile + Outbox event inside same transaction)
 		input := service.CreateUserFromWorkspaceInput{
 			EventID:    evt.EventID,
 			TenantID:   evt.TenantID,
@@ -194,7 +173,6 @@ func (c *WorkspaceInitiatedConsumer) handleDelivery(ctx context.Context, d rabbi
 		return err
 	}
 
-	// Ack message on RabbitMQ only after successful DB commit
 	_ = d.Ack(false)
 	log.Printf("WorkspaceInitiatedConsumer: Successfully committed transaction & ACKed message event_id='%s'", evt.EventID)
 	return nil

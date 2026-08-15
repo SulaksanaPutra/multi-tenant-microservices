@@ -13,7 +13,7 @@ import (
 )
 
 type InfrastructureLockingConsumerParams struct {
-	Client          *rabbitmq.Client
+	Client          AMQPClient
 	RoutingRegistry *registry.RoutingRegistry
 }
 
@@ -23,24 +23,16 @@ type InfrastructureLockingConsumerParams struct {
 // This consumer uses the Fanout Broadcast pattern (exclusive anonymous queue) so that
 // ALL live replicas of order-service receive the lock event simultaneously.
 type InfrastructureLockingConsumer struct {
-	client          *rabbitmq.Client
+	client          AMQPClient
 	routingRegistry *registry.RoutingRegistry
 	queueName       string
 }
 
-func NewInfrastructureLockingConsumer(params InfrastructureLockingConsumerParams) (*InfrastructureLockingConsumer, error) {
-	c := &InfrastructureLockingConsumer{
+func NewInfrastructureLockingConsumer(params InfrastructureLockingConsumerParams) *InfrastructureLockingConsumer {
+	return &InfrastructureLockingConsumer{
 		client:          params.Client,
 		routingRegistry: params.RoutingRegistry,
 	}
-
-	qName, err := c.setupTopology()
-	if err != nil {
-		return nil, fmt.Errorf("failed to setup topology for InfrastructureLockingConsumer: %w", err)
-	}
-	c.queueName = qName
-
-	return c, nil
 }
 
 func (c *InfrastructureLockingConsumer) setupTopology() (string, error) {
@@ -48,31 +40,10 @@ func (c *InfrastructureLockingConsumer) setupTopology() (string, error) {
 		return "", fmt.Errorf("failed to declare exchange: %w", err)
 	}
 
-	// Declare an exclusive, auto-delete anonymous queue for this specific replica process.
-	// An empty string name causes RabbitMQ to generate a unique server-assigned queue name
-	// (e.g. amq.gen-XXXXX), ensuring the fanout reaches ALL live replicas independently.
-	q, err := c.client.Channel.QueueDeclare(
-		"",    // empty string → server-assigned unique name (fanout broadcast pattern)
-		false, // non-durable
-		true,  // auto-delete when connection drops
-		true,  // exclusive to this replica connection
-		false, // no-wait
-		nil,
-	)
-	if err != nil {
-		return "", fmt.Errorf("failed to declare exclusive anonymous queue: %w", err)
-	}
-
-	if err := c.client.Channel.QueueBind(q.Name, domain.RoutingKeyInfrastructureLocking, domain.ExchangeCompanyEvents, false, nil); err != nil {
-		return "", fmt.Errorf("failed to bind exclusive queue to exchange: %w", err)
-	}
-
-	return q.Name, nil
+	return c.client.DeclareAndBindExclusiveQueue(domain.ExchangeCompanyEvents, domain.RoutingKeyInfrastructureLocking)
 }
 
 // Start launches the consumer lifecycle loop in a background goroutine and returns immediately.
-// On connection drop the goroutine purges no caches (the MIGRATING state is sticky until
-// an InfraChanged event explicitly clears it) and re-binds the exclusive queue after reconnect.
 func (c *InfrastructureLockingConsumer) Start(ctx context.Context) error {
 	go func() {
 		for {
@@ -91,13 +62,6 @@ func (c *InfrastructureLockingConsumer) Start(ctx context.Context) error {
 			}
 
 			log.Println("InfrastructureLockingConsumer: reconnected; re-binding exclusive queue topology...")
-			qName, err := c.setupTopology()
-			if err != nil {
-				log.Printf("InfrastructureLockingConsumer: topology setup failed after reconnect: %v; will retry on next cycle", err)
-				continue
-			}
-			c.queueName = qName
-			log.Printf("InfrastructureLockingConsumer: successfully re-bound exclusive queue '%s'", c.queueName)
 		}
 	}()
 
@@ -105,15 +69,13 @@ func (c *InfrastructureLockingConsumer) Start(ctx context.Context) error {
 }
 
 func (c *InfrastructureLockingConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
-	msgs, err := c.client.Channel.Consume(
-		c.queueName,
-		"",    // auto-generated consumer tag
-		false, // autoAck
-		true,  // exclusive
-		false, // noLocal
-		false, // noWait
-		nil,
-	)
+	qName, err := c.setupTopology()
+	if err != nil {
+		return fmt.Errorf("failed to setup topology: %w", err)
+	}
+	c.queueName = qName
+
+	msgs, err := c.client.Consume(c.queueName, "")
 	if err != nil {
 		return fmt.Errorf("failed to start consume on '%s': %w", c.queueName, err)
 	}

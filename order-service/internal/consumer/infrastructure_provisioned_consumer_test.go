@@ -304,3 +304,18 @@ func TestInfrastructureProvisionedConsumer_HandleDelivery(t *testing.T) {
 		}
 	})
 }
+
+func TestNewInfrastructureProvisionedConsumer(t *testing.T) {
+	c := NewInfrastructureProvisionedConsumer(InfrastructureProvisionedConsumerParams{
+		Client:           &mockAMQPInterfaceClient{},
+		Publisher:        &mockOrderDBReadyPublisher{},
+		MigrationService: &mockMigrationService{},
+		PoolRegistry:     registry.NewPoolRegistry(),
+		RoutingRegistry:  registry.NewRoutingRegistry(),
+		SharedSecret:     "secret",
+		SharedDBPass:     "postgres",
+	})
+	if c == nil {
+		t.Fatal("expected non-nil consumer")
+	}
+}

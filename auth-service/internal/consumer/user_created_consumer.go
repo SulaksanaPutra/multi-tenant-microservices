@@ -31,7 +31,7 @@ type MembershipService interface {
 
 type UserCreatedConsumerParams struct {
 	TxManager         TxManager
-	Client            *rabbitmq.Client
+	Client            AMQPClient
 	InboxService      InboxService
 	MembershipService MembershipService
 	// MaxDeliveries caps poison-pill requeues before routing to the DLQ.
@@ -40,38 +40,25 @@ type UserCreatedConsumerParams struct {
 
 type UserCreatedConsumer struct {
 	txManager         TxManager
-	client            *rabbitmq.Client
+	client            AMQPClient
 	inboxService      InboxService
 	membershipService MembershipService
 	maxDeliveries     int
 }
 
-func NewUserCreatedConsumer(params UserCreatedConsumerParams) (*UserCreatedConsumer, error) {
-	if params.InboxService == nil {
-		return nil, errors.New("inboxService is required")
-	}
-	if params.MembershipService == nil {
-		return nil, errors.New("membershipService is required")
-	}
-
+func NewUserCreatedConsumer(params UserCreatedConsumerParams) *UserCreatedConsumer {
 	maxDeliveries := params.MaxDeliveries
 	if maxDeliveries <= 0 {
 		maxDeliveries = domain.MaxAuthUserCreatedDeliveries
 	}
 
-	consumer := &UserCreatedConsumer{
+	return &UserCreatedConsumer{
 		txManager:         params.TxManager,
 		client:            params.Client,
 		inboxService:      params.InboxService,
 		membershipService: params.MembershipService,
 		maxDeliveries:     maxDeliveries,
 	}
-
-	if err := consumer.setupTopology(); err != nil {
-		return nil, err
-	}
-
-	return consumer, nil
 }
 
 // setupTopology declares the broker-native DLX topology: the main queue is
@@ -139,18 +126,9 @@ func (c *UserCreatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) e
 		return err
 	}
 
-	if c.client == nil || c.client.Channel == nil {
-		return errors.New("channel is nil")
-	}
-
-	msgs, err := c.client.Channel.Consume(
-		domain.QueueAuthUserCreated,  // queue
-		"auth-user-created-consumer", // consumer tag
-		false,                        // auto-ack
-		false,                        // exclusive
-		false,                        // no-local
-		false,                        // no-wait
-		nil,                          // args
+	msgs, err := c.client.Consume(
+		domain.QueueAuthUserCreated,
+		"auth-user-created-consumer",
 	)
 	if err != nil {
 		return fmt.Errorf("failed to start consume: %w", err)

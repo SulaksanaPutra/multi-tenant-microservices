@@ -30,35 +30,25 @@ type TenantInfrastructureService interface {
 
 type TenantOrderDBReadyConsumerParams struct {
 	TxManager                   TxManager
-	Client                      *rabbitmq.Client
+	Client                      AMQPClient
 	TenantInfrastructureService TenantInfrastructureService
 	InboxService                InboxService
 }
 
 type TenantOrderDBReadyConsumer struct {
 	txManager                   TxManager
-	client                      *rabbitmq.Client
+	client                      AMQPClient
 	tenantInfrastructureService TenantInfrastructureService
 	inboxService                InboxService
 }
 
-func NewTenantOrderDBReadyConsumer(params TenantOrderDBReadyConsumerParams) (*TenantOrderDBReadyConsumer, error) {
-	if params.InboxService == nil {
-		return nil, errors.New("inboxService is required")
-	}
-
-	consumer := &TenantOrderDBReadyConsumer{
+func NewTenantOrderDBReadyConsumer(params TenantOrderDBReadyConsumerParams) *TenantOrderDBReadyConsumer {
+	return &TenantOrderDBReadyConsumer{
 		txManager:                   params.TxManager,
 		client:                      params.Client,
 		tenantInfrastructureService: params.TenantInfrastructureService,
 		inboxService:                params.InboxService,
 	}
-
-	if err := consumer.setupTopology(); err != nil {
-		return nil, err
-	}
-
-	return consumer, nil
 }
 
 func (c *TenantOrderDBReadyConsumer) setupTopology() error {
@@ -102,15 +92,9 @@ func (c *TenantOrderDBReadyConsumer) runConsumerLoop(appCtx, connCtx context.Con
 		return err
 	}
 
-	if c.client == nil || c.client.Channel == nil {
-		return errors.New("channel is nil")
-	}
-
-	msgs, err := c.client.Channel.Consume(
+	msgs, err := c.client.Consume(
 		domain.QueueTenantServiceOrderReady,
 		"tenant-service-ready-consumer",
-		false, // manual ack
-		false, false, false, nil,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to start consume: %w", err)
@@ -149,6 +133,14 @@ func (c *TenantOrderDBReadyConsumer) handleDelivery(ctx context.Context, d rabbi
 		log.Printf("TenantOrderDBReadyConsumer Error: Missing tenant_id in event payload, discarding message.")
 		_ = d.Nack(false, false)
 		return errors.New("missing tenant_id in payload")
+	}
+
+	deliveryCount := getDeliveryCount(d.Headers)
+	if deliveryCount >= 3 {
+		log.Printf("[DLQ] TenantOrderDBReadyConsumer: Max delivery count reached for event_id='%s' tenant_id='%s' (delivery_count=%d). Routing to DLQ.",
+			evt.EventID, evt.TenantID, deliveryCount)
+		_ = d.Nack(false, false)
+		return errors.New("max delivery count reached")
 	}
 
 	log.Printf("TenantOrderDBReadyConsumer: Received order DB ready for tenant='%s' service='%s'",

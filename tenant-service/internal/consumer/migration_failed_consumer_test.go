@@ -148,4 +148,43 @@ func TestMigrationFailedConsumer_HandleDelivery(t *testing.T) {
 			t.Error("expected requeue=true on transient tx failure")
 		}
 	})
+
+	t.Run("max_delivery_count_nacks_without_requeue_for_dlq", func(t *testing.T) {
+		c := &MigrationFailedConsumer{
+			txManager:                &mockTxManager{},
+			inboxService:             &mockInboxService{},
+			migrationRollbackService: &mockMigrationRollbackService{},
+		}
+
+		mockAck := &mockAcknowledger{}
+		d := rabbitmq.Delivery{
+			Acknowledger: mockAck,
+			Body:         validBody,
+			Headers: map[string]interface{}{
+				"x-delivery-count": 3,
+			},
+		}
+
+		if err := c.handleDelivery(context.Background(), d); err == nil {
+			t.Error("expected max delivery count error")
+		}
+		if !mockAck.nackCalled {
+			t.Error("expected message to be NACKed")
+		}
+		if mockAck.requeueVal {
+			t.Error("expected requeue=false for DLQ")
+		}
+	})
+}
+
+func TestNewMigrationFailedConsumer(t *testing.T) {
+	c := NewMigrationFailedConsumer(MigrationFailedConsumerParams{
+		TxManager:                &mockTxManager{},
+		Client:                   &mockAMQPInterfaceClient{},
+		InboxService:             &mockInboxService{},
+		MigrationRollbackService: &mockMigrationRollbackService{},
+	})
+	if c == nil {
+		t.Fatal("expected non-nil consumer")
+	}
 }

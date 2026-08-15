@@ -110,3 +110,13 @@ func TestInfrastructureLockingConsumer_HandleDelivery(t *testing.T) {
 		}
 	})
 }
+
+func TestNewInfrastructureLockingConsumer(t *testing.T) {
+	c := NewInfrastructureLockingConsumer(InfrastructureLockingConsumerParams{
+		Client:          &mockAMQPInterfaceClient{},
+		RoutingRegistry: registry.NewRoutingRegistry(),
+	})
+	if c == nil {
+		t.Fatal("expected non-nil consumer")
+	}
+}

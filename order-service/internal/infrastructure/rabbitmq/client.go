@@ -240,6 +240,48 @@ func (c *Client) DeclareAndBindQueue(queueName, exchangeName, routingKey string)
 	return nil
 }
 
+func (c *Client) DeclareAndBindExclusiveQueue(exchangeName, routingKey string) (string, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.Channel == nil {
+		return "", errors.New("channel is nil")
+	}
+	q, err := c.Channel.QueueDeclare("", false, true, true, false, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to declare exclusive queue: %w", err)
+	}
+	if err := c.Channel.QueueBind(q.Name, routingKey, exchangeName, false, nil); err != nil {
+		return "", fmt.Errorf("failed to bind exclusive queue %s: %w", q.Name, err)
+	}
+	return q.Name, nil
+}
+
+func (c *Client) Consume(queueName, consumerTag string) (<-chan Delivery, error) {
+	c.mu.RLock()
+	ch := c.Channel
+	c.mu.RUnlock()
+
+	if ch == nil {
+		return nil, errors.New("rabbitmq: channel is nil")
+	}
+
+	msgs, err := ch.Consume(
+		queueName,
+		consumerTag,
+		false, // autoAck
+		false, // exclusive
+		false, // noLocal
+		false, // noWait
+		nil,   // args
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start consume on queue %s: %w", queueName, err)
+	}
+
+	return msgs, nil
+}
+
 func (c *Client) PublishEvent(ctx context.Context, exchangeName, routingKey string, payload interface{}) error {
 	return c.PublishEventWithConfirm(ctx, exchangeName, routingKey, payload)
 }

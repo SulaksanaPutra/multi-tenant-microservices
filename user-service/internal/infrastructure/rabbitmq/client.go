@@ -205,6 +205,31 @@ func (c *Client) DeclareAndBindQueue(queueName, exchangeName, routingKey string)
 	return nil
 }
 
+func (c *Client) Consume(queueName, consumerTag string) (<-chan Delivery, error) {
+	c.mu.RLock()
+	ch := c.Channel
+	c.mu.RUnlock()
+
+	if ch == nil {
+		return nil, errors.New("rabbitmq: channel is nil")
+	}
+
+	msgs, err := ch.Consume(
+		queueName,
+		consumerTag,
+		false, // autoAck
+		false, // exclusive
+		false, // noLocal
+		false, // noWait
+		nil,   // args
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start consume on queue %s: %w", queueName, err)
+	}
+
+	return msgs, nil
+}
+
 func (c *Client) PublishEvent(ctx context.Context, exchangeName, routingKey string, payload interface{}) error {
 	return c.PublishEventWithConfirm(ctx, exchangeName, routingKey, payload)
 }

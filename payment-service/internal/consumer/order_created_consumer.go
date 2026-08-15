@@ -7,18 +7,10 @@ import (
 	"fmt"
 	"log/slog"
 
-	amqp "github.com/rabbitmq/amqp091-go"
-
 	"payment-service/internal/domain"
+	"payment-service/internal/infrastructure/rabbitmq"
 	"payment-service/internal/service"
 )
-
-type AMQPClient interface {
-	ConnContext() context.Context
-	WaitUntilReady(ctx context.Context) error
-	DeclareExchange(name, kind string) error
-	GetChannel() *amqp.Channel
-}
 
 type TxManager interface {
 	WithTransaction(ctx context.Context, fn func(txCtx context.Context) error) error
@@ -67,15 +59,17 @@ func (c *OrderCreatedConsumer) Start(ctx context.Context) error {
 		for {
 			connCtx := c.client.ConnContext()
 			if err := c.runConsumerLoop(ctx, connCtx); err != nil {
-				c.logger.Warn("consumer loop exited with error", "err", err)
+				if ctx.Err() != nil {
+					return
+				}
+				c.logger.Error("OrderCreatedConsumer consumer loop stopped", "error", err)
 			}
-
 			if ctx.Err() != nil {
 				return
 			}
-
-			c.logger.Info("waiting for RabbitMQ reconnection...")
+			c.logger.Info("waiting for RabbitMQ to become ready...")
 			if err := c.client.WaitUntilReady(ctx); err != nil {
+				c.logger.Error("context cancelled while waiting for RabbitMQ ready", "error", err)
 				return
 			}
 			c.logger.Info("reconnected to RabbitMQ; restarting OrderCreatedConsumer...")
@@ -85,46 +79,21 @@ func (c *OrderCreatedConsumer) Start(ctx context.Context) error {
 }
 
 func (c *OrderCreatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
-	ch := c.client.GetChannel()
-	if ch == nil {
-		return errors.New("rabbitmq channel is nil")
-	}
-
 	if err := c.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return fmt.Errorf("failed to declare exchange: %w", err)
 	}
 
-	_, err := ch.QueueDeclare(
+	if err := c.client.DeclareAndBindQueue(
 		domain.QueuePaymentServiceOrderCreated,
-		true,  // durable
-		false, // autoDelete
-		false, // exclusive
-		false, // noWait
-		nil,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to declare queue %s: %w", domain.QueuePaymentServiceOrderCreated, err)
-	}
-
-	err = ch.QueueBind(
-		domain.QueuePaymentServiceOrderCreated,
-		domain.RoutingKeyOrderCreated,
 		domain.ExchangeCompanyEvents,
-		false,
-		nil,
-	)
-	if err != nil {
+		domain.RoutingKeyOrderCreated,
+	); err != nil {
 		return fmt.Errorf("failed to bind queue to exchange: %w", err)
 	}
 
-	deliveries, err := ch.Consume(
+	deliveries, err := c.client.Consume(
 		domain.QueuePaymentServiceOrderCreated,
 		"payment-service-order-created",
-		false, // autoAck
-		false, // exclusive
-		false, // noLocal
-		false, // noWait
-		nil,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to consume from %s: %w", domain.QueuePaymentServiceOrderCreated, err)
@@ -150,7 +119,7 @@ func (c *OrderCreatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) 
 	}
 }
 
-func (c *OrderCreatedConsumer) handleDelivery(ctx context.Context, d amqp.Delivery) {
+func (c *OrderCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) {
 	if d.RoutingKey != domain.RoutingKeyOrderCreated && d.RoutingKey != "" {
 		c.logger.Warn("received misrouted message; discarding", "routing_key", d.RoutingKey, "expected", domain.RoutingKeyOrderCreated)
 		_ = d.Ack(false)

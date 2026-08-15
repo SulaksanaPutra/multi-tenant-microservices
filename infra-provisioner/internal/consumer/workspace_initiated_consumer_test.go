@@ -634,4 +634,47 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 			t.Error("expected requeue=false for bad JSON payload")
 		}
 	})
+
+	t.Run("max_delivery_count_nacks_without_requeue_for_dlq", func(t *testing.T) {
+		c := &WorkspaceInitiatedConsumer{
+			infrastructureEventPublisher: &mockInfrastructureEventPublisher{},
+			provisioner:                  &mockProvisioner{},
+			migrator:                     &mockMigrator{},
+			sharedDBHost:                 "postgres",
+		}
+
+		mockAck := &mockAcknowledger{}
+		d := rabbitmq.Delivery{
+			Acknowledger: mockAck,
+			Body:         bodyShared,
+			Headers: map[string]interface{}{
+				"x-delivery-count": 3,
+			},
+		}
+
+		if err := c.handleDelivery(context.Background(), d); err == nil {
+			t.Error("expected max delivery count error")
+		}
+		if !mockAck.nackCalled {
+			t.Error("expected message to be NACKed")
+		}
+		if mockAck.requeueVal {
+			t.Error("expected requeue=false for DLQ")
+		}
+	})
+}
+
+func TestNewWorkspaceInitiatedConsumer(t *testing.T) {
+	c := NewWorkspaceInitiatedConsumer(WorkspaceInitiatedConsumerParams{
+		Client:                     &mockAMQPInterfaceClient{},
+		InfrastructureEventHandler: &mockInfrastructureEventPublisher{},
+		Provisioner:                &mockProvisioner{},
+		Migrator:                   &mockMigrator{},
+		SharedDBHost:               "postgres",
+		SharedDBPass:               "postgres",
+		IsolationMode:              "container",
+	})
+	if c == nil {
+		t.Fatal("expected non-nil consumer")
+	}
 }

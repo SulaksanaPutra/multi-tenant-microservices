@@ -150,6 +150,23 @@ func scanService(repoRoot, service string, strict bool) []Violation {
 		}
 	}
 
+	// Rule 5.9 — Infrastructure rabbitmq.Client must provide Consume method
+	rmqClientFile := filepath.Join(serviceDir, "internal", "infrastructure", "rabbitmq", "client.go")
+	if fileExists(rmqClientFile) {
+		fset := token.NewFileSet()
+		node, err := parser.ParseFile(fset, rmqClientFile, nil, 0)
+		if err == nil && !hasConsumeMethod(node) {
+			violations = append(violations, Violation{
+				Service: service,
+				Rule:    "5.9",
+				ID:      "missing-rabbitmq-consume-method",
+				Path:    filepath.ToSlash(filepath.Join(service, "internal", "infrastructure", "rabbitmq", "client.go")),
+				Line:    1,
+				Message: "Infrastructure `rabbitmq.Client` must provide a `Consume(queueName, consumerTag string) (<-chan Delivery, error)` method to encapsulate transport driver interactions",
+			})
+		}
+	}
+
 	// Rule 8.1 — Every internal Go source file must ship a corresponding *_test.go file
 	internalDir := filepath.Join(serviceDir, "internal")
 	if _, err := os.Stat(internalDir); err == nil {
@@ -853,5 +870,16 @@ func checkDockerStandards(repoRoot, service, serviceDir string) []Violation {
 	}
 
 	return violations
+}
+
+func hasConsumeMethod(file *ast.File) bool {
+	for _, decl := range file.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok {
+			if fn.Name.Name == "Consume" && fn.Recv != nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 

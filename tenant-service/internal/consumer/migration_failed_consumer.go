@@ -13,7 +13,7 @@ import (
 
 type MigrationFailedConsumerParams struct {
 	TxManager                TxManager
-	Client                   *rabbitmq.Client
+	Client                   AMQPClient
 	InboxService             InboxService
 	MigrationRollbackService MigrationRollbackService
 }
@@ -28,31 +28,18 @@ type MigrationRollbackService interface {
 
 type MigrationFailedConsumer struct {
 	txManager                TxManager
-	client                   *rabbitmq.Client
+	client                   AMQPClient
 	inboxService             InboxService
 	migrationRollbackService MigrationRollbackService
 }
 
-func NewMigrationFailedConsumer(params MigrationFailedConsumerParams) (*MigrationFailedConsumer, error) {
-	if params.InboxService == nil {
-		return nil, errors.New("inboxService is required")
-	}
-	if params.MigrationRollbackService == nil {
-		return nil, errors.New("migrationRollbackService is required")
-	}
-
-	consumer := &MigrationFailedConsumer{
+func NewMigrationFailedConsumer(params MigrationFailedConsumerParams) *MigrationFailedConsumer {
+	return &MigrationFailedConsumer{
 		txManager:                params.TxManager,
 		client:                   params.Client,
 		inboxService:             params.InboxService,
 		migrationRollbackService: params.MigrationRollbackService,
 	}
-
-	if err := consumer.setupTopology(); err != nil {
-		return nil, err
-	}
-
-	return consumer, nil
 }
 
 func (c *MigrationFailedConsumer) setupTopology() error {
@@ -96,14 +83,9 @@ func (c *MigrationFailedConsumer) runConsumerLoop(appCtx, connCtx context.Contex
 		return err
 	}
 
-	if c.client == nil || c.client.Channel == nil {
-		return errors.New("channel is nil")
-	}
-
-	msgs, err := c.client.Channel.Consume(
+	msgs, err := c.client.Consume(
 		domain.QueueTenantServiceMigrationFailed,
 		"tenant-service-migration-failed-consumer",
-		false, false, false, false, nil,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to start consume: %w", err)
@@ -136,6 +118,14 @@ func (c *MigrationFailedConsumer) handleDelivery(ctx context.Context, d rabbitmq
 		log.Printf("MigrationFailedConsumer Error: Bad payload: %v", err)
 		_ = d.Nack(false, false)
 		return err
+	}
+
+	deliveryCount := getDeliveryCount(d.Headers)
+	if deliveryCount >= 3 {
+		log.Printf("[DLQ] MigrationFailedConsumer: Max delivery count reached for event_id='%s' tenant_id='%s' (delivery_count=%d). Routing to DLQ.",
+			evt.EventID, evt.TenantID, deliveryCount)
+		_ = d.Nack(false, false)
+		return errors.New("max delivery count reached")
 	}
 
 	log.Printf("MigrationFailedConsumer: Rollback triggered for tenant='%s' event_id='%s' reason='%s'",

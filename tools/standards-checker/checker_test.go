@@ -459,3 +459,23 @@ func TestScanService_Rule5_10_MissingConsumerAMQPInterfaceFile(t *testing.T) {
 	}
 }
 
+func TestScanService_Rule5_9_MissingRabbitMQConsumeMethod(t *testing.T) {
+	tmpDir := t.TempDir()
+	rmqDir := filepath.Join(tmpDir, "internal", "infrastructure", "rabbitmq")
+	_ = os.MkdirAll(rmqDir, 0755)
+	_ = os.WriteFile(filepath.Join(rmqDir, "client.go"), []byte("package rabbitmq\ntype Client struct{}\n"), 0644)
+	_ = os.WriteFile(filepath.Join(rmqDir, "client_test.go"), []byte("package rabbitmq\n"), 0644)
+
+	violations := scanService(filepath.Dir(tmpDir), filepath.Base(tmpDir), false)
+	hasViolation := false
+	for _, v := range violations {
+		if v.ID == "missing-rabbitmq-consume-method" {
+			hasViolation = true
+			break
+		}
+	}
+	if !hasViolation {
+		t.Errorf("Expected violation 'missing-rabbitmq-consume-method', got violations: %+v", violations)
+	}
+}
+

@@ -189,7 +189,7 @@ func (c *Client) DeclareExchange(name, kind string) error {
 // DeclareAndBindQueue declares a durable queue and binds it to the given
 // exchange/routing-key. Extra args (e.g. x-dead-letter-exchange) are passed
 // through for broker-native DLX topology.
-func (c *Client) DeclareAndBindQueue(queueName, exchangeName, routingKey string, args amqp.Table) error {
+func (c *Client) DeclareAndBindQueue(queueName, exchangeName, routingKey string, args map[string]interface{}) error {
 	c.mu.RLock()
 	ch := c.Channel
 	c.mu.RUnlock()
@@ -198,7 +198,12 @@ func (c *Client) DeclareAndBindQueue(queueName, exchangeName, routingKey string,
 		return errors.New("channel is nil")
 	}
 
-	q, err := ch.QueueDeclare(queueName, true, false, false, false, args)
+	var table amqp.Table
+	if args != nil {
+		table = amqp.Table(args)
+	}
+
+	q, err := ch.QueueDeclare(queueName, true, false, false, false, table)
 	if err != nil {
 		return fmt.Errorf("failed to declare queue %s: %w", queueName, err)
 	}
@@ -208,6 +213,31 @@ func (c *Client) DeclareAndBindQueue(queueName, exchangeName, routingKey string,
 		return fmt.Errorf("failed to bind queue %s to exchange %s: %w", queueName, exchangeName, err)
 	}
 	return nil
+}
+
+func (c *Client) Consume(queueName, consumerTag string) (<-chan Delivery, error) {
+	c.mu.RLock()
+	ch := c.Channel
+	c.mu.RUnlock()
+
+	if ch == nil {
+		return nil, errors.New("rabbitmq: channel is nil")
+	}
+
+	msgs, err := ch.Consume(
+		queueName,
+		consumerTag,
+		false, // autoAck
+		false, // exclusive
+		false, // noLocal
+		false, // noWait
+		nil,   // args
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start consume on queue %s: %w", queueName, err)
+	}
+
+	return msgs, nil
 }
 
 func (c *Client) Close() {

@@ -31,7 +31,7 @@ func registerConsumers(
 		return nil, fmt.Errorf("failed to initialize OrderDBReadyPublisher: %w", err)
 	}
 
-	ipConsumer, err := consumer.NewInfrastructureProvisionedConsumer(consumer.InfrastructureProvisionedConsumerParams{
+	ipConsumer := consumer.NewInfrastructureProvisionedConsumer(consumer.InfrastructureProvisionedConsumerParams{
 		Client:           rmqClient,
 		Publisher:        orderDBReadyPub,
 		MigrationService: migrationService,
@@ -40,26 +40,17 @@ func registerConsumers(
 		SharedSecret:     sharedSecret,
 		SharedDBPass:     sharedDBPass,
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize InfrastructureProvisionedConsumer: %w", err)
-	}
 
-	icConsumer, err := consumer.NewInfrastructureChangedConsumer(consumer.InfrastructureChangedConsumerParams{
+	icConsumer := consumer.NewInfrastructureChangedConsumer(consumer.InfrastructureChangedConsumerParams{
 		Client:          rmqClient,
 		PoolRegistry:    poolReg,
 		RoutingRegistry: routingReg,
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize InfrastructureChangedConsumer: %w", err)
-	}
 
-	ilConsumer, err := consumer.NewInfrastructureLockingConsumer(consumer.InfrastructureLockingConsumerParams{
+	ilConsumer := consumer.NewInfrastructureLockingConsumer(consumer.InfrastructureLockingConsumerParams{
 		Client:          rmqClient,
 		RoutingRegistry: routingReg,
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize InfrastructureLockingConsumer: %w", err)
-	}
 
 	return &consumerRunner{
 		infraProvisionedConsumer:      ipConsumer,
