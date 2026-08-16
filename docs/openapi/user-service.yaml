@@ -9,6 +9,50 @@ tags:
     - name: user-service
       description: User Service
 paths:
+    /api/users:
+        get:
+            tags:
+                - user-service
+            summary: ApiUsers
+            operationId: ApiUsers
+            x-category: jwt
+            x-service: user-service
+            x-source:
+                - user-service/cmd/router.go:33
+            security:
+                - BearerAuth: []
+            responses:
+                "200":
+                    description: Successful response
+    /api/users/me:
+        get:
+            tags:
+                - user-service
+            summary: ApiUsersMe
+            operationId: ApiUsersMe
+            x-category: jwt
+            x-service: user-service
+            x-source:
+                - user-service/cmd/router.go:34
+            security:
+                - BearerAuth: []
+            responses:
+                "200":
+                    description: Successful response
+        put:
+            tags:
+                - user-service
+            summary: ApiUsersMe
+            operationId: ApiUsersMe
+            x-category: jwt
+            x-service: user-service
+            x-source:
+                - user-service/cmd/router.go:35
+            security:
+                - BearerAuth: []
+            responses:
+                "200":
+                    description: Successful response
     /health:
         get:
             tags:
@@ -19,44 +63,6 @@ paths:
             x-service: user-service
             x-source:
                 - user-service/cmd/router.go:20
-            responses:
-                "200":
-                    description: Successful response
-    /users:
-        get:
-            tags:
-                - user-service
-            summary: Users
-            operationId: Users
-            x-category: public
-            x-service: user-service
-            x-source:
-                - user-service/cmd/router.go:33
-            responses:
-                "200":
-                    description: Successful response
-    /users/me:
-        get:
-            tags:
-                - user-service
-            summary: UsersMe
-            operationId: UsersMe
-            x-category: public
-            x-service: user-service
-            x-source:
-                - user-service/cmd/router.go:34
-            responses:
-                "200":
-                    description: Successful response
-        put:
-            tags:
-                - user-service
-            summary: UsersMe
-            operationId: UsersMe
-            x-category: public
-            x-service: user-service
-            x-source:
-                - user-service/cmd/router.go:35
             responses:
                 "200":
                     description: Successful response

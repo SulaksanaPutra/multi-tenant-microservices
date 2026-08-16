@@ -330,7 +330,28 @@ func parseRouterRoutes(repoRoot, serviceName, routerFile string) []ExtractedRout
 	relRouter, _ := filepath.Rel(repoRoot, routerFile)
 	relRouter = filepath.ToSlash(relRouter)
 
+	groupPrefixes := make(map[string]string)
+
 	ast.Inspect(file, func(n ast.Node) bool {
+		if assign, ok := n.(*ast.AssignStmt); ok {
+			for _, rhs := range assign.Rhs {
+				if call, ok := rhs.(*ast.CallExpr); ok {
+					if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Group" {
+						if len(call.Args) >= 1 {
+							if pathLit, ok := call.Args[0].(*ast.BasicLit); ok && pathLit.Kind == token.STRING {
+								prefix := strings.Trim(pathLit.Value, `"`)
+								for _, lhs := range assign.Lhs {
+									if ident, ok := lhs.(*ast.Ident); ok {
+										groupPrefixes[ident.Name] = prefix
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
@@ -348,8 +369,17 @@ func parseRouterRoutes(repoRoot, serviceName, routerFile string) []ExtractedRout
 				if ok && pathLit.Kind == token.STRING {
 					pathVal := strings.Trim(pathLit.Value, `"`)
 
+					receiverName := ""
+					if ident, ok := sel.X.(*ast.Ident); ok {
+						receiverName = ident.Name
+					}
+					fullPathVal := pathVal
+					if prefix, exists := groupPrefixes[receiverName]; exists {
+						fullPathVal = prefix + pathVal
+					}
+
 					// Standardize path params: :param -> {param}
-					openAPIPath := reGinParam.ReplaceAllString(pathVal, "{$1}")
+					openAPIPath := reGinParam.ReplaceAllString(fullPathVal, "{$1}")
 
 					handlerName := ""
 					if ident, ok := call.Args[1].(*ast.Ident); ok {
@@ -360,13 +390,13 @@ func parseRouterRoutes(repoRoot, serviceName, routerFile string) []ExtractedRout
 
 					opID := handlerName
 					if opID == "" {
-						opID = cleanOpID(pathVal)
+						opID = cleanOpID(fullPathVal)
 					}
 
 					category := "public"
-					if strings.Contains(pathVal, "/internal/") {
+					if strings.Contains(fullPathVal, "/internal/") {
 						category = "internal"
-					} else if strings.Contains(pathVal, "/api/") && !strings.Contains(pathVal, "/api/auth/login") && !strings.Contains(pathVal, "/api/auth/credentials/setup") && !strings.Contains(pathVal, "/api/tenants/register") {
+					} else if strings.Contains(fullPathVal, "/api/") && !strings.Contains(fullPathVal, "/api/auth/login") && !strings.Contains(fullPathVal, "/api/auth/credentials/setup") && !strings.Contains(fullPathVal, "/api/tenants/register") {
 						category = "jwt"
 					}
 

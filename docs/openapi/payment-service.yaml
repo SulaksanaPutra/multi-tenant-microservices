@@ -9,16 +9,18 @@ tags:
     - name: payment-service
       description: Payment Service
 paths:
-    /{id}:
+    /api/payments/{id}:
         get:
             tags:
                 - payment-service
-            summary: health
-            operationId: health
-            x-category: public
+            summary: ApiPayments
+            operationId: ApiPayments
+            x-category: jwt
             x-service: payment-service
             x-source:
                 - payment-service/cmd/router.go:28
+            security:
+                - BearerAuth: []
             parameters:
                 - name: id
                   in: path
@@ -26,6 +28,57 @@ paths:
                   description: Path parameter id
                   schema:
                     type: string
+            responses:
+                "200":
+                    description: Successful response
+    /api/payments/by-order/{orderID}:
+        get:
+            tags:
+                - payment-service
+            summary: ApiPaymentsBy-Order
+            operationId: ApiPaymentsBy-Order
+            x-category: jwt
+            x-service: payment-service
+            x-source:
+                - payment-service/cmd/router.go:29
+            security:
+                - BearerAuth: []
+            parameters:
+                - name: orderID
+                  in: path
+                  required: true
+                  description: Path parameter orderID
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Successful response
+    /api/payments/config:
+        get:
+            tags:
+                - payment-service
+            summary: ApiPaymentsConfig
+            operationId: ApiPaymentsConfig
+            x-category: jwt
+            x-service: payment-service
+            x-source:
+                - payment-service/cmd/router.go:31
+            security:
+                - BearerAuth: []
+            responses:
+                "200":
+                    description: Successful response
+        put:
+            tags:
+                - payment-service
+            summary: ApiPaymentsConfig
+            operationId: ApiPaymentsConfig
+            x-category: jwt
+            x-service: payment-service
+            x-source:
+                - payment-service/cmd/router.go:30
+            security:
+                - BearerAuth: []
             responses:
                 "200":
                     description: Successful response
@@ -49,51 +102,6 @@ paths:
                   description: Path parameter provider
                   schema:
                     type: string
-            responses:
-                "200":
-                    description: Successful response
-    /by-order/{orderID}:
-        get:
-            tags:
-                - payment-service
-            summary: By-Order
-            operationId: By-Order
-            x-category: public
-            x-service: payment-service
-            x-source:
-                - payment-service/cmd/router.go:29
-            parameters:
-                - name: orderID
-                  in: path
-                  required: true
-                  description: Path parameter orderID
-                  schema:
-                    type: string
-            responses:
-                "200":
-                    description: Successful response
-    /config:
-        get:
-            tags:
-                - payment-service
-            summary: Config
-            operationId: Config
-            x-category: public
-            x-service: payment-service
-            x-source:
-                - payment-service/cmd/router.go:31
-            responses:
-                "200":
-                    description: Successful response
-        put:
-            tags:
-                - payment-service
-            summary: Config
-            operationId: Config
-            x-category: public
-            x-service: payment-service
-            x-source:
-                - payment-service/cmd/router.go:30
             responses:
                 "200":
                     description: Successful response

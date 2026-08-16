@@ -9,6 +9,35 @@ tags:
     - name: order-service
       description: Order Service
 paths:
+    /api/orders:
+        get:
+            tags:
+                - order-service
+            summary: ApiOrders
+            operationId: ApiOrders
+            x-category: jwt
+            x-service: order-service
+            x-source:
+                - order-service/cmd/router.go:64
+            security:
+                - BearerAuth: []
+            responses:
+                "200":
+                    description: Successful response
+        post:
+            tags:
+                - order-service
+            summary: ApiOrders
+            operationId: ApiOrders
+            x-category: jwt
+            x-service: order-service
+            x-source:
+                - order-service/cmd/router.go:65
+            security:
+                - BearerAuth: []
+            responses:
+                "200":
+                    description: Successful response
     /health:
         get:
             tags:
@@ -19,31 +48,6 @@ paths:
             x-service: order-service
             x-source:
                 - order-service/cmd/router.go:24
-            responses:
-                "200":
-                    description: Successful response
-    /orders:
-        get:
-            tags:
-                - order-service
-            summary: Orders
-            operationId: Orders
-            x-category: public
-            x-service: order-service
-            x-source:
-                - order-service/cmd/router.go:64
-            responses:
-                "200":
-                    description: Successful response
-        post:
-            tags:
-                - order-service
-            summary: Orders
-            operationId: Orders
-            x-category: public
-            x-service: order-service
-            x-source:
-                - order-service/cmd/router.go:65
             responses:
                 "200":
                     description: Successful response

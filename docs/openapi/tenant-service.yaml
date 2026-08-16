@@ -9,30 +9,47 @@ tags:
     - name: tenant-service
       description: Tenant Service
 paths:
-    /{tenant_id}/infrastructure/{service_name}:
+    /api/tenants/me:
         get:
             tags:
                 - tenant-service
-            summary: GetServiceInfrastructure
-            operationId: GetServiceInfrastructure
-            x-category: public
+            summary: ApiTenantsMe
+            operationId: ApiTenantsMe
+            x-category: jwt
             x-service: tenant-service
             x-source:
-                - tenant-service/cmd/router.go:46
-                - tenant-service/internal/handler/internal_tenant_handler.go:29
-            parameters:
-                - name: tenant_id
-                  in: path
-                  required: true
-                  description: Path parameter tenant_id
-                  schema:
-                    type: string
-                - name: service_name
-                  in: path
-                  required: true
-                  description: Path parameter service_name
-                  schema:
-                    type: string
+                - tenant-service/cmd/router.go:36
+            security:
+                - BearerAuth: []
+            responses:
+                "200":
+                    description: Successful response
+        put:
+            tags:
+                - tenant-service
+            summary: ApiTenantsMe
+            operationId: ApiTenantsMe
+            x-category: jwt
+            x-service: tenant-service
+            x-source:
+                - tenant-service/cmd/router.go:37
+            security:
+                - BearerAuth: []
+            responses:
+                "200":
+                    description: Successful response
+    /api/tenants/me/plan:
+        put:
+            tags:
+                - tenant-service
+            summary: ApiTenantsMePlan
+            operationId: ApiTenantsMePlan
+            x-category: jwt
+            x-service: tenant-service
+            x-source:
+                - tenant-service/cmd/router.go:38
+            security:
+                - BearerAuth: []
             responses:
                 "200":
                     description: Successful response
@@ -69,41 +86,32 @@ paths:
             responses:
                 "200":
                     description: Successful response
-    /me:
+    /internal/tenants/{tenant_id}/infrastructure/{service_name}:
         get:
             tags:
                 - tenant-service
-            summary: Me
-            operationId: Me
-            x-category: public
+            summary: GetServiceInfrastructure
+            operationId: GetServiceInfrastructure
+            x-category: internal
             x-service: tenant-service
             x-source:
-                - tenant-service/cmd/router.go:36
-            responses:
-                "200":
-                    description: Successful response
-        put:
-            tags:
-                - tenant-service
-            summary: Me
-            operationId: Me
-            x-category: public
-            x-service: tenant-service
-            x-source:
-                - tenant-service/cmd/router.go:37
-            responses:
-                "200":
-                    description: Successful response
-    /me/plan:
-        put:
-            tags:
-                - tenant-service
-            summary: MePlan
-            operationId: MePlan
-            x-category: public
-            x-service: tenant-service
-            x-source:
-                - tenant-service/cmd/router.go:38
+                - tenant-service/cmd/router.go:46
+                - tenant-service/internal/handler/internal_tenant_handler.go:29
+            security:
+                - InternalToken: []
+            parameters:
+                - name: tenant_id
+                  in: path
+                  required: true
+                  description: Path parameter tenant_id
+                  schema:
+                    type: string
+                - name: service_name
+                  in: path
+                  required: true
+                  description: Path parameter service_name
+                  schema:
+                    type: string
             responses:
                 "200":
                     description: Successful response

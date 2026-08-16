@@ -32,7 +32,7 @@
       │                                             │
       │         ┌───────────────────────────────────┼─────────────────────────┬─────────────────────────┬─────────────────────────┐
       │         ▼                                   ▼                         ▼                         ▼                         ▼
-      ├─────► POST / GET /api/orders   [ infra-provisioner ]      [ user-service :8081 ]   [ notification-service :8083 ]   [ payment-service :8086 ]
+      ├─────► GET /api/orders          [ infra-provisioner ]      [ user-service :8081 ]   [ notification-service :8083 ]   [ payment-service :8086 ]
       │        (Bearer <JWT>)          (Docker Worker, QoS=1)                 │               (Bearer <JWT>)               (Provider Adapters / Webhooks)
       │              │                         │                              ▼                         │                         │
       │              ▼                         │                          [ userDB ]                    ▼                         ▼
@@ -46,7 +46,10 @@
       │              ▼ Emits: tenant.order_db.ready
       │     [ tenant-service ] ──► (Passively Activates Workspace & Upserts Routing Metadata)
       │
-      └─────► POST /api/payments/webhook/:provider, GET /api/payments/:id
+      ├─────► POST /api/orders (Creates Order -> Outbox: order.created)
+      │       └─► [ payment-service ] consumes order.created -> fallback execution -> generates instructions
+      │
+      └─────► POST /api/payments/webhook/:provider, GET /api/payments/by-order/:id
                (HMAC Signature / Bearer JWT)
 ```
 
@@ -243,14 +246,14 @@ The login endpoint **always** returns the `SELECT_WORKSPACE` shape — even when
 
 ---
 
-### 2.6 Orders API: Authorization Enforcement & Dynamic DSN Resolution (`POST / GET /api/orders`)
+### 2.6 Read-Path Authorization & Dynamic DSN (`GET /api/orders`)
 
 ```text
 +-----------------------------------------------------------------------------------+
-|          POST / GET /api/orders Workflow (RBAC & Dynamic DSN Resolution)          |
+|               GET /api/orders Workflow (RBAC & Dynamic DSN Resolution)            |
 +-----------------------------------------------------------------------------------+
 
-[ Client ] ─────► POST /api/orders or GET /api/orders (Header: Authorization: Bearer <JWT>)
+[ Client ] ─────► GET /api/orders (Header: Authorization: Bearer <JWT>)
                         │
                         ▼
                 [ order-service :8084 ]
@@ -282,7 +285,54 @@ The login endpoint **always** returns the `SELECT_WORKSPACE` shape — even when
 
 ---
 
-### 2.7 Advanced Infrastructure Availability & Cache Invalidation (`tenant.infrastructure_changed`)
+### 2.7 Order Creation & Client Payment Settlement (`POST /api/orders`)
+
+```text
++-------------------------------------------------------------------------------------------------------+
+|                       Order Creation & Async Payment Settlement Saga                                  |
++-------------------------------------------------------------------------------------------------------+
+
+[ Client / User ] ───► 1. POST /api/orders (Bearer <JWT>) ─────────► [ order-service :8084 ]
+                                                                           │
+                                                                           ├─► Saves Order (Status: PENDING_PAYMENT)
+                                                                           ├─► Saves order.created to Outbox
+                                                                           ▼
+                                                                  [ Outbox Worker ]
+                                                                           │
+                                                                           ▼ (Publish: order.created)
+                                                                  [ RabbitMQ Broker ]
+                                                                           │
+                                                                           ▼
+                                                                  [ payment-service :8086 ]
+                                                                           │
+                                                                           ├─► Async FallbackExecutor (Stripe -> Xendit)
+                                                                           ├─► Save payment_instructions (VA / QRIS / URL)
+                                                                           └─► Update Status -> PAYMENT_INSTRUCTIONS_READY
+
+[ Client / User ] ───► 2. Polling Loop: GET /api/payments/by-order/:orderID
+                                                                           │
+                                                                           ▼
+                                                                  [ payment-service :8086 ]
+                                                                           │ (Returns Instructions)
+                                                                           ▼
+[ Client / User ] ◄─── (Renders Checkout UI / Virtual Account / QRIS)
+
+[ External Webhook ] ──► 3. POST /api/payments/webhook/:provider ──► [ payment-service :8086 ]
+                                                                           │
+                                                                           ├─► Pessimistic Row Lock (SELECT FOR UPDATE)
+                                                                           └─► Emit payment.succeeded to Outbox
+                                                                           ▼
+                                                                  [ RabbitMQ Broker ]
+                                                                           │
+                                                   ┌───────────────────────┴───────────────────────┐
+                                                   ▼                                               ▼
+                                         [ order-service :8084 ]                     [ notification-service :8083 ]
+                                           (Status -> PAID)                            (Dispatches Email Receipt)
+```
+
+---
+
+### 2.8 Advanced Infrastructure Availability & Cache Invalidation (`tenant.infrastructure_changed`)
 
 ```text
 +-----------------------------------------------------------------------------------+
@@ -312,11 +362,11 @@ The login endpoint **always** returns the `SELECT_WORKSPACE` shape — even when
 ```
 
 * **New Tenant Registration:** Every `order-service` replica experiences a natural cache miss on its first request and lazily resolves the routing metadata.
-* **Infrastructure Rebinding & Plan Changes:** If a dedicated DB container dies and is rescheduled on a new IP/port by Docker/K8s, `tenant-service` broadcasts `tenant.infrastructure_changed` over the **`company.events` Topic Exchange** to exclusive anonymous queues, forcing all `order-service` replicas to purge their local `RoutingRegistry` and `PoolRegistry` connection caches in real-time. A **plan upgrade/downgrade** runs the full migration workflow described in [Section 2.10](#210-plan-switching--downtime-management-put-apitenantsmeplan) — it begins with a `tenant.infrastructure_locking` freeze (`MIGRATING` / HTTP 423 Locked) and only emits `tenant.infrastructure_changed` once the cutover completes or rolls back.
+* **Infrastructure Rebinding & Plan Changes:** If a dedicated DB container dies and is rescheduled on a new IP/port by Docker/K8s, `tenant-service` broadcasts `tenant.infrastructure_changed` over the **`company.events` Topic Exchange** to exclusive anonymous queues, forcing all `order-service` replicas to purge their local `RoutingRegistry` and `PoolRegistry` connection caches in real-time. A **plan upgrade/downgrade** runs the full migration workflow described in [Section 2.11](#211-plan-switching--downtime-management-put-apitenantsmeplan) — it begins with a `tenant.infrastructure_locking` freeze (`MIGRATING` / HTTP 423 Locked) and only emits `tenant.infrastructure_changed` once the cutover completes or rolls back.
 
 ---
 
-### 2.8 Unified Identity & Workspace Selection (`POST /api/auth/login` + `POST /api/auth/select-tenant`)
+### 2.9 Unified Identity & Workspace Selection (`POST /api/auth/login` + `POST /api/auth/select-tenant`)
 
 ```text
  user_db.public.users                  auth_db.public.user_credentials        auth_db.public.user_tenant_memberships
@@ -379,7 +429,7 @@ The client completes the flow: with **one** workspace it exchanges the token sil
 
 ---
 
-### 2.9 Event-Fed Membership Copy (`user.created` → auth-service)
+### 2.10 Event-Fed Membership Copy (`user.created` → auth-service)
 
 To let tenant admins pre-assign roles **before** a user ever sets a password, `auth-service` keeps an eventually-consistent copy of `user_tenant_memberships` fed by the `user.created` event:
 
@@ -396,7 +446,7 @@ To let tenant admins pre-assign roles **before** a user ever sets a password, `a
 ```
 ---
 
-### 2.10 Plan Switching & Downtime Management (`PUT /api/tenants/me/plan`)
+### 2.11 Plan Switching & Downtime Management (`PUT /api/tenants/me/plan`)
 
 Upgrading/downgrading a workspace between **`shared`** (schema-per-tenant on the shared cluster) and **`dedicated`** (database-per-tenant) is an **asynchronous, event-driven migration** coordinated through a `MIGRATING` status window that freezes the tenant's data plane while the cutover runs. The "dedicated" target depends on the deployment tier ([Section 8](#8-deployment-tiers)): the default **standard** tier provisions a dedicated PostgreSQL container per tenant, while the **lite** tier provisions a per-tenant database + role inside the shared instance (`DEDICATED_ISOLATION_MODE=same_instance`).
 

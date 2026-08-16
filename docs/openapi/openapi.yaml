@@ -33,16 +33,139 @@ paths:
             responses:
                 "200":
                     description: Successful response
-    /{id}:
+    /api/auth/credentials/setup:
+        post:
+            tags:
+                - auth-service
+            summary: SetupPassword
+            operationId: SetupPassword
+            x-category: public
+            x-service: auth-service
+            x-source:
+                - auth-service/cmd/router.go:39
+                - auth-service/internal/handler/auth_handler.go:73
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+            responses:
+                "200":
+                    description: Successful response
+    /api/auth/login:
+        post:
+            tags:
+                - auth-service
+            summary: Login
+            operationId: Login
+            x-category: public
+            x-service: auth-service
+            x-source:
+                - auth-service/cmd/router.go:40
+                - auth-service/internal/handler/auth_handler.go:102
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+            responses:
+                "200":
+                    description: Successful response
+    /api/auth/logout:
+        post:
+            tags:
+                - auth-service
+            summary: ApiAuthLogout
+            operationId: ApiAuthLogout
+            x-category: jwt
+            x-service: auth-service
+            x-source:
+                - auth-service/cmd/router.go:45
+            security:
+                - BearerAuth: []
+            responses:
+                "200":
+                    description: Successful response
+    /api/auth/permissions:
         get:
             tags:
-                - payment-service
-            summary: health
-            operationId: health
-            x-category: public
-            x-service: payment-service
+                - auth-service
+            summary: ApiAuthPermissions
+            operationId: ApiAuthPermissions
+            x-category: jwt
+            x-service: auth-service
             x-source:
-                - payment-service/cmd/router.go:28
+                - auth-service/cmd/router.go:53
+            security:
+                - BearerAuth: []
+            responses:
+                "200":
+                    description: Successful response
+    /api/auth/refresh:
+        post:
+            tags:
+                - auth-service
+            summary: Refresh
+            operationId: Refresh
+            x-category: jwt
+            x-service: auth-service
+            x-source:
+                - auth-service/cmd/router.go:42
+                - auth-service/internal/handler/auth_handler.go:170
+            security:
+                - BearerAuth: []
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+            responses:
+                "200":
+                    description: Successful response
+    /api/auth/roles:
+        get:
+            tags:
+                - auth-service
+            summary: ApiAuthRoles
+            operationId: ApiAuthRoles
+            x-category: jwt
+            x-service: auth-service
+            x-source:
+                - auth-service/cmd/router.go:54
+            security:
+                - BearerAuth: []
+            responses:
+                "200":
+                    description: Successful response
+        post:
+            tags:
+                - auth-service
+            summary: ApiAuthRoles
+            operationId: ApiAuthRoles
+            x-category: jwt
+            x-service: auth-service
+            x-source:
+                - auth-service/cmd/router.go:63
+            security:
+                - BearerAuth: []
+            responses:
+                "200":
+                    description: Successful response
+    /api/auth/roles/{id}:
+        delete:
+            tags:
+                - auth-service
+            summary: ApiAuthRoles
+            operationId: ApiAuthRoles
+            x-category: jwt
+            x-service: auth-service
+            x-source:
+                - auth-service/cmd/router.go:65
+            security:
+                - BearerAuth: []
             parameters:
                 - name: id
                   in: path
@@ -53,30 +176,126 @@ paths:
             responses:
                 "200":
                     description: Successful response
-    /{tenant_id}/infrastructure/{service_name}:
         get:
             tags:
-                - tenant-service
-            summary: GetServiceInfrastructure
-            operationId: GetServiceInfrastructure
-            x-category: public
-            x-service: tenant-service
+                - auth-service
+            summary: ApiAuthRoles
+            operationId: ApiAuthRoles
+            x-category: jwt
+            x-service: auth-service
             x-source:
-                - tenant-service/cmd/router.go:46
-                - tenant-service/internal/handler/internal_tenant_handler.go:29
+                - auth-service/cmd/router.go:55
+            security:
+                - BearerAuth: []
             parameters:
-                - name: tenant_id
+                - name: id
                   in: path
                   required: true
-                  description: Path parameter tenant_id
+                  description: Path parameter id
                   schema:
                     type: string
-                - name: service_name
+            responses:
+                "200":
+                    description: Successful response
+    /api/auth/roles/{id}/permissions:
+        put:
+            tags:
+                - auth-service
+            summary: ApiAuthRolesPermissions
+            operationId: ApiAuthRolesPermissions
+            x-category: jwt
+            x-service: auth-service
+            x-source:
+                - auth-service/cmd/router.go:64
+            security:
+                - BearerAuth: []
+            parameters:
+                - name: id
                   in: path
                   required: true
-                  description: Path parameter service_name
+                  description: Path parameter id
                   schema:
                     type: string
+            responses:
+                "200":
+                    description: Successful response
+    /api/auth/select-tenant:
+        post:
+            tags:
+                - auth-service
+            summary: SelectTenant
+            operationId: SelectTenant
+            x-category: jwt
+            x-service: auth-service
+            x-source:
+                - auth-service/cmd/router.go:41
+                - auth-service/internal/handler/auth_handler.go:139
+            security:
+                - BearerAuth: []
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+            responses:
+                "200":
+                    description: Successful response
+    /api/auth/users/{user_id}/role:
+        get:
+            tags:
+                - auth-service
+            summary: ApiAuthUsersRole
+            operationId: ApiAuthUsersRole
+            x-category: jwt
+            x-service: auth-service
+            x-source:
+                - auth-service/cmd/router.go:60
+            security:
+                - BearerAuth: []
+            parameters:
+                - name: user_id
+                  in: path
+                  required: true
+                  description: Path parameter user_id
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Successful response
+        put:
+            tags:
+                - auth-service
+            summary: ApiAuthUsersRole
+            operationId: ApiAuthUsersRole
+            x-category: jwt
+            x-service: auth-service
+            x-source:
+                - auth-service/cmd/router.go:66
+            security:
+                - BearerAuth: []
+            parameters:
+                - name: user_id
+                  in: path
+                  required: true
+                  description: Path parameter user_id
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Successful response
+    /api/auth/users/roles:
+        get:
+            tags:
+                - auth-service
+            summary: ApiAuthUsersRoles
+            operationId: ApiAuthUsersRoles
+            x-category: jwt
+            x-service: auth-service
+            x-source:
+                - auth-service/cmd/router.go:59
+            security:
+                - BearerAuth: []
             responses:
                 "200":
                     description: Successful response
@@ -90,6 +309,108 @@ paths:
             x-service: notification-service
             x-source:
                 - notification-service/cmd/router.go:33
+            security:
+                - BearerAuth: []
+            responses:
+                "200":
+                    description: Successful response
+    /api/orders:
+        get:
+            tags:
+                - order-service
+            summary: ApiOrders
+            operationId: ApiOrders
+            x-category: jwt
+            x-service: order-service
+            x-source:
+                - order-service/cmd/router.go:64
+            security:
+                - BearerAuth: []
+            responses:
+                "200":
+                    description: Successful response
+        post:
+            tags:
+                - order-service
+            summary: ApiOrders
+            operationId: ApiOrders
+            x-category: jwt
+            x-service: order-service
+            x-source:
+                - order-service/cmd/router.go:65
+            security:
+                - BearerAuth: []
+            responses:
+                "200":
+                    description: Successful response
+    /api/payments/{id}:
+        get:
+            tags:
+                - payment-service
+            summary: ApiPayments
+            operationId: ApiPayments
+            x-category: jwt
+            x-service: payment-service
+            x-source:
+                - payment-service/cmd/router.go:28
+            security:
+                - BearerAuth: []
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  description: Path parameter id
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Successful response
+    /api/payments/by-order/{orderID}:
+        get:
+            tags:
+                - payment-service
+            summary: ApiPaymentsBy-Order
+            operationId: ApiPaymentsBy-Order
+            x-category: jwt
+            x-service: payment-service
+            x-source:
+                - payment-service/cmd/router.go:29
+            security:
+                - BearerAuth: []
+            parameters:
+                - name: orderID
+                  in: path
+                  required: true
+                  description: Path parameter orderID
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Successful response
+    /api/payments/config:
+        get:
+            tags:
+                - payment-service
+            summary: ApiPaymentsConfig
+            operationId: ApiPaymentsConfig
+            x-category: jwt
+            x-service: payment-service
+            x-source:
+                - payment-service/cmd/router.go:31
+            security:
+                - BearerAuth: []
+            responses:
+                "200":
+                    description: Successful response
+        put:
+            tags:
+                - payment-service
+            summary: ApiPaymentsConfig
+            operationId: ApiPaymentsConfig
+            x-category: jwt
+            x-service: payment-service
+            x-source:
+                - payment-service/cmd/router.go:30
             security:
                 - BearerAuth: []
             responses:
@@ -118,6 +439,50 @@ paths:
             responses:
                 "200":
                     description: Successful response
+    /api/tenants/me:
+        get:
+            tags:
+                - tenant-service
+            summary: ApiTenantsMe
+            operationId: ApiTenantsMe
+            x-category: jwt
+            x-service: tenant-service
+            x-source:
+                - tenant-service/cmd/router.go:36
+            security:
+                - BearerAuth: []
+            responses:
+                "200":
+                    description: Successful response
+        put:
+            tags:
+                - tenant-service
+            summary: ApiTenantsMe
+            operationId: ApiTenantsMe
+            x-category: jwt
+            x-service: tenant-service
+            x-source:
+                - tenant-service/cmd/router.go:37
+            security:
+                - BearerAuth: []
+            responses:
+                "200":
+                    description: Successful response
+    /api/tenants/me/plan:
+        put:
+            tags:
+                - tenant-service
+            summary: ApiTenantsMePlan
+            operationId: ApiTenantsMePlan
+            x-category: jwt
+            x-service: tenant-service
+            x-source:
+                - tenant-service/cmd/router.go:38
+            security:
+                - BearerAuth: []
+            responses:
+                "200":
+                    description: Successful response
     /api/tenants/register:
         post:
             tags:
@@ -138,68 +503,47 @@ paths:
             responses:
                 "200":
                     description: Successful response
-    /by-order/{orderID}:
+    /api/users:
         get:
             tags:
-                - payment-service
-            summary: By-Order
-            operationId: By-Order
-            x-category: public
-            x-service: payment-service
+                - user-service
+            summary: ApiUsers
+            operationId: ApiUsers
+            x-category: jwt
+            x-service: user-service
             x-source:
-                - payment-service/cmd/router.go:29
-            parameters:
-                - name: orderID
-                  in: path
-                  required: true
-                  description: Path parameter orderID
-                  schema:
-                    type: string
+                - user-service/cmd/router.go:33
+            security:
+                - BearerAuth: []
             responses:
                 "200":
                     description: Successful response
-    /config:
+    /api/users/me:
         get:
             tags:
-                - payment-service
-            summary: Config
-            operationId: Config
-            x-category: public
-            x-service: payment-service
+                - user-service
+            summary: ApiUsersMe
+            operationId: ApiUsersMe
+            x-category: jwt
+            x-service: user-service
             x-source:
-                - payment-service/cmd/router.go:31
+                - user-service/cmd/router.go:34
+            security:
+                - BearerAuth: []
             responses:
                 "200":
                     description: Successful response
         put:
             tags:
-                - payment-service
-            summary: Config
-            operationId: Config
-            x-category: public
-            x-service: payment-service
+                - user-service
+            summary: ApiUsersMe
+            operationId: ApiUsersMe
+            x-category: jwt
+            x-service: user-service
             x-source:
-                - payment-service/cmd/router.go:30
-            responses:
-                "200":
-                    description: Successful response
-    /credentials/setup:
-        post:
-            tags:
-                - auth-service
-            summary: SetupPassword
-            operationId: SetupPassword
-            x-category: public
-            x-service: auth-service
-            x-source:
-                - auth-service/cmd/router.go:39
-                - auth-service/internal/handler/auth_handler.go:73
-            requestBody:
-                required: true
-                content:
-                    application/json:
-                        schema:
-                            type: object
+                - user-service/cmd/router.go:35
+            security:
+                - BearerAuth: []
             responses:
                 "200":
                     description: Successful response
@@ -216,126 +560,19 @@ paths:
             responses:
                 "200":
                     description: Successful response
-    /login:
-        post:
-            tags:
-                - auth-service
-            summary: Login
-            operationId: Login
-            x-category: public
-            x-service: auth-service
-            x-source:
-                - auth-service/cmd/router.go:40
-                - auth-service/internal/handler/auth_handler.go:102
-            requestBody:
-                required: true
-                content:
-                    application/json:
-                        schema:
-                            type: object
-            responses:
-                "200":
-                    description: Successful response
-    /logout:
-        post:
-            tags:
-                - auth-service
-            summary: Logout
-            operationId: Logout
-            x-category: public
-            x-service: auth-service
-            x-source:
-                - auth-service/cmd/router.go:45
-            responses:
-                "200":
-                    description: Successful response
-    /me:
-        get:
-            tags:
-                - tenant-service
-            summary: Me
-            operationId: Me
-            x-category: public
-            x-service: tenant-service
-            x-source:
-                - tenant-service/cmd/router.go:36
-            responses:
-                "200":
-                    description: Successful response
-        put:
-            tags:
-                - tenant-service
-            summary: Me
-            operationId: Me
-            x-category: public
-            x-service: tenant-service
-            x-source:
-                - tenant-service/cmd/router.go:37
-            responses:
-                "200":
-                    description: Successful response
-    /me/plan:
-        put:
-            tags:
-                - tenant-service
-            summary: MePlan
-            operationId: MePlan
-            x-category: public
-            x-service: tenant-service
-            x-source:
-                - tenant-service/cmd/router.go:38
-            responses:
-                "200":
-                    description: Successful response
-    /orders:
-        get:
-            tags:
-                - order-service
-            summary: Orders
-            operationId: Orders
-            x-category: public
-            x-service: order-service
-            x-source:
-                - order-service/cmd/router.go:64
-            responses:
-                "200":
-                    description: Successful response
-        post:
-            tags:
-                - order-service
-            summary: Orders
-            operationId: Orders
-            x-category: public
-            x-service: order-service
-            x-source:
-                - order-service/cmd/router.go:65
-            responses:
-                "200":
-                    description: Successful response
-    /permissions:
-        get:
-            tags:
-                - auth-service
-            summary: Permissions
-            operationId: Permissions
-            x-category: public
-            x-service: auth-service
-            x-source:
-                - auth-service/cmd/router.go:53
-            responses:
-                "200":
-                    description: Successful response
-    /permissions/register:
+    /internal/auth/permissions/register:
         post:
             tags:
                 - auth-service
             summary: RegisterPermissions
             operationId: RegisterPermissions
-            x-category: public
+            x-category: internal
             x-service: auth-service
             x-source:
                 - auth-service/cmd/router.go:74
                 - auth-service/internal/handler/internal_permission_handler.go:37
+            security:
+                - InternalToken: []
             requestBody:
                 required: true
                 content:
@@ -345,141 +582,19 @@ paths:
             responses:
                 "200":
                     description: Successful response
-    /refresh:
-        post:
-            tags:
-                - auth-service
-            summary: Refresh
-            operationId: Refresh
-            x-category: public
-            x-service: auth-service
-            x-source:
-                - auth-service/cmd/router.go:42
-                - auth-service/internal/handler/auth_handler.go:170
-            requestBody:
-                required: true
-                content:
-                    application/json:
-                        schema:
-                            type: object
-            responses:
-                "200":
-                    description: Successful response
-    /roles:
-        get:
-            tags:
-                - auth-service
-            summary: Roles
-            operationId: Roles
-            x-category: public
-            x-service: auth-service
-            x-source:
-                - auth-service/cmd/router.go:54
-            responses:
-                "200":
-                    description: Successful response
-        post:
-            tags:
-                - auth-service
-            summary: Roles
-            operationId: Roles
-            x-category: public
-            x-service: auth-service
-            x-source:
-                - auth-service/cmd/router.go:63
-            responses:
-                "200":
-                    description: Successful response
-    /roles/{id}:
-        delete:
-            tags:
-                - auth-service
-            summary: Roles
-            operationId: Roles
-            x-category: public
-            x-service: auth-service
-            x-source:
-                - auth-service/cmd/router.go:65
-            parameters:
-                - name: id
-                  in: path
-                  required: true
-                  description: Path parameter id
-                  schema:
-                    type: string
-            responses:
-                "200":
-                    description: Successful response
-        get:
-            tags:
-                - auth-service
-            summary: Roles
-            operationId: Roles
-            x-category: public
-            x-service: auth-service
-            x-source:
-                - auth-service/cmd/router.go:55
-            parameters:
-                - name: id
-                  in: path
-                  required: true
-                  description: Path parameter id
-                  schema:
-                    type: string
-            responses:
-                "200":
-                    description: Successful response
-    /roles/{id}/permissions:
-        put:
-            tags:
-                - auth-service
-            summary: RolesPermissions
-            operationId: RolesPermissions
-            x-category: public
-            x-service: auth-service
-            x-source:
-                - auth-service/cmd/router.go:64
-            parameters:
-                - name: id
-                  in: path
-                  required: true
-                  description: Path parameter id
-                  schema:
-                    type: string
-            responses:
-                "200":
-                    description: Successful response
-    /select-tenant:
-        post:
-            tags:
-                - auth-service
-            summary: SelectTenant
-            operationId: SelectTenant
-            x-category: public
-            x-service: auth-service
-            x-source:
-                - auth-service/cmd/router.go:41
-                - auth-service/internal/handler/auth_handler.go:139
-            requestBody:
-                required: true
-                content:
-                    application/json:
-                        schema:
-                            type: object
-            responses:
-                "200":
-                    description: Successful response
-    /setup-token:
+    /internal/auth/setup-token:
         post:
             tags:
                 - auth-service
             summary: CreateSetupToken
             operationId: CreateSetupToken
-            x-category: public
+            x-category: internal
             x-service: auth-service
             x-source:
                 - auth-service/cmd/router.go:73
                 - auth-service/internal/handler/internal_auth_handler.go:31
+            security:
+                - InternalToken: []
             requestBody:
                 required: true
                 content:
@@ -489,30 +604,19 @@ paths:
             responses:
                 "200":
                     description: Successful response
-    /users:
-        get:
-            tags:
-                - user-service
-            summary: Users
-            operationId: Users
-            x-category: public
-            x-service: user-service
-            x-source:
-                - user-service/cmd/router.go:33
-            responses:
-                "200":
-                    description: Successful response
-    /users/{user_id}/perm-version:
+    /internal/auth/users/{user_id}/perm-version:
         get:
             tags:
                 - auth-service
             summary: GetUserPermissionVersion
             operationId: GetUserPermissionVersion
-            x-category: public
+            x-category: internal
             x-service: auth-service
             x-source:
                 - auth-service/cmd/router.go:75
                 - auth-service/internal/handler/internal_permission_handler.go:63
+            security:
+                - InternalToken: []
             parameters:
                 - name: user_id
                   in: path
@@ -529,80 +633,32 @@ paths:
             responses:
                 "200":
                     description: Successful response
-    /users/{user_id}/role:
+    /internal/tenants/{tenant_id}/infrastructure/{service_name}:
         get:
             tags:
-                - auth-service
-            summary: UsersRole
-            operationId: UsersRole
-            x-category: public
-            x-service: auth-service
+                - tenant-service
+            summary: GetServiceInfrastructure
+            operationId: GetServiceInfrastructure
+            x-category: internal
+            x-service: tenant-service
             x-source:
-                - auth-service/cmd/router.go:60
+                - tenant-service/cmd/router.go:46
+                - tenant-service/internal/handler/internal_tenant_handler.go:29
+            security:
+                - InternalToken: []
             parameters:
-                - name: user_id
+                - name: tenant_id
                   in: path
                   required: true
-                  description: Path parameter user_id
+                  description: Path parameter tenant_id
                   schema:
                     type: string
-            responses:
-                "200":
-                    description: Successful response
-        put:
-            tags:
-                - auth-service
-            summary: UsersRole
-            operationId: UsersRole
-            x-category: public
-            x-service: auth-service
-            x-source:
-                - auth-service/cmd/router.go:66
-            parameters:
-                - name: user_id
+                - name: service_name
                   in: path
                   required: true
-                  description: Path parameter user_id
+                  description: Path parameter service_name
                   schema:
                     type: string
-            responses:
-                "200":
-                    description: Successful response
-    /users/me:
-        get:
-            tags:
-                - user-service
-            summary: UsersMe
-            operationId: UsersMe
-            x-category: public
-            x-service: user-service
-            x-source:
-                - user-service/cmd/router.go:34
-            responses:
-                "200":
-                    description: Successful response
-        put:
-            tags:
-                - user-service
-            summary: UsersMe
-            operationId: UsersMe
-            x-category: public
-            x-service: user-service
-            x-source:
-                - user-service/cmd/router.go:35
-            responses:
-                "200":
-                    description: Successful response
-    /users/roles:
-        get:
-            tags:
-                - auth-service
-            summary: UsersRoles
-            operationId: UsersRoles
-            x-category: public
-            x-service: auth-service
-            x-source:
-                - auth-service/cmd/router.go:59
             responses:
                 "200":
                     description: Successful response
