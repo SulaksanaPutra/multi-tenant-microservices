@@ -25,7 +25,7 @@ func TestInboxRepository_TryInsert_Success(t *testing.T) {
 		},
 	}
 
-	repo := NewInboxRepository(&postgres.Client{})
+	inboxRepository := NewInboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	input := CreateInboxMessageInput{
@@ -35,7 +35,7 @@ func TestInboxRepository_TryInsert_Success(t *testing.T) {
 		Payload:   []byte(`{"order_id":"ord-123"}`),
 	}
 
-	isDuplicate, err := repo.TryInsert(ctx, input)
+	isDuplicate, err := inboxRepository.TryInsert(ctx, input)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -62,11 +62,11 @@ func TestInboxRepository_TryInsert_DuplicateOnConflict(t *testing.T) {
 		},
 	}
 
-	repo := NewInboxRepository(&postgres.Client{})
+	inboxRepository := NewInboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	input := CreateInboxMessageInput{EventID: "evt-dup-payment-1002"}
-	isDuplicate, err := repo.TryInsert(ctx, input)
+	isDuplicate, err := inboxRepository.TryInsert(ctx, input)
 	if err != nil {
 		t.Fatalf("expected nil error on ON CONFLICT DO NOTHING, got %v", err)
 	}
@@ -83,11 +83,11 @@ func TestInboxRepository_TryInsert_RowsAffectedError(t *testing.T) {
 		},
 	}
 
-	repo := NewInboxRepository(&postgres.Client{})
+	inboxRepository := NewInboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	input := CreateInboxMessageInput{EventID: "evt-ra-err-1003"}
-	isDuplicate, err := repo.TryInsert(ctx, input)
+	isDuplicate, err := inboxRepository.TryInsert(ctx, input)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -107,11 +107,11 @@ func TestInboxRepository_TryInsert_GenericError(t *testing.T) {
 		},
 	}
 
-	repo := NewInboxRepository(&postgres.Client{})
+	inboxRepository := NewInboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	input := CreateInboxMessageInput{EventID: "evt-db-err-1004"}
-	isDuplicate, err := repo.TryInsert(ctx, input)
+	isDuplicate, err := inboxRepository.TryInsert(ctx, input)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -130,9 +130,9 @@ func TestInboxRepository_SaveInboxEvent_SuccessAndDuplicate(t *testing.T) {
 			return testutil.MockResult{RowsAffectedVal: 1}, nil
 		},
 	}
-	repo := NewInboxRepository(&postgres.Client{})
+	inboxRepository := NewInboxRepository(&postgres.Client{})
 	ctxSuccess := txcontext.WithExecutor(context.Background(), mockExecSuccess)
-	if err := repo.SaveInboxEvent(ctxSuccess, "evt-save-1", "order.created"); err != nil {
+	if err := inboxRepository.SaveInboxEvent(ctxSuccess, "evt-save-1", "order.created"); err != nil {
 		t.Fatalf("expected nil error on SaveInboxEvent, got %v", err)
 	}
 
@@ -143,7 +143,7 @@ func TestInboxRepository_SaveInboxEvent_SuccessAndDuplicate(t *testing.T) {
 		},
 	}
 	ctxDup := txcontext.WithExecutor(context.Background(), mockExecDup)
-	err := repo.SaveInboxEvent(ctxDup, "evt-save-1", "order.created")
+	err := inboxRepository.SaveInboxEvent(ctxDup, "evt-save-1", "order.created")
 	if !errors.Is(err, domain.ErrDuplicateEvent) {
 		t.Fatalf("expected domain.ErrDuplicateEvent, got %v", err)
 	}

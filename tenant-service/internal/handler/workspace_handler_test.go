@@ -55,18 +55,18 @@ func (m *mockTenantInfrastructureService) GetServiceInfrastructure(ctx context.C
 }
 
 func TestWorkspaceHandler_Constructor(t *testing.T) {
-	h := NewWorkspaceHandler(&mockTxManager{}, &mockWorkspaceService{})
-	if h == nil {
+	workspaceHandler := NewWorkspaceHandler(&mockTxManager{}, &mockWorkspaceService{})
+	if workspaceHandler == nil {
 		t.Fatal("expected NewWorkspaceHandler to return a non-nil struct pointer")
 	}
 }
 
 func TestRegisterWorkspace_ValidationError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	h := NewWorkspaceHandler(&mockTxManager{}, &mockWorkspaceService{})
+	workspaceHandler := NewWorkspaceHandler(&mockTxManager{}, &mockWorkspaceService{})
 
-	r := gin.New()
-	r.POST("/workspaces", h.RegisterWorkspace)
+	router := gin.New()
+	router.POST("/workspaces", workspaceHandler.RegisterWorkspace)
 
 	tests := []struct {
 		name string
@@ -111,7 +111,7 @@ func TestRegisterWorkspace_ValidationError(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 
 			w := httptest.NewRecorder()
-			r.ServeHTTP(w, req)
+			router.ServeHTTP(w, req)
 
 			if w.Code != http.StatusBadRequest {
 				t.Errorf("expected status 400 Bad Request, got %d. Body: %s", w.Code, w.Body.String())
@@ -123,16 +123,16 @@ func TestRegisterWorkspace_ValidationError(t *testing.T) {
 func TestRegisterWorkspace_ServiceError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	svcErr := errors.New("registration processing failed")
-	wsSvc := &mockWorkspaceService{
+	serviceErr := errors.New("registration processing failed")
+	workspaceService := &mockWorkspaceService{
 		registerWorkspaceFn: func(ctx context.Context, input service.RegisterWorkspaceInput) (*service.RegisterWorkspaceOutput, error) {
-			return nil, svcErr
+			return nil, serviceErr
 		},
 	}
 
-	h := NewWorkspaceHandler(&mockTxManager{}, wsSvc)
-	r := gin.New()
-	r.POST("/workspaces", h.RegisterWorkspace)
+	workspaceHandler := NewWorkspaceHandler(&mockTxManager{}, workspaceService)
+	router := gin.New()
+	router.POST("/workspaces", workspaceHandler.RegisterWorkspace)
 
 	body := map[string]any{
 		"owner_email": "alice@acme.com",
@@ -145,7 +145,7 @@ func TestRegisterWorkspace_ServiceError(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected status 500 Internal Server Error, got %d", w.Code)
@@ -160,16 +160,16 @@ func TestRegisterWorkspace_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	var capturedInput service.RegisterWorkspaceInput
-	wsSvc := &mockWorkspaceService{
+	workspaceService := &mockWorkspaceService{
 		registerWorkspaceFn: func(ctx context.Context, input service.RegisterWorkspaceInput) (*service.RegisterWorkspaceOutput, error) {
 			capturedInput = input
 			return &service.RegisterWorkspaceOutput{Status: "accepted"}, nil
 		},
 	}
 
-	h := NewWorkspaceHandler(&mockTxManager{}, wsSvc)
-	r := gin.New()
-	r.POST("/workspaces", h.RegisterWorkspace)
+	workspaceHandler := NewWorkspaceHandler(&mockTxManager{}, workspaceService)
+	router := gin.New()
+	router.POST("/workspaces", workspaceHandler.RegisterWorkspace)
 
 	body := map[string]any{
 		"owner_email": "owner@acme.com",
@@ -182,7 +182,7 @@ func TestRegisterWorkspace_Success(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusAccepted {
 		t.Errorf("expected status 202 Accepted, got %d. Body: %s", w.Code, w.Body.String())
@@ -196,14 +196,14 @@ func TestRegisterWorkspace_Success(t *testing.T) {
 
 func TestInternalTenantHandler_MissingParams(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	h := NewInternalTenantHandler(&mockTenantInfrastructureService{})
+	internalTenantHandler := NewInternalTenantHandler(&mockTenantInfrastructureService{})
 
-	r := gin.New()
-	r.GET("/infrastructure", h.GetServiceInfrastructure)
+	router := gin.New()
+	router.GET("/infrastructure", internalTenantHandler.GetServiceInfrastructure)
 
 	req, _ := http.NewRequest(http.MethodGet, "/infrastructure", nil)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected status 400 Bad Request when path parameters are missing, got %d", w.Code)
@@ -214,7 +214,7 @@ func TestInternalTenantHandler_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	var capturedTenantID, capturedServiceName string
-	infraSvc := &mockTenantInfrastructureService{
+	tenantInfrastructureService := &mockTenantInfrastructureService{
 		getServiceInfrastructureFn: func(ctx context.Context, tenantID, serviceName string) (*service.RoutingOutput, error) {
 			capturedTenantID = tenantID
 			capturedServiceName = serviceName
@@ -228,13 +228,13 @@ func TestInternalTenantHandler_Success(t *testing.T) {
 		},
 	}
 
-	h := NewInternalTenantHandler(infraSvc)
-	r := gin.New()
-	r.GET("/tenants/:tenant_id/infrastructure/:service_name", h.GetServiceInfrastructure)
+	internalTenantHandler := NewInternalTenantHandler(tenantInfrastructureService)
+	router := gin.New()
+	router.GET("/tenants/:tenant_id/infrastructure/:service_name", internalTenantHandler.GetServiceInfrastructure)
 
 	req, _ := http.NewRequest(http.MethodGet, "/tenants/t-100/infrastructure/order-service", nil)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected status 200 OK, got %d. Body: %s", w.Code, w.Body.String())

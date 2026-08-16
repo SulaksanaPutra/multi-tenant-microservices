@@ -10,15 +10,15 @@ import (
 	"auth-service/internal/service"
 )
 
-type mockRoleRepo struct {
+type mockRoleRepository struct {
 	roles       map[string]*domain.Role
 	userRoles   map[string]*domain.UserRole
 	versions    map[string]int64
 	memberships map[string]bool
 }
 
-func newMockRoleRepo() *mockRoleRepo {
-	return &mockRoleRepo{
+func newMockRoleRepository() *mockRoleRepository {
+	return &mockRoleRepository{
 		roles:       make(map[string]*domain.Role),
 		userRoles:   make(map[string]*domain.UserRole),
 		versions:    make(map[string]int64),
@@ -26,14 +26,14 @@ func newMockRoleRepo() *mockRoleRepo {
 	}
 }
 
-func (m *mockRoleRepo) UserHasMembership(_ context.Context, userID, tenantID string) (bool, error) {
+func (m *mockRoleRepository) UserHasMembership(_ context.Context, userID, tenantID string) (bool, error) {
 	if v, ok := m.memberships[userID+"_"+tenantID]; ok {
 		return v, nil
 	}
 	return true, nil
 }
 
-func (m *mockRoleRepo) CreateRole(_ context.Context, input repository.CreateRoleInput) (*domain.Role, error) {
+func (m *mockRoleRepository) CreateRole(_ context.Context, input repository.CreateRoleInput) (*domain.Role, error) {
 	r := domain.Role{
 		TenantID:    input.TenantID,
 		Name:        input.Name,
@@ -45,14 +45,14 @@ func (m *mockRoleRepo) CreateRole(_ context.Context, input repository.CreateRole
 	return &r, nil
 }
 
-func (m *mockRoleRepo) FindRoleByID(_ context.Context, id string) (*domain.Role, error) {
+func (m *mockRoleRepository) FindRoleByID(_ context.Context, id string) (*domain.Role, error) {
 	if r, ok := m.roles[id]; ok {
 		return r, nil
 	}
 	return nil, domain.ErrRoleNotFound
 }
 
-func (m *mockRoleRepo) FindRoleByName(_ context.Context, tenantID *string, name string) (*domain.Role, error) {
+func (m *mockRoleRepository) FindRoleByName(_ context.Context, tenantID *string, name string) (*domain.Role, error) {
 	for _, r := range m.roles {
 		if r.Name == name {
 			return r, nil
@@ -61,7 +61,7 @@ func (m *mockRoleRepo) FindRoleByName(_ context.Context, tenantID *string, name 
 	return nil, domain.ErrRoleNotFound
 }
 
-func (m *mockRoleRepo) FindRolesByTenantID(_ context.Context, tenantID string) ([]domain.Role, error) {
+func (m *mockRoleRepository) FindRolesByTenantID(_ context.Context, tenantID string) ([]domain.Role, error) {
 	var res []domain.Role
 	for _, r := range m.roles {
 		if r.TenantID != nil && *r.TenantID == tenantID {
@@ -71,7 +71,7 @@ func (m *mockRoleRepo) FindRolesByTenantID(_ context.Context, tenantID string) (
 	return res, nil
 }
 
-func (m *mockRoleRepo) UpdateRolePermissions(_ context.Context, roleID string, permissionIDs []string) error {
+func (m *mockRoleRepository) UpdateRolePermissions(_ context.Context, roleID string, permissionIDs []string) error {
 	r, ok := m.roles[roleID]
 	if !ok {
 		return domain.ErrRoleNotFound
@@ -84,7 +84,7 @@ func (m *mockRoleRepo) UpdateRolePermissions(_ context.Context, roleID string, p
 	return nil
 }
 
-func (m *mockRoleRepo) DeleteRole(_ context.Context, id string) error {
+func (m *mockRoleRepository) DeleteRole(_ context.Context, id string) error {
 	r, ok := m.roles[id]
 	if !ok {
 		return domain.ErrRoleNotFound
@@ -96,7 +96,7 @@ func (m *mockRoleRepo) DeleteRole(_ context.Context, id string) error {
 	return nil
 }
 
-func (m *mockRoleRepo) AssignUserRole(_ context.Context, userID, tenantID, roleID string, assignedBy *string) error {
+func (m *mockRoleRepository) AssignUserRole(_ context.Context, userID, tenantID, roleID string, assignedBy *string) error {
 	r, ok := m.roles[roleID]
 	if !ok {
 		return domain.ErrRoleNotFound
@@ -113,15 +113,15 @@ func (m *mockRoleRepo) AssignUserRole(_ context.Context, userID, tenantID, roleI
 	return nil
 }
 
-func (m *mockRoleRepo) FindUserRole(_ context.Context, userID, tenantID string) (*domain.UserRole, error) {
+func (m *mockRoleRepository) FindUserRole(_ context.Context, userID, tenantID string) (*domain.UserRole, error) {
 	key := userID + "_" + tenantID
-	if ur, ok := m.userRoles[key]; ok {
-		return ur, nil
+	if userRole, ok := m.userRoles[key]; ok {
+		return userRole, nil
 	}
 	return nil, domain.ErrRoleNotFound
 }
 
-func (m *mockRoleRepo) GetUserPermissionVersion(_ context.Context, userID, tenantID string) (int64, error) {
+func (m *mockRoleRepository) GetUserPermissionVersion(_ context.Context, userID, tenantID string) (int64, error) {
 	key := userID + "_" + tenantID
 	ver, ok := m.versions[key]
 	if !ok {
@@ -130,30 +130,30 @@ func (m *mockRoleRepo) GetUserPermissionVersion(_ context.Context, userID, tenan
 	return ver, nil
 }
 
-func (m *mockRoleRepo) BumpUserPermissionVersionsForRole(_ context.Context, roleID string) error {
-	for k, ur := range m.userRoles {
-		if ur.RoleID == roleID {
+func (m *mockRoleRepository) BumpUserPermissionVersionsForRole(_ context.Context, roleID string) error {
+	for k, userRole := range m.userRoles {
+		if userRole.RoleID == roleID {
 			m.versions[k]++
 		}
 	}
 	return nil
 }
 
-func (m *mockRoleRepo) ListUserRolesByTenant(_ context.Context, tenantID string, userIDs []string) ([]repository.UserRoleBrief, error) {
+func (m *mockRoleRepository) ListUserRolesByTenant(_ context.Context, tenantID string, userIDs []string) ([]repository.UserRoleBrief, error) {
 	var briefs []repository.UserRoleBrief
 	for _, uid := range userIDs {
-		ur := m.userRoles[uid+"_"+tenantID]
-		if ur == nil {
+		userRole := m.userRoles[uid+"_"+tenantID]
+		if userRole == nil {
 			continue
 		}
-		role := m.roles[ur.RoleID]
+		role := m.roles[userRole.RoleID]
 		var name string
 		if role != nil {
 			name = role.Name
 		}
 		briefs = append(briefs, repository.UserRoleBrief{
-			UserID:   ur.UserID,
-			RoleID:   ur.RoleID,
+			UserID:   userRole.UserID,
+			RoleID:   userRole.RoleID,
 			RoleName: name,
 		})
 	}
@@ -161,12 +161,12 @@ func (m *mockRoleRepo) ListUserRolesByTenant(_ context.Context, tenantID string,
 }
 
 func TestRoleService_AssignUserRole_RejectsNonMember(t *testing.T) {
-	rRepo := newMockRoleRepo()
-	svc := service.NewRoleService(rRepo)
+	roleRepository := newMockRoleRepository()
+	roleService := service.NewRoleService(roleRepository)
 	ctx := context.Background()
 
 	tenantID := "tnt_001"
-	role, err := svc.CreateRole(ctx, service.CreateRoleInput{
+	role, err := roleService.CreateRole(ctx, service.CreateRoleInput{
 		TenantID:    tenantID,
 		Name:        "custom_manager",
 		Description: "Custom Manager Role",
@@ -175,9 +175,9 @@ func TestRoleService_AssignUserRole_RejectsNonMember(t *testing.T) {
 		t.Fatalf("CreateRole failed: %v", err)
 	}
 
-	rRepo.memberships["usr_999"+"_"+tenantID] = false
+	roleRepository.memberships["usr_999"+"_"+tenantID] = false
 
-	err = svc.AssignUserRole(ctx, service.AssignUserRoleInput{
+	err = roleService.AssignUserRole(ctx, service.AssignUserRoleInput{
 		UserID:   "usr_999",
 		TenantID: tenantID,
 		RoleID:   role.ID,
@@ -186,18 +186,18 @@ func TestRoleService_AssignUserRole_RejectsNonMember(t *testing.T) {
 		t.Fatalf("expected ErrTenantMembershipNotFound, got %v", err)
 	}
 
-	if _, err := svc.GetUserRole(ctx, "usr_999", tenantID); !errors.Is(err, domain.ErrTenantMembershipNotFound) {
+	if _, err := roleService.GetUserRole(ctx, "usr_999", tenantID); !errors.Is(err, domain.ErrTenantMembershipNotFound) {
 		t.Fatalf("expected GetUserRole to reject non-member, got %v", err)
 	}
 }
 
 func TestRoleService_CreateAndManageRole(t *testing.T) {
-	rRepo := newMockRoleRepo()
-	svc := service.NewRoleService(rRepo)
+	roleRepository := newMockRoleRepository()
+	roleService := service.NewRoleService(roleRepository)
 	ctx := context.Background()
 
 	tenantID := "tnt_001"
-	role, err := svc.CreateRole(ctx, service.CreateRoleInput{
+	role, err := roleService.CreateRole(ctx, service.CreateRoleInput{
 		TenantID:    tenantID,
 		Name:        "custom_manager",
 		Description: "Custom Manager Role",
@@ -210,7 +210,7 @@ func TestRoleService_CreateAndManageRole(t *testing.T) {
 	}
 
 	// Fetch role by ID
-	fetched, err := svc.GetRole(ctx, role.ID)
+	fetched, err := roleService.GetRole(ctx, role.ID)
 	if err != nil {
 		t.Fatalf("GetRole failed: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestRoleService_CreateAndManageRole(t *testing.T) {
 	}
 
 	// Update role permissions
-	err = svc.UpdateRolePermissions(ctx, service.UpdateRolePermissionsInput{
+	err = roleService.UpdateRolePermissions(ctx, service.UpdateRolePermissionsInput{
 		RoleID:        role.ID,
 		PermissionIDs: []string{"p1", "p2"},
 	})
@@ -228,7 +228,7 @@ func TestRoleService_CreateAndManageRole(t *testing.T) {
 	}
 
 	// Assign role to user
-	err = svc.AssignUserRole(ctx, service.AssignUserRoleInput{
+	err = roleService.AssignUserRole(ctx, service.AssignUserRoleInput{
 		UserID:   "usr_999",
 		TenantID: tenantID,
 		RoleID:   role.ID,
@@ -238,16 +238,16 @@ func TestRoleService_CreateAndManageRole(t *testing.T) {
 	}
 
 	// Fetch user role
-	ur, err := svc.GetUserRole(ctx, "usr_999", tenantID)
+	userRole, err := roleService.GetUserRole(ctx, "usr_999", tenantID)
 	if err != nil {
 		t.Fatalf("GetUserRole failed: %v", err)
 	}
-	if ur.RoleID != role.ID {
-		t.Errorf("expected role ID '%s', got '%s'", role.ID, ur.RoleID)
+	if userRole.RoleID != role.ID {
+		t.Errorf("expected role ID '%s', got '%s'", role.ID, userRole.RoleID)
 	}
 
 	// List roles for tenant
-	roles, err := svc.ListRolesForTenant(ctx, tenantID)
+	roles, err := roleService.ListRolesForTenant(ctx, tenantID)
 	if err != nil {
 		t.Fatalf("ListRolesForTenant failed: %v", err)
 	}
@@ -256,7 +256,7 @@ func TestRoleService_CreateAndManageRole(t *testing.T) {
 	}
 
 	// Delete role
-	err = svc.DeleteRole(ctx, role.ID)
+	err = roleService.DeleteRole(ctx, role.ID)
 	if err != nil {
 		t.Fatalf("DeleteRole failed: %v", err)
 	}

@@ -50,14 +50,14 @@ func NewMigrationServiceFromSQL(migrationSQL string) *MigrationService {
 }
 
 // BuildMigrationSQL performs schema placeholder substitution, defaulting empty schemaName to 'public' to prevent syntax errors.
-func (s *MigrationService) BuildMigrationSQL(schemaName string) string {
+func (migrationService *MigrationService) BuildMigrationSQL(schemaName string) string {
 	if strings.TrimSpace(schemaName) == "" {
 		schemaName = "public"
 	}
-	return strings.ReplaceAll(s.migrationSQL, "{{SCHEMA_NAME}}", schemaName)
+	return strings.ReplaceAll(migrationService.migrationSQL, "{{SCHEMA_NAME}}", schemaName)
 }
 
-func (s *MigrationService) MigrateTenantDB(ctx context.Context, dsn, schemaName string) error {
+func (migrationService *MigrationService) MigrateTenantDB(ctx context.Context, dsn, schemaName string) error {
 	if strings.TrimSpace(schemaName) == "" {
 		schemaName = "public"
 	}
@@ -79,7 +79,7 @@ func (s *MigrationService) MigrateTenantDB(ctx context.Context, dsn, schemaName 
 		}
 	}
 
-	sqlStr := s.BuildMigrationSQL(schemaName)
+	sqlStr := migrationService.BuildMigrationSQL(schemaName)
 	isNonTransactional := strings.Contains(sqlStr, "-- tx: false") || strings.Contains(sqlStr, "-- migrate: no-transaction")
 
 	if isNonTransactional {
@@ -104,6 +104,6 @@ func (s *MigrationService) MigrateTenantDB(ctx context.Context, dsn, schemaName 
 		}
 	}
 
-	log.Printf("MigrationService: Successfully executed migrations for schema '%s'", schemaName)
+	log.Printf("MigrationService: Successfully completed migrations for schema '%s'", schemaName)
 	return nil
 }

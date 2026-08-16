@@ -23,14 +23,14 @@ func NewPaymentHandler(paymentService PaymentService) *PaymentHandler {
 	}
 }
 
-func (h *PaymentHandler) GetPaymentByID(c *gin.Context) {
+func (paymentHandler *PaymentHandler) GetPaymentByID(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
 		httputil.WriteError(c, http.StatusBadRequest, "payment id is required")
 		return
 	}
 
-	p, err := h.paymentService.GetPaymentByID(c.Request.Context(), id)
+	p, err := paymentHandler.paymentService.GetPaymentByID(c.Request.Context(), id)
 	if err != nil {
 		if errors.Is(err, domain.ErrPaymentNotFound) {
 			httputil.WriteError(c, http.StatusNotFound, "payment not found")
@@ -49,7 +49,7 @@ func (h *PaymentHandler) GetPaymentByID(c *gin.Context) {
 	httputil.WriteSuccess(c, http.StatusOK, "payment retrieved successfully", p)
 }
 
-func (h *PaymentHandler) GetPaymentByOrderID(c *gin.Context) {
+func (paymentHandler *PaymentHandler) GetPaymentByOrderID(c *gin.Context) {
 	orderID := c.Param("orderID")
 	if orderID == "" {
 		httputil.WriteError(c, http.StatusBadRequest, "order id is required")
@@ -63,7 +63,7 @@ func (h *PaymentHandler) GetPaymentByOrderID(c *gin.Context) {
 	}
 	tenantID := rawTenantID.(string)
 
-	p, err := h.paymentService.GetPaymentByOrderID(c.Request.Context(), tenantID, orderID)
+	p, err := paymentHandler.paymentService.GetPaymentByOrderID(c.Request.Context(), tenantID, orderID)
 	if err != nil {
 		if errors.Is(err, domain.ErrPaymentNotFound) {
 			httputil.WriteError(c, http.StatusNotFound, "payment for order not found")
@@ -76,7 +76,7 @@ func (h *PaymentHandler) GetPaymentByOrderID(c *gin.Context) {
 	httputil.WriteSuccess(c, http.StatusOK, "payment retrieved successfully", p)
 }
 
-func (h *PaymentHandler) HandleWebhook(c *gin.Context) {
+func (paymentHandler *PaymentHandler) HandleWebhook(c *gin.Context) {
 	provParam := c.Param("provider")
 	if provParam == "" {
 		httputil.WriteError(c, http.StatusBadRequest, "provider parameter is required")
@@ -97,7 +97,7 @@ func (h *PaymentHandler) HandleWebhook(c *gin.Context) {
 		}
 	}
 
-	err = h.paymentService.ProcessWebhook(c.Request.Context(), providerID, headers, body)
+	err = paymentHandler.paymentService.ProcessWebhook(c.Request.Context(), providerID, headers, body)
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidWebhookSignature) {
 			httputil.WriteError(c, http.StatusBadRequest, "invalid webhook signature")
@@ -119,11 +119,11 @@ func (h *PaymentHandler) HandleWebhook(c *gin.Context) {
 }
 
 type UpdatePSPConfigRequest struct {
-	PriorityChain   []domain.ProviderType                 `json:"priority_chain" binding:"required"`
+	PriorityChain   []domain.ProviderType                              `json:"priority_chain" binding:"required"`
 	ProviderConfigs map[domain.ProviderType]domain.ProviderCredentials `json:"provider_configs"`
 }
 
-func (h *PaymentHandler) UpdatePSPConfig(c *gin.Context) {
+func (paymentHandler *PaymentHandler) UpdatePSPConfig(c *gin.Context) {
 	rawTenantID, exists := c.Get(middleware.ContextKeyTenantID)
 	if !exists {
 		httputil.WriteError(c, http.StatusUnauthorized, "unauthorized: tenant_id missing from context")
@@ -143,7 +143,7 @@ func (h *PaymentHandler) UpdatePSPConfig(c *gin.Context) {
 		ProviderConfigs: req.ProviderConfigs,
 	}
 
-	if err := h.paymentService.SavePSPConfig(c.Request.Context(), cfg); err != nil {
+	if err := paymentHandler.paymentService.SavePSPConfig(c.Request.Context(), cfg); err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -154,7 +154,7 @@ func (h *PaymentHandler) UpdatePSPConfig(c *gin.Context) {
 	})
 }
 
-func (h *PaymentHandler) GetPSPConfig(c *gin.Context) {
+func (paymentHandler *PaymentHandler) GetPSPConfig(c *gin.Context) {
 	rawTenantID, exists := c.Get(middleware.ContextKeyTenantID)
 	if !exists {
 		httputil.WriteError(c, http.StatusUnauthorized, "unauthorized: tenant_id missing from context")
@@ -162,7 +162,7 @@ func (h *PaymentHandler) GetPSPConfig(c *gin.Context) {
 	}
 	tenantID := rawTenantID.(string)
 
-	cfg, err := h.paymentService.GetPSPConfig(c.Request.Context(), tenantID)
+	cfg, err := paymentHandler.paymentService.GetPSPConfig(c.Request.Context(), tenantID)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return
@@ -178,4 +178,3 @@ func (h *PaymentHandler) GetPSPConfig(c *gin.Context) {
 
 	httputil.WriteSuccess(c, http.StatusOK, "tenant PSP config retrieved successfully", cfg)
 }
-

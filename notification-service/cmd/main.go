@@ -41,13 +41,13 @@ func main() {
 	internalServiceToken := getEnv("INTERNAL_SERVICE_TOKEN", "default_internal_service_token")
 
 	// Register domain permissions with auth-service (non-blocking)
-	permRegistrar := authclient.NewPermissionRegistrar(authServiceURL, internalServiceToken)
+	permissionRegistrar := authclient.NewPermissionRegistrar(authServiceURL, internalServiceToken)
 	permissions := make([]authclient.PermissionItem, len(domain.NotificationServicePermissions))
 	for i, p := range domain.NotificationServicePermissions {
 		permissions[i] = authclient.PermissionItem{Name: p.Name, Description: p.Description}
 	}
 	go func() {
-		if err := permRegistrar.Register(context.Background(), "notification-service", permissions); err != nil {
+		if err := permissionRegistrar.Register(context.Background(), "notification-service", permissions); err != nil {
 			log.Printf("Notification Service: Warning — startup permission registration deferred: %v", err)
 		}
 	}()
@@ -71,33 +71,33 @@ func main() {
 	defer rmqClient.Close()
 
 	// 2. Initialize Infrastructure Mailer & Auth Client
-	m := mailer.NewMailer(smtpHost, smtpPort, "no-reply@company.com")
+	mailerDriver := mailer.NewMailer(smtpHost, smtpPort, "no-reply@company.com")
 	authClient := authclient.NewAuthClient(authServiceURL, internalServiceToken)
 
 	// 3. Initialize Repositories (Data Access Layer & Inbox Pattern) & TxManager
 	txManager := txcontext.NewTxManager(dbClient.DB)
-	notifRepository := repository.NewNotificationRepository(dbClient)
+	notificationRepository := repository.NewNotificationRepository(dbClient)
 	inboxRepository := repository.NewInboxRepository(dbClient)
 
 	// 4. Initialize Domain Services
 	inboxService := service.NewInboxService(inboxRepository)
-	notifService := service.NewNotificationService(notifRepository)
+	notificationService := service.NewNotificationService(notificationRepository)
 
 	// 5. Register & Start Inbound Queue Consumers Collection
-	cRunner, err := registerConsumers(txManager, rmqClient, inboxService, notifService, authClient, m)
+	consumerRunner, err := registerConsumers(txManager, rmqClient, inboxService, notificationService, authClient, mailerDriver)
 	if err != nil {
 		log.Fatalf("Failed to register consumers: %v", err)
 	}
 
 	consumerCtx, consumerCancel := context.WithCancel(context.Background())
 	defer consumerCancel()
-	if err := cRunner.start(consumerCtx); err != nil {
+	if err := consumerRunner.start(consumerCtx); err != nil {
 		log.Fatalf("Failed to start consumers: %v", err)
 	}
 
 	// 6. Register HTTP Router & Handlers
-	notifHandler := handler.NewNotificationHandler(notifService)
-	httpRouter := newRouter(notifHandler)
+	notificationHandler := handler.NewNotificationHandler(notificationService)
+	httpRouter := newRouter(notificationHandler)
 	httpServer := &http.Server{
 		Addr:    ":" + httpPort,
 		Handler: httpRouter,

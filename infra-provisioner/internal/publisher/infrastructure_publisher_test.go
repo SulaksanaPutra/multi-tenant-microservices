@@ -10,20 +10,20 @@ import (
 
 func TestInfrastructurePublisher_Constructor_NilChannel(t *testing.T) {
 	client := &rabbitmq.Client{}
-	pub, err := NewInfrastructurePublisher(client)
+	infrastructurePublisher, err := NewInfrastructurePublisher(client)
 	if err == nil {
 		t.Fatalf("expected error when declaring exchange on uninitialized channel, got nil")
 	}
-	if pub != nil {
-		t.Fatalf("expected InfrastructurePublisher pointer to be nil on constructor failure, got %v", pub)
+	if infrastructurePublisher != nil {
+		t.Fatalf("expected InfrastructurePublisher pointer to be nil on constructor failure, got %v", infrastructurePublisher)
 	}
 }
 
 func TestInfrastructurePublisher_PublishInfrastructureProvisioned_NilChannel(t *testing.T) {
 	client := &rabbitmq.Client{}
-	pub := &InfrastructurePublisher{client: client}
+	infrastructurePublisher := &InfrastructurePublisher{client: client}
 
-	evt := domain.InfrastructureProvisionedEvent{
+	event := domain.InfrastructureProvisionedEvent{
 		EventID:    "evt-401",
 		TenantID:   "tenant-401",
 		Plan:       "PRO",
@@ -34,7 +34,7 @@ func TestInfrastructurePublisher_PublishInfrastructureProvisioned_NilChannel(t *
 		SchemaName: "tenant_401",
 	}
 
-	err := pub.PublishInfrastructureProvisioned(context.Background(), evt)
+	err := infrastructurePublisher.PublishInfrastructureProvisioned(context.Background(), event)
 	if err == nil {
 		t.Fatalf("expected error publishing InfrastructureProvisioned event with uninitialized channel, got nil")
 	}
@@ -42,17 +42,17 @@ func TestInfrastructurePublisher_PublishInfrastructureProvisioned_NilChannel(t *
 
 func TestInfrastructurePublisher_PublishInfrastructureProvisioned_ContextCancelled(t *testing.T) {
 	client := &rabbitmq.Client{}
-	pub := &InfrastructurePublisher{client: client}
+	infrastructurePublisher := &InfrastructurePublisher{client: client}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	evt := domain.InfrastructureProvisionedEvent{
+	event := domain.InfrastructureProvisionedEvent{
 		EventID:  "evt-402",
 		TenantID: "tenant-402",
 	}
 
-	err := pub.PublishInfrastructureProvisioned(ctx, evt)
+	err := infrastructurePublisher.PublishInfrastructureProvisioned(ctx, event)
 	if err == nil {
 		t.Fatalf("expected error when context is cancelled, got nil")
 	}
@@ -60,8 +60,8 @@ func TestInfrastructurePublisher_PublishInfrastructureProvisioned_ContextCancell
 
 func TestInfrastructurePublisher_StructInitialization(t *testing.T) {
 	client := &rabbitmq.Client{}
-	pub := &InfrastructurePublisher{client: client}
-	if pub.client != client {
+	infrastructurePublisher := &InfrastructurePublisher{client: client}
+	if infrastructurePublisher.client != client {
 		t.Fatalf("expected client reference to match")
 	}
 }

@@ -22,11 +22,11 @@ func NewInboxService(inboxRepository InboxRepository) *InboxService {
 
 // ClaimEvent participates in the Outer Unit-of-Work passed via txCtx.
 // It attempts to claim the event_id in the inbox repository and returns (isDuplicate, error).
-func (s *InboxService) ClaimEvent(txCtx context.Context, eventID string) (bool, error) {
+func (inboxService *InboxService) ClaimEvent(txCtx context.Context, eventID string) (bool, error) {
 	if eventID == "" {
 		return false, nil
 	}
-	isDuplicate, err := s.inboxRepository.TryInsert(txCtx, eventID)
+	isDuplicate, err := inboxService.inboxRepository.TryInsert(txCtx, eventID)
 	if err != nil {
 		return false, fmt.Errorf("inbox service: failed to claim event_id='%s': %w", eventID, err)
 	}

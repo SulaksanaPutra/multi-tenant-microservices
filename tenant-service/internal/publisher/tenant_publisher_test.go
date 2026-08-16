@@ -10,18 +10,18 @@ import (
 
 func TestTenantPublisher_Constructor_NilChannel(t *testing.T) {
 	client := &rabbitmq.Client{}
-	pub, err := NewTenantPublisher(client)
+	tenantPublisher, err := NewTenantPublisher(client)
 	if err == nil {
 		t.Fatalf("expected error when declaring exchange on uninitialized channel, got nil")
 	}
-	if pub != nil {
-		t.Fatalf("expected TenantPublisher pointer to be nil on constructor failure, got %v", pub)
+	if tenantPublisher != nil {
+		t.Fatalf("expected TenantPublisher pointer to be nil on constructor failure, got %v", tenantPublisher)
 	}
 }
 
 func TestTenantPublisher_PublishWorkspaceInitiated_NilChannel(t *testing.T) {
 	client := &rabbitmq.Client{}
-	pub := &TenantPublisher{client: client}
+	tenantPublisher := &TenantPublisher{client: client}
 
 	evt := domain.WorkspaceInitiatedEvent{
 		EventID:    "evt-101",
@@ -31,7 +31,7 @@ func TestTenantPublisher_PublishWorkspaceInitiated_NilChannel(t *testing.T) {
 		OwnerName:  "Jane Owner",
 	}
 
-	err := pub.PublishWorkspaceInitiated(context.Background(), evt)
+	err := tenantPublisher.PublishWorkspaceInitiated(context.Background(), evt)
 	if err == nil {
 		t.Fatalf("expected error publishing WorkspaceInitiated event with uninitialized channel, got nil")
 	}
@@ -39,7 +39,7 @@ func TestTenantPublisher_PublishWorkspaceInitiated_NilChannel(t *testing.T) {
 
 func TestTenantPublisher_PublishWorkspaceInitiated_ContextCancelled(t *testing.T) {
 	client := &rabbitmq.Client{}
-	pub := &TenantPublisher{client: client}
+	tenantPublisher := &TenantPublisher{client: client}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -49,7 +49,7 @@ func TestTenantPublisher_PublishWorkspaceInitiated_ContextCancelled(t *testing.T
 		TenantID: "tenant-102",
 	}
 
-	err := pub.PublishWorkspaceInitiated(ctx, evt)
+	err := tenantPublisher.PublishWorkspaceInitiated(ctx, evt)
 	if err == nil {
 		t.Fatalf("expected error when context is cancelled, got nil")
 	}
@@ -57,7 +57,7 @@ func TestTenantPublisher_PublishWorkspaceInitiated_ContextCancelled(t *testing.T
 
 func TestTenantPublisher_PublishWorkspaceReady_NilChannel(t *testing.T) {
 	client := &rabbitmq.Client{}
-	pub := &TenantPublisher{client: client}
+	tenantPublisher := &TenantPublisher{client: client}
 
 	evt := domain.WorkspaceReadyEvent{
 		EventID:    "evt-201",
@@ -68,7 +68,7 @@ func TestTenantPublisher_PublishWorkspaceReady_NilChannel(t *testing.T) {
 		OwnerName:  "Jane Owner",
 	}
 
-	err := pub.PublishWorkspaceReady(context.Background(), evt)
+	err := tenantPublisher.PublishWorkspaceReady(context.Background(), evt)
 	if err == nil {
 		t.Fatalf("expected error publishing WorkspaceReady event with uninitialized channel, got nil")
 	}
@@ -76,7 +76,7 @@ func TestTenantPublisher_PublishWorkspaceReady_NilChannel(t *testing.T) {
 
 func TestTenantPublisher_PublishWorkspaceReady_ContextCancelled(t *testing.T) {
 	client := &rabbitmq.Client{}
-	pub := &TenantPublisher{client: client}
+	tenantPublisher := &TenantPublisher{client: client}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -86,7 +86,7 @@ func TestTenantPublisher_PublishWorkspaceReady_ContextCancelled(t *testing.T) {
 		TenantID: "tenant-202",
 	}
 
-	err := pub.PublishWorkspaceReady(ctx, evt)
+	err := tenantPublisher.PublishWorkspaceReady(ctx, evt)
 	if err == nil {
 		t.Fatalf("expected error when context is cancelled, got nil")
 	}
@@ -94,8 +94,8 @@ func TestTenantPublisher_PublishWorkspaceReady_ContextCancelled(t *testing.T) {
 
 func TestTenantPublisher_StructInitialization(t *testing.T) {
 	client := &rabbitmq.Client{}
-	pub := &TenantPublisher{client: client}
-	if pub.client != client {
+	tenantPublisher := &TenantPublisher{client: client}
+	if tenantPublisher.client != client {
 		t.Fatalf("expected client reference to match")
 	}
 }

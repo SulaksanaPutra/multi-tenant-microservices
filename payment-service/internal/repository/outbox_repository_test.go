@@ -15,8 +15,8 @@ import (
 
 func TestPaymentOutboxRepository_Constructor(t *testing.T) {
 	client := &postgres.Client{}
-	repo := NewOutboxRepository(client)
-	if repo == nil || repo.dbClient != client {
+	outboxRepository := NewOutboxRepository(client)
+	if outboxRepository == nil || outboxRepository.dbClient != client {
 		t.Fatal("expected NewOutboxRepository to return non-nil pointer with dbClient")
 	}
 }
@@ -33,10 +33,10 @@ func TestPaymentOutboxRepository_SaveOutboxEvent_Success(t *testing.T) {
 		},
 	}
 
-	repo := NewOutboxRepository(&postgres.Client{})
+	outboxRepository := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.SaveOutboxEvent(ctx, "evt-123", "payment.created", map[string]string{"foo": "bar"})
+	err := outboxRepository.SaveOutboxEvent(ctx, "evt-123", "payment.created", map[string]string{"foo": "bar"})
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -58,10 +58,10 @@ func TestPaymentOutboxRepository_SaveOutboxEvent_Error(t *testing.T) {
 		},
 	}
 
-	repo := NewOutboxRepository(&postgres.Client{})
+	outboxRepository := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.SaveOutboxEvent(ctx, "evt-err", "payment.failed", "payload")
+	err := outboxRepository.SaveOutboxEvent(ctx, "evt-err", "payment.failed", "payload")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -82,10 +82,10 @@ func TestPaymentOutboxRepository_MarkPublished(t *testing.T) {
 		},
 	}
 
-	repo := NewOutboxRepository(&postgres.Client{})
+	outboxRepository := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.MarkPublished(ctx, "evt-pub-100")
+	err := outboxRepository.MarkPublished(ctx, "evt-pub-100")
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -110,10 +110,10 @@ func TestPaymentOutboxRepository_MarkFailed(t *testing.T) {
 		},
 	}
 
-	repo := NewOutboxRepository(&postgres.Client{})
+	outboxRepository := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.MarkFailed(ctx, "evt-fail-100", "connection refused")
+	err := outboxRepository.MarkFailed(ctx, "evt-fail-100", "connection refused")
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}

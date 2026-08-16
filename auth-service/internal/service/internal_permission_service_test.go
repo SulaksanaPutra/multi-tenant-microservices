@@ -9,11 +9,11 @@ import (
 	"auth-service/internal/service"
 )
 
-type mockPermRepo struct {
+type mockPermissionRepository struct {
 	permissions []domain.Permission
 }
 
-func (m *mockPermRepo) BulkUpsertPermissions(_ context.Context, serviceName string, items []repository.RegisterPermissionItem) error {
+func (m *mockPermissionRepository) BulkUpsertPermissions(_ context.Context, serviceName string, items []repository.RegisterPermissionItem) error {
 	for _, item := range items {
 		m.permissions = append(m.permissions, domain.Permission{
 			ID:          "perm_" + item.Name,
@@ -25,17 +25,17 @@ func (m *mockPermRepo) BulkUpsertPermissions(_ context.Context, serviceName stri
 	return nil
 }
 
-func (m *mockPermRepo) ListAllPermissions(_ context.Context) ([]domain.Permission, error) {
+func (m *mockPermissionRepository) ListAllPermissions(_ context.Context) ([]domain.Permission, error) {
 	return m.permissions, nil
 }
 
 func TestInternalPermissionService_RegisterAndList(t *testing.T) {
-	pRepo := &mockPermRepo{}
-	rRepo := newMockRoleRepo()
-	svc := service.NewInternalPermissionService(pRepo, rRepo)
+	permissionRepository := &mockPermissionRepository{}
+	roleRepository := newMockRoleRepository()
+	internalPermissionService := service.NewInternalPermissionService(permissionRepository, roleRepository)
 	ctx := context.Background()
 
-	err := svc.RegisterPermissions(ctx, service.InternalRegisterPermissionsInput{
+	err := internalPermissionService.RegisterPermissions(ctx, service.InternalRegisterPermissionsInput{
 		Service: "order-service",
 		Permissions: []service.InternalRegisterPermissionItem{
 			{Name: "orders:write", Description: "Create order"},
@@ -46,7 +46,7 @@ func TestInternalPermissionService_RegisterAndList(t *testing.T) {
 		t.Fatalf("RegisterPermissions failed: %v", err)
 	}
 
-	perms, err := svc.ListPermissions(ctx)
+	perms, err := internalPermissionService.ListPermissions(ctx)
 	if err != nil {
 		t.Fatalf("ListPermissions failed: %v", err)
 	}
@@ -56,37 +56,37 @@ func TestInternalPermissionService_RegisterAndList(t *testing.T) {
 }
 
 func TestInternalPermissionService_SeedDefaultRoles(t *testing.T) {
-	pRepo := &mockPermRepo{}
-	rRepo := newMockRoleRepo()
-	svc := service.NewInternalPermissionService(pRepo, rRepo)
+	permissionRepository := &mockPermissionRepository{}
+	roleRepository := newMockRoleRepository()
+	internalPermissionService := service.NewInternalPermissionService(permissionRepository, roleRepository)
 	ctx := context.Background()
 
-	_ = pRepo.BulkUpsertPermissions(ctx, "order-service", []repository.RegisterPermissionItem{
+	_ = permissionRepository.BulkUpsertPermissions(ctx, "order-service", []repository.RegisterPermissionItem{
 		{Name: "orders:write"},
 	})
 
-	err := svc.SeedDefaultRolesForTenant(ctx, "tnt_seed", "usr_admin")
+	err := internalPermissionService.SeedDefaultRolesForTenant(ctx, "tnt_seed", "usr_admin")
 	if err != nil {
 		t.Fatalf("SeedDefaultRolesForTenant failed: %v", err)
 	}
 
-	rSvc := service.NewRoleService(rRepo)
-	ur, err := rSvc.GetUserRole(ctx, "usr_admin", "tnt_seed")
+	roleService := service.NewRoleService(roleRepository)
+	userRoleOutput, err := roleService.GetUserRole(ctx, "usr_admin", "tnt_seed")
 	if err != nil {
 		t.Fatalf("expected admin user role to be seeded: %v", err)
 	}
-	if ur.Role == nil || ur.Role.Name != "admin" {
-		t.Errorf("expected assigned role name 'admin', got '%v'", ur.Role)
+	if userRoleOutput.Role == nil || userRoleOutput.Role.Name != "admin" {
+		t.Errorf("expected assigned role name 'admin', got '%v'", userRoleOutput.Role)
 	}
 }
 
 func TestInternalPermissionService_GetUserPermissionVersion(t *testing.T) {
-	pRepo := &mockPermRepo{}
-	rRepo := newMockRoleRepo()
-	svc := service.NewInternalPermissionService(pRepo, rRepo)
+	permissionRepository := &mockPermissionRepository{}
+	roleRepository := newMockRoleRepository()
+	internalPermissionService := service.NewInternalPermissionService(permissionRepository, roleRepository)
 	ctx := context.Background()
 
-	ver, err := svc.GetUserPermissionVersion(ctx, "usr_100", "tnt_001")
+	ver, err := internalPermissionService.GetUserPermissionVersion(ctx, "usr_100", "tnt_001")
 	if err != nil {
 		t.Fatalf("GetUserPermissionVersion failed: %v", err)
 	}

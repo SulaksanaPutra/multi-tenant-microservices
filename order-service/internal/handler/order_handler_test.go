@@ -30,11 +30,11 @@ import (
 // stubOrderService reproduces handler-observable service behaviour without a DB.
 type stubOrderService struct{}
 
-func (s *stubOrderService) ListOrders(ctx context.Context) ([]service.OrderOutput, error) {
+func (stubOrderService *stubOrderService) ListOrders(ctx context.Context) ([]service.OrderOutput, error) {
 	return nil, nil
 }
 
-func (s *stubOrderService) CreateOrder(ctx context.Context, input service.CreateOrderInput) (*service.OrderOutput, error) {
+func (stubOrderService *stubOrderService) CreateOrder(ctx context.Context, input service.CreateOrderInput) (*service.OrderOutput, error) {
 	if input.Amount <= 0 {
 		return nil, domain.ErrInvalidAmount
 	}

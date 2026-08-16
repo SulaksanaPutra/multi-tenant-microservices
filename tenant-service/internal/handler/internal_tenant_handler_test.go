@@ -23,23 +23,23 @@ func (m *mockInternalTenantInfraService) GetServiceInfrastructure(ctx context.Co
 	return nil, nil
 }
 
-func setupInternalTenantTestRouter(h *InternalTenantHandler) *gin.Engine {
+func setupInternalTenantTestRouter(internalTenantHandler *InternalTenantHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.GET("/internal/tenants/:tenant_id/infrastructure/:service_name", h.GetServiceInfrastructure)
-	return r
+	router := gin.New()
+	router.GET("/internal/tenants/:tenant_id/infrastructure/:service_name", internalTenantHandler.GetServiceInfrastructure)
+	return router
 }
 
 func TestNewInternalTenantHandler(t *testing.T) {
-	mockSvc := &mockInternalTenantInfraService{}
-	h := NewInternalTenantHandler(mockSvc)
-	if h == nil || h.tenantInfraService != mockSvc {
+	mockInternalTenantInfrastructureService := &mockInternalTenantInfraService{}
+	internalTenantHandler := NewInternalTenantHandler(mockInternalTenantInfrastructureService)
+	if internalTenantHandler == nil || internalTenantHandler.tenantInfraService != mockInternalTenantInfrastructureService {
 		t.Fatal("expected NewInternalTenantHandler to return non-nil pointer with service initialized")
 	}
 }
 
 func TestInternalTenantHandler_GetServiceInfrastructure_Success(t *testing.T) {
-	mockSvc := &mockInternalTenantInfraService{
+	mockInternalTenantInfrastructureService := &mockInternalTenantInfraService{
 		getServiceInfrastructureFn: func(ctx context.Context, tenantID, serviceName string) (*service.RoutingOutput, error) {
 			return &service.RoutingOutput{
 				DBHost:     "localhost",
@@ -51,8 +51,8 @@ func TestInternalTenantHandler_GetServiceInfrastructure_Success(t *testing.T) {
 		},
 	}
 
-	h := NewInternalTenantHandler(mockSvc)
-	router := setupInternalTenantTestRouter(h)
+	internalTenantHandler := NewInternalTenantHandler(mockInternalTenantInfrastructureService)
+	router := setupInternalTenantTestRouter(internalTenantHandler)
 
 	req, _ := http.NewRequest(http.MethodGet, "/internal/tenants/ten_100/infrastructure/order-service", nil)
 	w := httptest.NewRecorder()
@@ -64,14 +64,14 @@ func TestInternalTenantHandler_GetServiceInfrastructure_Success(t *testing.T) {
 }
 
 func TestInternalTenantHandler_GetServiceInfrastructure_ServiceError(t *testing.T) {
-	mockSvc := &mockInternalTenantInfraService{
+	mockInternalTenantInfrastructureService := &mockInternalTenantInfraService{
 		getServiceInfrastructureFn: func(ctx context.Context, tenantID, serviceName string) (*service.RoutingOutput, error) {
 			return nil, errors.New("infrastructure not found")
 		},
 	}
 
-	h := NewInternalTenantHandler(mockSvc)
-	router := setupInternalTenantTestRouter(h)
+	internalTenantHandler := NewInternalTenantHandler(mockInternalTenantInfrastructureService)
+	router := setupInternalTenantTestRouter(internalTenantHandler)
 
 	req, _ := http.NewRequest(http.MethodGet, "/internal/tenants/ten_404/infrastructure/order-service", nil)
 	w := httptest.NewRecorder()

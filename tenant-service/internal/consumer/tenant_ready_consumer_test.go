@@ -83,24 +83,24 @@ func TestTenantOrderDBReadyConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("success_with_inbox_check", func(t *testing.T) {
 		txManager := &mockTxManager{}
-		inboxSvc := &mockInboxService{
+		inboxService := &mockInboxService{
 			claimEventFunc: func(txCtx context.Context, eventID string) (bool, error) {
 				return false, nil // not duplicate
 			},
 		}
 
 		var capturedInput service.InfrastructureUpdateInput
-		infraSvc := &mockTenantInfrastructureService{
+		tenantInfrastructureService := &mockTenantInfrastructureService{
 			handleInfrastructureUpdateFunc: func(ctx context.Context, input service.InfrastructureUpdateInput) error {
 				capturedInput = input
 				return nil
 			},
 		}
 
-		c := &TenantOrderDBReadyConsumer{
+		tenantOrderDBReadyConsumer := &TenantOrderDBReadyConsumer{
 			txManager:                   txManager,
-			inboxService:                inboxSvc,
-			tenantInfrastructureService: infraSvc,
+			inboxService:                inboxService,
+			tenantInfrastructureService: tenantInfrastructureService,
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -109,7 +109,7 @@ func TestTenantOrderDBReadyConsumer_HandleDelivery(t *testing.T) {
 			Body:         validBody,
 		}
 
-		err := c.handleDelivery(context.Background(), d)
+		err := tenantOrderDBReadyConsumer.handleDelivery(context.Background(), d)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -123,24 +123,24 @@ func TestTenantOrderDBReadyConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("duplicate_event_skips_processing", func(t *testing.T) {
 		txManager := &mockTxManager{}
-		inboxSvc := &mockInboxService{
+		inboxService := &mockInboxService{
 			claimEventFunc: func(txCtx context.Context, eventID string) (bool, error) {
 				return true, nil // duplicate
 			},
 		}
 
 		serviceCalled := false
-		infraSvc := &mockTenantInfrastructureService{
+		tenantInfrastructureService := &mockTenantInfrastructureService{
 			handleInfrastructureUpdateFunc: func(ctx context.Context, input service.InfrastructureUpdateInput) error {
 				serviceCalled = true
 				return nil
 			},
 		}
 
-		c := &TenantOrderDBReadyConsumer{
+		tenantOrderDBReadyConsumer := &TenantOrderDBReadyConsumer{
 			txManager:                   txManager,
-			inboxService:                inboxSvc,
-			tenantInfrastructureService: infraSvc,
+			inboxService:                inboxService,
+			tenantInfrastructureService: tenantInfrastructureService,
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -149,7 +149,7 @@ func TestTenantOrderDBReadyConsumer_HandleDelivery(t *testing.T) {
 			Body:         validBody,
 		}
 
-		err := c.handleDelivery(context.Background(), d)
+		err := tenantOrderDBReadyConsumer.handleDelivery(context.Background(), d)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -162,26 +162,26 @@ func TestTenantOrderDBReadyConsumer_HandleDelivery(t *testing.T) {
 	})
 
 	t.Run("pure_constructor_initialization", func(t *testing.T) {
-		c := NewTenantOrderDBReadyConsumer(TenantOrderDBReadyConsumerParams{
+		tenantOrderDBReadyConsumer := NewTenantOrderDBReadyConsumer(TenantOrderDBReadyConsumerParams{
 			TxManager:                   &mockTxManager{},
 			Client:                      &mockAMQPInterfaceClient{},
 			TenantInfrastructureService: &mockTenantInfrastructureService{},
 			InboxService:                &mockInboxService{},
 		})
-		if c == nil {
+		if tenantOrderDBReadyConsumer == nil {
 			t.Fatal("expected non-nil consumer")
 		}
 	})
 
 	t.Run("invalid_json_nacks_without_requeue", func(t *testing.T) {
-		c := &TenantOrderDBReadyConsumer{}
+		tenantOrderDBReadyConsumer := &TenantOrderDBReadyConsumer{}
 		mockAck := &mockAcknowledger{}
 		d := rabbitmq.Delivery{
 			Acknowledger: mockAck,
 			Body:         []byte("invalid-json"),
 		}
 
-		err := c.handleDelivery(context.Background(), d)
+		err := tenantOrderDBReadyConsumer.handleDelivery(context.Background(), d)
 		if err == nil {
 			t.Error("expected json unmarshal error")
 		}
@@ -195,17 +195,17 @@ func TestTenantOrderDBReadyConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("service_error_nacks_with_requeue", func(t *testing.T) {
 		txManager := &mockTxManager{}
-		svcErr := errors.New("infra update failed")
-		infraSvc := &mockTenantInfrastructureService{
+		serviceErr := errors.New("infra update failed")
+		tenantInfrastructureService := &mockTenantInfrastructureService{
 			handleInfrastructureUpdateFunc: func(ctx context.Context, input service.InfrastructureUpdateInput) error {
-				return svcErr
+				return serviceErr
 			},
 		}
 
-		c := &TenantOrderDBReadyConsumer{
+		tenantOrderDBReadyConsumer := &TenantOrderDBReadyConsumer{
 			txManager:                   txManager,
 			inboxService:                &mockInboxService{},
-			tenantInfrastructureService: infraSvc,
+			tenantInfrastructureService: tenantInfrastructureService,
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -214,7 +214,7 @@ func TestTenantOrderDBReadyConsumer_HandleDelivery(t *testing.T) {
 			Body:         validBody,
 		}
 
-		err := c.handleDelivery(context.Background(), d)
+		err := tenantOrderDBReadyConsumer.handleDelivery(context.Background(), d)
 		if err == nil {
 			t.Error("expected error when service fails")
 		}
@@ -227,7 +227,7 @@ func TestTenantOrderDBReadyConsumer_HandleDelivery(t *testing.T) {
 	})
 
 	t.Run("max_delivery_count_nacks_without_requeue_for_dlq", func(t *testing.T) {
-		c := &TenantOrderDBReadyConsumer{
+		tenantOrderDBReadyConsumer := &TenantOrderDBReadyConsumer{
 			txManager:                   &mockTxManager{},
 			inboxService:                &mockInboxService{},
 			tenantInfrastructureService: &mockTenantInfrastructureService{},
@@ -242,7 +242,7 @@ func TestTenantOrderDBReadyConsumer_HandleDelivery(t *testing.T) {
 			},
 		}
 
-		if err := c.handleDelivery(context.Background(), d); err == nil {
+		if err := tenantOrderDBReadyConsumer.handleDelivery(context.Background(), d); err == nil {
 			t.Error("expected max delivery count error")
 		}
 		if !mockAck.nackCalled {
@@ -255,13 +255,13 @@ func TestTenantOrderDBReadyConsumer_HandleDelivery(t *testing.T) {
 }
 
 func TestNewTenantOrderDBReadyConsumer(t *testing.T) {
-	c := NewTenantOrderDBReadyConsumer(TenantOrderDBReadyConsumerParams{
+	tenantOrderDBReadyConsumer := NewTenantOrderDBReadyConsumer(TenantOrderDBReadyConsumerParams{
 		TxManager:                   &mockTxManager{},
 		Client:                      &mockAMQPInterfaceClient{},
 		TenantInfrastructureService: &mockTenantInfrastructureService{},
 		InboxService:                &mockInboxService{},
 	})
-	if c == nil {
+	if tenantOrderDBReadyConsumer == nil {
 		t.Fatal("expected non-nil consumer")
 	}
 }

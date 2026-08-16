@@ -51,12 +51,12 @@ func NewInfrastructureProvisionedConsumer(params InfrastructureProvisionedConsum
 	}
 }
 
-func (c *InfrastructureProvisionedConsumer) setupTopology() error {
-	if err := c.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
+func (infrastructureProvisionedConsumer *InfrastructureProvisionedConsumer) setupTopology() error {
+	if err := infrastructureProvisionedConsumer.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return fmt.Errorf("failed to declare exchange '%s': %w", domain.ExchangeCompanyEvents, err)
 	}
 
-	if err := c.client.DeclareAndBindQueue(
+	if err := infrastructureProvisionedConsumer.client.DeclareAndBindQueue(
 		domain.QueueOrderServiceInfraProvisioned, domain.ExchangeCompanyEvents, domain.RoutingKeyInfrastructureProvisioned,
 	); err != nil {
 		return fmt.Errorf("failed to bind queue '%s': %w", domain.QueueOrderServiceInfraProvisioned, err)
@@ -65,12 +65,12 @@ func (c *InfrastructureProvisionedConsumer) setupTopology() error {
 	return nil
 }
 
-func (c *InfrastructureProvisionedConsumer) Start(ctx context.Context) error {
+func (infrastructureProvisionedConsumer *InfrastructureProvisionedConsumer) Start(ctx context.Context) error {
 	go func() {
 		for {
-			connCtx := c.client.ConnContext()
+			connCtx := infrastructureProvisionedConsumer.client.ConnContext()
 
-			err := c.runConsumerLoop(ctx, connCtx)
+			err := infrastructureProvisionedConsumer.runConsumerLoop(ctx, connCtx)
 
 			if ctx.Err() != nil {
 				return
@@ -78,7 +78,7 @@ func (c *InfrastructureProvisionedConsumer) Start(ctx context.Context) error {
 
 			log.Printf("InfrastructureProvisionedConsumer: connection context cancelled (%v); waiting for RabbitMQ reconnection...", err)
 
-			if err := c.client.WaitUntilReady(ctx); err != nil {
+			if err := infrastructureProvisionedConsumer.client.WaitUntilReady(ctx); err != nil {
 				return
 			}
 
@@ -89,12 +89,12 @@ func (c *InfrastructureProvisionedConsumer) Start(ctx context.Context) error {
 	return nil
 }
 
-func (c *InfrastructureProvisionedConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
-	if err := c.setupTopology(); err != nil {
+func (infrastructureProvisionedConsumer *InfrastructureProvisionedConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
+	if err := infrastructureProvisionedConsumer.setupTopology(); err != nil {
 		return fmt.Errorf("failed to setup topology: %w", err)
 	}
 
-	msgs, err := c.client.Consume(
+	msgs, err := infrastructureProvisionedConsumer.client.Consume(
 		domain.QueueOrderServiceInfraProvisioned,
 		"order-service-infra-consumer",
 	)
@@ -118,12 +118,12 @@ func (c *InfrastructureProvisionedConsumer) runConsumerLoop(appCtx, connCtx cont
 				return errors.New("delivery channel closed")
 			}
 
-			_ = c.handleDelivery(appCtx, d)
+			_ = infrastructureProvisionedConsumer.handleDelivery(appCtx, d)
 		}
 	}
 }
 
-func (c *InfrastructureProvisionedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
+func (infrastructureProvisionedConsumer *InfrastructureProvisionedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
 	var evt domain.InfrastructureProvisionedEvent
 	if err := json.Unmarshal(d.Body, &evt); err != nil {
 		log.Printf("InfrastructureProvisionedConsumer Error: Bad payload: %v", err)
@@ -151,23 +151,23 @@ func (c *InfrastructureProvisionedConsumer) handleDelivery(ctx context.Context, 
 
 	var pass string
 	if evt.Plan == "dedicated" {
-		pass = crypto.DeriveTenantDBPassword(c.sharedSecret, evt.TenantID)
+		pass = crypto.DeriveTenantDBPassword(infrastructureProvisionedConsumer.sharedSecret, evt.TenantID)
 	} else {
-		pass = c.sharedDBPass
+		pass = infrastructureProvisionedConsumer.sharedDBPass
 	}
 
 	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
 		evt.DBHost, evt.DBPort, evt.DBUser, pass, evt.DBName)
 
 	// 1. Run SQL migrations
-	if err := c.migrationService.MigrateTenantDB(ctx, dsn, evt.SchemaName); err != nil {
+	if err := infrastructureProvisionedConsumer.migrationService.MigrateTenantDB(ctx, dsn, evt.SchemaName); err != nil {
 		log.Printf("InfrastructureProvisionedConsumer Error: Migration failed for tenant='%s': %v", evt.TenantID, err)
 		_ = d.Nack(false, true) // requeue for retry
 		return err
 	}
 
 	// 2. Populate/update local RoutingRegistry materialized view
-	c.routingRegistry.Set(registry.RoutingMetadata{
+	infrastructureProvisionedConsumer.routingRegistry.Set(registry.RoutingMetadata{
 		TenantID:   evt.TenantID,
 		DBHost:     evt.DBHost,
 		DBPort:     evt.DBPort,
@@ -178,7 +178,7 @@ func (c *InfrastructureProvisionedConsumer) handleDelivery(ctx context.Context, 
 	})
 
 	// 3. Evict any cached pool in order-service pool registry, so fresh connection parameters are used
-	c.poolRegistry.Evict(evt.TenantID)
+	infrastructureProvisionedConsumer.poolRegistry.Evict(evt.TenantID)
 
 	// 4. Emit tenant.order_db.ready event via dedicated Publisher Adapter
 	readyEvt := domain.TenantOrderDBReadyEvent{
@@ -192,7 +192,7 @@ func (c *InfrastructureProvisionedConsumer) handleDelivery(ctx context.Context, 
 		SchemaName:  evt.SchemaName,
 	}
 
-	if err := c.orderDBReadyPublisher.PublishTenantOrderDBReady(ctx, readyEvt); err != nil {
+	if err := infrastructureProvisionedConsumer.orderDBReadyPublisher.PublishTenantOrderDBReady(ctx, readyEvt); err != nil {
 		log.Printf("InfrastructureProvisionedConsumer Error: Failed to publish tenant.order_db.ready: %v", err)
 		_ = d.Nack(false, true)
 		return err

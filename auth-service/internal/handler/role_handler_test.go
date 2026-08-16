@@ -88,17 +88,17 @@ func TestRoleHandler_CreateRole(t *testing.T) {
 
 	t.Run("missing tenant_id -> 400 Bad Request", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		_, r := gin.CreateTestContext(w)
+		_, router := gin.CreateTestContext(w)
 
-		h := NewRoleHandler(&mockRoleService{})
-		r.POST("/roles", h.CreateRole)
+		roleHandler := NewRoleHandler(&mockRoleService{})
+		router.POST("/roles", roleHandler.CreateRole)
 
 		reqBody := CreateRoleRequest{Name: "custom_role"}
 		jsonBytes, _ := json.Marshal(reqBody)
 		req := httptest.NewRequest(http.MethodPost, "/roles", bytes.NewBuffer(jsonBytes))
 		req.Header.Set("Content-Type", "application/json")
 
-		r.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected status 400, got %d", w.Code)
 		}
@@ -106,22 +106,22 @@ func TestRoleHandler_CreateRole(t *testing.T) {
 
 	t.Run("role already exists -> 409 Conflict", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		_, r := gin.CreateTestContext(w)
+		_, router := gin.CreateTestContext(w)
 
-		mockSvc := &mockRoleService{
+		mockRoleService := &mockRoleService{
 			CreateRoleFn: func(_ context.Context, _ service.CreateRoleInput) (*service.RoleOutput, error) {
 				return nil, domain.ErrRoleAlreadyExists
 			},
 		}
-		h := NewRoleHandler(mockSvc)
-		r.POST("/roles", h.CreateRole)
+		roleHandler := NewRoleHandler(mockRoleService)
+		router.POST("/roles", roleHandler.CreateRole)
 
 		reqBody := CreateRoleRequest{TenantID: "tnt_001", Name: "custom_role"}
 		jsonBytes, _ := json.Marshal(reqBody)
 		req := httptest.NewRequest(http.MethodPost, "/roles", bytes.NewBuffer(jsonBytes))
 		req.Header.Set("Content-Type", "application/json")
 
-		r.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 		if w.Code != http.StatusConflict {
 			t.Fatalf("expected status 409, got %d", w.Code)
 		}
@@ -129,17 +129,17 @@ func TestRoleHandler_CreateRole(t *testing.T) {
 
 	t.Run("success -> 201 Created", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		_, r := gin.CreateTestContext(w)
+		_, router := gin.CreateTestContext(w)
 
-		mockSvc := &mockRoleService{
+		mockRoleService := &mockRoleService{
 			CreateRoleFn: func(_ context.Context, input service.CreateRoleInput) (*service.RoleOutput, error) {
 				return &service.RoleOutput{ID: "role_123", Name: input.Name}, nil
 			},
 		}
-		h := NewRoleHandler(mockSvc)
-		r.POST("/roles", func(c *gin.Context) {
+		roleHandler := NewRoleHandler(mockRoleService)
+		router.POST("/roles", func(c *gin.Context) {
 			c.Set(middleware.ContextKeyTenantID, "tnt_001")
-			h.CreateRole(c)
+			roleHandler.CreateRole(c)
 		})
 
 		reqBody := CreateRoleRequest{Name: "custom_role", PermissionIDs: []string{"p1"}}
@@ -147,7 +147,7 @@ func TestRoleHandler_CreateRole(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/roles", bytes.NewBuffer(jsonBytes))
 		req.Header.Set("Content-Type", "application/json")
 
-		r.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 		if w.Code != http.StatusCreated {
 			t.Fatalf("expected status 201, got %d", w.Code)
 		}
@@ -167,18 +167,18 @@ func TestRoleHandler_GetRole(t *testing.T) {
 
 	t.Run("not found -> 404 Not Found", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		_, r := gin.CreateTestContext(w)
+		_, router := gin.CreateTestContext(w)
 
-		mockSvc := &mockRoleService{
+		mockRoleService := &mockRoleService{
 			GetRoleFn: func(_ context.Context, _ string) (*service.RoleOutput, error) {
 				return nil, domain.ErrRoleNotFound
 			},
 		}
-		h := NewRoleHandler(mockSvc)
-		r.GET("/roles/:id", h.GetRole)
+		roleHandler := NewRoleHandler(mockRoleService)
+		router.GET("/roles/:id", roleHandler.GetRole)
 
 		req := httptest.NewRequest(http.MethodGet, "/roles/non_existent", nil)
-		r.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 		if w.Code != http.StatusNotFound {
 			t.Fatalf("expected status 404, got %d", w.Code)
 		}
@@ -186,18 +186,18 @@ func TestRoleHandler_GetRole(t *testing.T) {
 
 	t.Run("success -> 200 OK", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		_, r := gin.CreateTestContext(w)
+		_, router := gin.CreateTestContext(w)
 
-		mockSvc := &mockRoleService{
+		mockRoleService := &mockRoleService{
 			GetRoleFn: func(_ context.Context, roleID string) (*service.RoleOutput, error) {
 				return &service.RoleOutput{ID: roleID, Name: "manager"}, nil
 			},
 		}
-		h := NewRoleHandler(mockSvc)
-		r.GET("/roles/:id", h.GetRole)
+		roleHandler := NewRoleHandler(mockRoleService)
+		router.GET("/roles/:id", roleHandler.GetRole)
 
 		req := httptest.NewRequest(http.MethodGet, "/roles/role_123", nil)
-		r.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected status 200, got %d", w.Code)
 		}
@@ -209,22 +209,22 @@ func TestRoleHandler_UpdateRolePermissions(t *testing.T) {
 
 	t.Run("system role protected -> 403 Forbidden", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		_, r := gin.CreateTestContext(w)
+		_, router := gin.CreateTestContext(w)
 
-		mockSvc := &mockRoleService{
+		mockRoleService := &mockRoleService{
 			UpdateRolePermissionsFn: func(_ context.Context, _ service.UpdateRolePermissionsInput) error {
 				return domain.ErrSystemRoleProtected
 			},
 		}
-		h := NewRoleHandler(mockSvc)
-		r.PUT("/roles/:id/permissions", h.UpdateRolePermissions)
+		roleHandler := NewRoleHandler(mockRoleService)
+		router.PUT("/roles/:id/permissions", roleHandler.UpdateRolePermissions)
 
 		reqBody := UpdateRolePermissionsRequest{PermissionIDs: []string{"p1"}}
 		jsonBytes, _ := json.Marshal(reqBody)
 		req := httptest.NewRequest(http.MethodPut, "/roles/sys_admin/permissions", bytes.NewBuffer(jsonBytes))
 		req.Header.Set("Content-Type", "application/json")
 
-		r.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 		if w.Code != http.StatusForbidden {
 			t.Fatalf("expected status 403, got %d", w.Code)
 		}
@@ -232,17 +232,17 @@ func TestRoleHandler_UpdateRolePermissions(t *testing.T) {
 
 	t.Run("success -> 200 OK", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		_, r := gin.CreateTestContext(w)
+		_, router := gin.CreateTestContext(w)
 
-		h := NewRoleHandler(&mockRoleService{})
-		r.PUT("/roles/:id/permissions", h.UpdateRolePermissions)
+		roleHandler := NewRoleHandler(&mockRoleService{})
+		router.PUT("/roles/:id/permissions", roleHandler.UpdateRolePermissions)
 
 		reqBody := UpdateRolePermissionsRequest{PermissionIDs: []string{"p1", "p2"}}
 		jsonBytes, _ := json.Marshal(reqBody)
 		req := httptest.NewRequest(http.MethodPut, "/roles/role_123/permissions", bytes.NewBuffer(jsonBytes))
 		req.Header.Set("Content-Type", "application/json")
 
-		r.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected status 200, got %d", w.Code)
 		}
@@ -254,18 +254,18 @@ func TestRoleHandler_DeleteRole(t *testing.T) {
 
 	t.Run("system role protected -> 403 Forbidden", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		_, r := gin.CreateTestContext(w)
+		_, router := gin.CreateTestContext(w)
 
-		mockSvc := &mockRoleService{
+		mockRoleService := &mockRoleService{
 			DeleteRoleFn: func(_ context.Context, _ string) error {
 				return domain.ErrSystemRoleProtected
 			},
 		}
-		h := NewRoleHandler(mockSvc)
-		r.DELETE("/roles/:id", h.DeleteRole)
+		roleHandler := NewRoleHandler(mockRoleService)
+		router.DELETE("/roles/:id", roleHandler.DeleteRole)
 
 		req := httptest.NewRequest(http.MethodDelete, "/roles/role_sys", nil)
-		r.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 		if w.Code != http.StatusForbidden {
 			t.Fatalf("expected status 403, got %d", w.Code)
 		}
@@ -273,13 +273,13 @@ func TestRoleHandler_DeleteRole(t *testing.T) {
 
 	t.Run("success -> 200 OK", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		_, r := gin.CreateTestContext(w)
+		_, router := gin.CreateTestContext(w)
 
-		h := NewRoleHandler(&mockRoleService{})
-		r.DELETE("/roles/:id", h.DeleteRole)
+		roleHandler := NewRoleHandler(&mockRoleService{})
+		router.DELETE("/roles/:id", roleHandler.DeleteRole)
 
 		req := httptest.NewRequest(http.MethodDelete, "/roles/role_custom", nil)
-		r.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected status 200, got %d", w.Code)
 		}
@@ -291,17 +291,17 @@ func TestRoleHandler_AssignUserRole(t *testing.T) {
 
 	t.Run("role not found -> 404 Not Found", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		_, r := gin.CreateTestContext(w)
+		_, router := gin.CreateTestContext(w)
 
-		mockSvc := &mockRoleService{
+		mockRoleService := &mockRoleService{
 			AssignUserRoleFn: func(_ context.Context, _ service.AssignUserRoleInput) error {
 				return domain.ErrRoleNotFound
 			},
 		}
-		h := NewRoleHandler(mockSvc)
-		r.POST("/users/:user_id/role", func(c *gin.Context) {
+		roleHandler := NewRoleHandler(mockRoleService)
+		router.POST("/users/:user_id/role", func(c *gin.Context) {
 			c.Set(middleware.ContextKeyTenantID, "tnt_001")
-			h.AssignUserRole(c)
+			roleHandler.AssignUserRole(c)
 		})
 
 		reqBody := AssignUserRoleRequest{RoleID: "role_invalid"}
@@ -309,7 +309,7 @@ func TestRoleHandler_AssignUserRole(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/users/usr_100/role", bytes.NewBuffer(jsonBytes))
 		req.Header.Set("Content-Type", "application/json")
 
-		r.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 		if w.Code != http.StatusNotFound {
 			t.Fatalf("expected status 404, got %d", w.Code)
 		}
@@ -317,12 +317,12 @@ func TestRoleHandler_AssignUserRole(t *testing.T) {
 
 	t.Run("success -> 200 OK", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		_, r := gin.CreateTestContext(w)
+		_, router := gin.CreateTestContext(w)
 
-		h := NewRoleHandler(&mockRoleService{})
-		r.POST("/users/:user_id/role", func(c *gin.Context) {
+		roleHandler := NewRoleHandler(&mockRoleService{})
+		router.POST("/users/:user_id/role", func(c *gin.Context) {
 			c.Set(middleware.ContextKeyTenantID, "tnt_001")
-			h.AssignUserRole(c)
+			roleHandler.AssignUserRole(c)
 		})
 
 		reqBody := AssignUserRoleRequest{RoleID: "role_valid"}
@@ -330,7 +330,7 @@ func TestRoleHandler_AssignUserRole(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/users/usr_100/role", bytes.NewBuffer(jsonBytes))
 		req.Header.Set("Content-Type", "application/json")
 
-		r.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected status 200, got %d", w.Code)
 		}

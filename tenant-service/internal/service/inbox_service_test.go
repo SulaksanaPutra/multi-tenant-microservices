@@ -20,15 +20,15 @@ func (m *mockInboxRepository) TryInsert(ctx context.Context, eventID string) (bo
 func TestInboxService_ClaimEvent(t *testing.T) {
 	t.Run("empty_event_id_returns_false_without_repo_call", func(t *testing.T) {
 		repoCalled := false
-		mockRepo := &mockInboxRepository{
+		mockInboxRepository := &mockInboxRepository{
 			tryInsertFunc: func(ctx context.Context, eventID string) (bool, error) {
 				repoCalled = true
 				return true, nil
 			},
 		}
 
-		svc := NewInboxService(mockRepo)
-		isDup, err := svc.ClaimEvent(context.Background(), "")
+		inboxService := NewInboxService(mockInboxRepository)
+		isDup, err := inboxService.ClaimEvent(context.Background(), "")
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -42,15 +42,15 @@ func TestInboxService_ClaimEvent(t *testing.T) {
 
 	t.Run("new_event_returns_false", func(t *testing.T) {
 		var capturedID string
-		mockRepo := &mockInboxRepository{
+		mockInboxRepository := &mockInboxRepository{
 			tryInsertFunc: func(ctx context.Context, eventID string) (bool, error) {
 				capturedID = eventID
 				return false, nil // not duplicate
 			},
 		}
 
-		svc := NewInboxService(mockRepo)
-		isDup, err := svc.ClaimEvent(context.Background(), "evt-123")
+		inboxService := NewInboxService(mockInboxRepository)
+		isDup, err := inboxService.ClaimEvent(context.Background(), "evt-123")
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -63,14 +63,14 @@ func TestInboxService_ClaimEvent(t *testing.T) {
 	})
 
 	t.Run("duplicate_event_returns_true", func(t *testing.T) {
-		mockRepo := &mockInboxRepository{
+		mockInboxRepository := &mockInboxRepository{
 			tryInsertFunc: func(ctx context.Context, eventID string) (bool, error) {
 				return true, nil // duplicate
 			},
 		}
 
-		svc := NewInboxService(mockRepo)
-		isDup, err := svc.ClaimEvent(context.Background(), "evt-123")
+		inboxService := NewInboxService(mockInboxRepository)
+		isDup, err := inboxService.ClaimEvent(context.Background(), "evt-123")
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -81,14 +81,14 @@ func TestInboxService_ClaimEvent(t *testing.T) {
 
 	t.Run("repository_error_returns_wrapped_error", func(t *testing.T) {
 		dbErr := errors.New("db connection timeout")
-		mockRepo := &mockInboxRepository{
+		mockInboxRepository := &mockInboxRepository{
 			tryInsertFunc: func(ctx context.Context, eventID string) (bool, error) {
 				return false, dbErr
 			},
 		}
 
-		svc := NewInboxService(mockRepo)
-		_, err := svc.ClaimEvent(context.Background(), "evt-123")
+		inboxService := NewInboxService(mockInboxRepository)
+		_, err := inboxService.ClaimEvent(context.Background(), "evt-123")
 		if err == nil {
 			t.Fatal("expected error when repository fails")
 		}

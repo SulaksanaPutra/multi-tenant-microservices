@@ -10,14 +10,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
 	"payment-service/internal/domain"
 	"payment-service/internal/service"
-	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
 )
 
 type mockPaymentService struct {
-	getByIDFn       func(ctx context.Context, id string) (*service.PaymentOutput, error)
-	getByOrderIDFn  func(ctx context.Context, tenantID, orderID string) (*service.PaymentOutput, error)
+	getByIDFn        func(ctx context.Context, id string) (*service.PaymentOutput, error)
+	getByOrderIDFn   func(ctx context.Context, tenantID, orderID string) (*service.PaymentOutput, error)
 	processWebhookFn func(ctx context.Context, providerID domain.ProviderType, headers map[string]string, body []byte) error
 	savePSPConfigFn  func(ctx context.Context, config *domain.TenantPSPConfig) error
 	getPSPConfigFn   func(ctx context.Context, tenantID string) (*service.TenantPSPConfigOutput, error)
@@ -58,34 +58,34 @@ func (m *mockPaymentService) GetPSPConfig(ctx context.Context, tenantID string) 
 	return &service.TenantPSPConfigOutput{TenantID: tenantID}, nil
 }
 
-func setupTestRouter(svc PaymentService) *gin.Engine {
+func setupTestRouter(paymentService PaymentService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	h := NewPaymentHandler(svc)
+	router := gin.New()
+	paymentHandler := NewPaymentHandler(paymentService)
 
-	r.POST("/api/payments/webhook/:provider", h.HandleWebhook)
+	router.POST("/api/payments/webhook/:provider", paymentHandler.HandleWebhook)
 
-	api := r.Group("/api/payments")
+	api := router.Group("/api/payments")
 	api.Use(func(c *gin.Context) {
 		c.Set(middleware.ContextKeyTenantID, "tnt_1")
 		c.Next()
 	})
 	{
-		api.GET("/:id", h.GetPaymentByID)
-		api.GET("/by-order/:orderID", h.GetPaymentByOrderID)
-		api.PUT("/config", h.UpdatePSPConfig)
-		api.GET("/config", h.GetPSPConfig)
+		api.GET("/:id", paymentHandler.GetPaymentByID)
+		api.GET("/by-order/:orderID", paymentHandler.GetPaymentByOrderID)
+		api.PUT("/config", paymentHandler.UpdatePSPConfig)
+		api.GET("/config", paymentHandler.GetPSPConfig)
 	}
-	return r
+	return router
 }
 
 func TestPaymentHandler_GetPaymentByID(t *testing.T) {
-	svc := &mockPaymentService{}
-	r := setupTestRouter(svc)
+	paymentService := &mockPaymentService{}
+	router := setupTestRouter(paymentService)
 
 	req, _ := http.NewRequest(http.MethodGet, "/api/payments/pay_123", nil)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected status 200, got %d", w.Code)
@@ -93,12 +93,12 @@ func TestPaymentHandler_GetPaymentByID(t *testing.T) {
 }
 
 func TestPaymentHandler_GetPaymentByOrderID(t *testing.T) {
-	svc := &mockPaymentService{}
-	r := setupTestRouter(svc)
+	paymentService := &mockPaymentService{}
+	router := setupTestRouter(paymentService)
 
 	req, _ := http.NewRequest(http.MethodGet, "/api/payments/by-order/ord_123", nil)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected status 200, got %d", w.Code)
@@ -106,13 +106,13 @@ func TestPaymentHandler_GetPaymentByOrderID(t *testing.T) {
 }
 
 func TestPaymentHandler_HandleWebhook(t *testing.T) {
-	svc := &mockPaymentService{}
-	r := setupTestRouter(svc)
+	paymentService := &mockPaymentService{}
+	router := setupTestRouter(paymentService)
 
 	body := []byte(`{"test": true}`)
 	req, _ := http.NewRequest(http.MethodPost, "/api/payments/webhook/mock", bytes.NewBuffer(body))
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected status 200 for webhook, got %d", w.Code)
@@ -120,18 +120,18 @@ func TestPaymentHandler_HandleWebhook(t *testing.T) {
 }
 
 func TestPaymentHandler_UpdateAndGetPSPConfig(t *testing.T) {
-	svc := &mockPaymentService{}
-	r := setupTestRouter(svc)
+	paymentService := &mockPaymentService{}
+	router := setupTestRouter(paymentService)
 
 	payload := UpdatePSPConfigRequest{
 		PriorityChain: []domain.ProviderType{domain.ProviderMock},
 	}
-	b, _ := json.Marshal(payload)
+	bodyBytes, _ := json.Marshal(payload)
 
-	req, _ := http.NewRequest(http.MethodPut, "/api/payments/config", bytes.NewBuffer(b))
+	req, _ := http.NewRequest(http.MethodPut, "/api/payments/config", bytes.NewBuffer(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected status 200 for UpdatePSPConfig, got %d", w.Code)
@@ -139,7 +139,7 @@ func TestPaymentHandler_UpdateAndGetPSPConfig(t *testing.T) {
 
 	reqGet, _ := http.NewRequest(http.MethodGet, "/api/payments/config", nil)
 	wGet := httptest.NewRecorder()
-	r.ServeHTTP(wGet, reqGet)
+	router.ServeHTTP(wGet, reqGet)
 
 	if wGet.Code != http.StatusOK {
 		t.Errorf("expected status 200 for GetPSPConfig, got %d", wGet.Code)

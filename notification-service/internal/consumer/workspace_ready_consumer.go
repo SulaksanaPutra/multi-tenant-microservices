@@ -41,24 +41,24 @@ func NewWorkspaceReadyConsumer(params WorkspaceReadyConsumerParams) *WorkspaceRe
 	}
 }
 
-func (c *WorkspaceReadyConsumer) setupTopology() error {
-	if err := c.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
+func (workspaceReadyConsumer *WorkspaceReadyConsumer) setupTopology() error {
+	if err := workspaceReadyConsumer.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return fmt.Errorf("failed to declare exchange: %w", err)
 	}
 
-	if err := c.client.DeclareAndBindQueue(domain.QueueNotificationWorkspaceReady, domain.ExchangeCompanyEvents, domain.RoutingKeyWorkspaceReady); err != nil {
+	if err := workspaceReadyConsumer.client.DeclareAndBindQueue(domain.QueueNotificationWorkspaceReady, domain.ExchangeCompanyEvents, domain.RoutingKeyWorkspaceReady); err != nil {
 		return fmt.Errorf("failed to bind queue: %w", err)
 	}
 
 	return nil
 }
 
-func (c *WorkspaceReadyConsumer) Start(ctx context.Context) error {
+func (workspaceReadyConsumer *WorkspaceReadyConsumer) Start(ctx context.Context) error {
 	go func() {
 		for {
-			connCtx := c.client.ConnContext()
+			connCtx := workspaceReadyConsumer.client.ConnContext()
 
-			err := c.runConsumerLoop(ctx, connCtx)
+			err := workspaceReadyConsumer.runConsumerLoop(ctx, connCtx)
 
 			if ctx.Err() != nil {
 				return
@@ -66,7 +66,7 @@ func (c *WorkspaceReadyConsumer) Start(ctx context.Context) error {
 
 			log.Printf("WorkspaceReadyConsumer: connection context cancelled (%v); waiting for RabbitMQ reconnection...", err)
 
-			if err := c.client.WaitUntilReady(ctx); err != nil {
+			if err := workspaceReadyConsumer.client.WaitUntilReady(ctx); err != nil {
 				return
 			}
 
@@ -77,12 +77,12 @@ func (c *WorkspaceReadyConsumer) Start(ctx context.Context) error {
 	return nil
 }
 
-func (c *WorkspaceReadyConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
-	if err := c.setupTopology(); err != nil {
+func (workspaceReadyConsumer *WorkspaceReadyConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
+	if err := workspaceReadyConsumer.setupTopology(); err != nil {
 		return err
 	}
 
-	msgs, err := c.client.Consume(
+	msgs, err := workspaceReadyConsumer.client.Consume(
 		domain.QueueNotificationWorkspaceReady,
 		"notification-workspace-ready-consumer",
 	)
@@ -106,12 +106,12 @@ func (c *WorkspaceReadyConsumer) runConsumerLoop(appCtx, connCtx context.Context
 				return errors.New("delivery channel closed")
 			}
 
-			_ = c.handleDelivery(appCtx, d)
+			_ = workspaceReadyConsumer.handleDelivery(appCtx, d)
 		}
 	}
 }
 
-func (c *WorkspaceReadyConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
+func (workspaceReadyConsumer *WorkspaceReadyConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
 	if d.RoutingKey != domain.RoutingKeyWorkspaceReady && d.RoutingKey != "" {
 		log.Printf("[WARN] WorkspaceReadyConsumer: Received misrouted message with routing_key='%s' (expected '%s'). Discarding.", d.RoutingKey, domain.RoutingKeyWorkspaceReady)
 		_ = d.Ack(false)
@@ -136,7 +136,7 @@ func (c *WorkspaceReadyConsumer) handleDelivery(ctx context.Context, d rabbitmq.
 	log.Printf("WorkspaceReadyConsumer processing event_id='%s' for tenant_id='%s'", evt.EventID, evt.TenantID)
 
 	var sendDetails *service.ProcessEventOutput
-	err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+	err := workspaceReadyConsumer.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 		inboxInput := service.ClaimInboxInput{
 			EventID:   evt.EventID,
 			TenantID:  evt.TenantID,
@@ -144,12 +144,12 @@ func (c *WorkspaceReadyConsumer) handleDelivery(ctx context.Context, d rabbitmq.
 			Payload:   d.Body,
 		}
 
-		isDup, err := c.inboxService.ClaimEvent(txCtx, inboxInput)
+		isDup, err := workspaceReadyConsumer.inboxService.ClaimEvent(txCtx, inboxInput)
 		if err != nil {
 			return fmt.Errorf("inbox guard failed: %w", err)
 		}
 		if isDup {
-			alreadySent, err := c.notificationService.HasSentNotification(txCtx, evt.TenantID)
+			alreadySent, err := workspaceReadyConsumer.notificationService.HasSentNotification(txCtx, evt.TenantID)
 			if err != nil {
 				return fmt.Errorf("failed checking welcome email sent status for duplicate event_id='%s': %w", evt.EventID, err)
 			}
@@ -160,7 +160,7 @@ func (c *WorkspaceReadyConsumer) handleDelivery(ctx context.Context, d rabbitmq.
 			log.Printf("WorkspaceReadyConsumer: Duplicate event_id='%s' detected, but welcome email is not yet sent. Resuming barrier check.", evt.EventID)
 		}
 
-		events, err := c.inboxService.ListBarrierEvents(txCtx, evt.TenantID)
+		events, err := workspaceReadyConsumer.inboxService.ListBarrierEvents(txCtx, evt.TenantID)
 		if err != nil {
 			return fmt.Errorf("failed to fetch barrier events: %w", err)
 		}
@@ -172,7 +172,7 @@ func (c *WorkspaceReadyConsumer) handleDelivery(ctx context.Context, d rabbitmq.
 			OwnerEmail: evt.OwnerEmail,
 			Payload:    d.Body,
 		}
-		details, err := c.notificationService.ProcessEventAndTrySendWelcome(txCtx, input, events)
+		details, err := workspaceReadyConsumer.notificationService.ProcessEventAndTrySendWelcome(txCtx, input, events)
 		if err != nil {
 			return err
 		}
@@ -187,14 +187,14 @@ func (c *WorkspaceReadyConsumer) handleDelivery(ctx context.Context, d rabbitmq.
 	}
 
 	if sendDetails != nil {
-		setupToken, fetchErr := c.authClient.FetchSetupToken(ctx, sendDetails.UserID, sendDetails.TenantID, sendDetails.RecipientEmail)
+		setupToken, fetchErr := workspaceReadyConsumer.authClient.FetchSetupToken(ctx, sendDetails.UserID, sendDetails.TenantID, sendDetails.RecipientEmail)
 		if fetchErr != nil {
 			log.Printf("WorkspaceReadyConsumer: Failed to fetch setup token from auth-service for tenant='%s': %v — NACKing for retry.", sendDetails.TenantID, fetchErr)
 			_ = d.Nack(false, true)
 			return fetchErr
 		}
 
-		if _, _, mailErr := c.mailer.SendWelcomeEmail(sendDetails.RecipientEmail, sendDetails.TenantID, sendDetails.TenantName, sendDetails.TenantSlug, sendDetails.OwnerName, setupToken); mailErr != nil {
+		if _, _, mailErr := workspaceReadyConsumer.mailer.SendWelcomeEmail(sendDetails.RecipientEmail, sendDetails.TenantID, sendDetails.TenantName, sendDetails.TenantSlug, sendDetails.OwnerName, setupToken); mailErr != nil {
 			log.Printf("WorkspaceReadyConsumer: SMTP dispatch failed for event_id='%s' recipient='%s': %v — NACKing for retry.",
 				evt.EventID, sendDetails.RecipientEmail, mailErr)
 			_ = d.Nack(false, true)
@@ -202,7 +202,7 @@ func (c *WorkspaceReadyConsumer) handleDelivery(ctx context.Context, d rabbitmq.
 		}
 		log.Printf("WorkspaceReadyConsumer: Welcome email dispatched to '%s' for tenant='%s'", sendDetails.RecipientEmail, sendDetails.TenantID)
 
-		if updateErr := c.notificationService.UpdateNotificationStatus(ctx, sendDetails.LogID, "sent"); updateErr != nil {
+		if updateErr := workspaceReadyConsumer.notificationService.UpdateNotificationStatus(ctx, sendDetails.LogID, "sent"); updateErr != nil {
 			log.Printf("WorkspaceReadyConsumer: Failed updating status to 'sent' for log id=%s: %v", sendDetails.LogID, updateErr)
 		}
 	}

@@ -36,24 +36,24 @@ func NewTenantOrderDBReadyConsumer(params TenantOrderDBReadyConsumerParams) *Ten
 	}
 }
 
-func (c *TenantOrderDBReadyConsumer) setupTopology() error {
-	if err := c.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
+func (tenantOrderDBReadyConsumer *TenantOrderDBReadyConsumer) setupTopology() error {
+	if err := tenantOrderDBReadyConsumer.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return fmt.Errorf("failed to declare exchange '%s': %w", domain.ExchangeCompanyEvents, err)
 	}
 
-	if err := c.client.DeclareAndBindQueue(domain.QueueTenantServiceOrderReady, domain.ExchangeCompanyEvents, domain.RoutingKeyTenantOrderDBReady); err != nil {
+	if err := tenantOrderDBReadyConsumer.client.DeclareAndBindQueue(domain.QueueTenantServiceOrderReady, domain.ExchangeCompanyEvents, domain.RoutingKeyTenantOrderDBReady); err != nil {
 		return fmt.Errorf("failed to bind queue '%s': %w", domain.QueueTenantServiceOrderReady, err)
 	}
 
 	return nil
 }
 
-func (c *TenantOrderDBReadyConsumer) Start(ctx context.Context) error {
+func (tenantOrderDBReadyConsumer *TenantOrderDBReadyConsumer) Start(ctx context.Context) error {
 	go func() {
 		for {
-			connCtx := c.client.ConnContext()
+			connCtx := tenantOrderDBReadyConsumer.client.ConnContext()
 
-			err := c.runConsumerLoop(ctx, connCtx)
+			err := tenantOrderDBReadyConsumer.runConsumerLoop(ctx, connCtx)
 
 			if ctx.Err() != nil {
 				return
@@ -61,7 +61,7 @@ func (c *TenantOrderDBReadyConsumer) Start(ctx context.Context) error {
 
 			log.Printf("TenantOrderDBReadyConsumer: connection context cancelled (%v); waiting for RabbitMQ reconnection...", err)
 
-			if err := c.client.WaitUntilReady(ctx); err != nil {
+			if err := tenantOrderDBReadyConsumer.client.WaitUntilReady(ctx); err != nil {
 				return
 			}
 
@@ -72,12 +72,12 @@ func (c *TenantOrderDBReadyConsumer) Start(ctx context.Context) error {
 	return nil
 }
 
-func (c *TenantOrderDBReadyConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
-	if err := c.setupTopology(); err != nil {
+func (tenantOrderDBReadyConsumer *TenantOrderDBReadyConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
+	if err := tenantOrderDBReadyConsumer.setupTopology(); err != nil {
 		return err
 	}
 
-	msgs, err := c.client.Consume(
+	msgs, err := tenantOrderDBReadyConsumer.client.Consume(
 		domain.QueueTenantServiceOrderReady,
 		"tenant-service-ready-consumer",
 	)
@@ -101,12 +101,12 @@ func (c *TenantOrderDBReadyConsumer) runConsumerLoop(appCtx, connCtx context.Con
 				return errors.New("delivery channel closed")
 			}
 
-			_ = c.handleDelivery(appCtx, d)
+			_ = tenantOrderDBReadyConsumer.handleDelivery(appCtx, d)
 		}
 	}
 }
 
-func (c *TenantOrderDBReadyConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
+func (tenantOrderDBReadyConsumer *TenantOrderDBReadyConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
 	var evt domain.TenantOrderDBReadyEvent
 	if err := json.Unmarshal(d.Body, &evt); err != nil {
 		log.Printf("TenantOrderDBReadyConsumer Error: Bad payload: %v", err)
@@ -132,8 +132,8 @@ func (c *TenantOrderDBReadyConsumer) handleDelivery(ctx context.Context, d rabbi
 		evt.TenantID, evt.ServiceName)
 
 	// Wrap update handling inside transaction
-	err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-		isDuplicate, err := c.inboxService.ClaimEvent(txCtx, evt.EventID)
+	err := tenantOrderDBReadyConsumer.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		isDuplicate, err := tenantOrderDBReadyConsumer.inboxService.ClaimEvent(txCtx, evt.EventID)
 		if err != nil {
 			return fmt.Errorf("failed to claim inbox event: %w", err)
 		}
@@ -151,7 +151,7 @@ func (c *TenantOrderDBReadyConsumer) handleDelivery(ctx context.Context, d rabbi
 			DBUser:      evt.DBUser,
 			SchemaName:  evt.SchemaName,
 		}
-		return c.tenantInfrastructureService.HandleInfrastructureUpdate(txCtx, input)
+		return tenantOrderDBReadyConsumer.tenantInfrastructureService.HandleInfrastructureUpdate(txCtx, input)
 	})
 
 	if err != nil {

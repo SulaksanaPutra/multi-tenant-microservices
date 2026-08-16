@@ -26,7 +26,7 @@ func NewInternalTenantHandler(tenantInfraService InternalTenantInfrastructureSer
 	}
 }
 
-func (h *InternalTenantHandler) GetServiceInfrastructure(c *gin.Context) {
+func (internalTenantHandler *InternalTenantHandler) GetServiceInfrastructure(c *gin.Context) {
 	tenantID := c.Param("tenant_id")
 	serviceName := c.Param("service_name")
 
@@ -35,7 +35,7 @@ func (h *InternalTenantHandler) GetServiceInfrastructure(c *gin.Context) {
 		return
 	}
 
-	output, err := h.tenantInfraService.GetServiceInfrastructure(c.Request.Context(), tenantID, serviceName)
+	output, err := internalTenantHandler.tenantInfraService.GetServiceInfrastructure(c.Request.Context(), tenantID, serviceName)
 	if err != nil {
 		httputil.WriteError(c, http.StatusNotFound, err.Error())
 		return

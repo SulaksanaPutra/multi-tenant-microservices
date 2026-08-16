@@ -14,8 +14,8 @@ import (
 
 func TestCredentialRepository_Constructor(t *testing.T) {
 	client := &postgres.Client{}
-	repo := NewCredentialRepository(client)
-	if repo == nil {
+	credentialRepository := NewCredentialRepository(client)
+	if credentialRepository == nil {
 		t.Fatal("expected NewCredentialRepository to return non-nil struct pointer")
 	}
 }
@@ -31,7 +31,7 @@ func TestCredentialRepository_UpsertCredential(t *testing.T) {
 			},
 		}
 
-		repo := NewCredentialRepository(&postgres.Client{})
+		credentialRepository := NewCredentialRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
 		input := UpsertCredentialInput{
@@ -41,7 +41,7 @@ func TestCredentialRepository_UpsertCredential(t *testing.T) {
 			PasswordHash: "hashed_pwd",
 		}
 
-		err := repo.UpsertCredential(ctxWithExec, input)
+		err := credentialRepository.UpsertCredential(ctxWithExec, input)
 		if err != nil {
 			t.Fatalf("expected nil error, got %v", err)
 		}
@@ -65,11 +65,11 @@ func TestCredentialRepository_UpsertCredential(t *testing.T) {
 			},
 		}
 
-		repo := NewCredentialRepository(&postgres.Client{})
+		credentialRepository := NewCredentialRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
 		input := UpsertCredentialInput{Email: "error@example.com"}
-		err := repo.UpsertCredential(ctxWithExec, input)
+		err := credentialRepository.UpsertCredential(ctxWithExec, input)
 		if err == nil || !errors.Is(err, dbErr) {
 			t.Errorf("expected wrapped db error, got %v", err)
 		}
@@ -88,10 +88,10 @@ func TestCredentialRepository_FindByEmail(t *testing.T) {
 		},
 	}
 
-	repo := NewCredentialRepository(&postgres.Client{})
+	credentialRepository := NewCredentialRepository(&postgres.Client{})
 	ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-	cred, err := repo.FindByEmail(ctxWithExec, "test@example.com")
+	cred, err := credentialRepository.FindByEmail(ctxWithExec, "test@example.com")
 	if cred != nil {
 		t.Errorf("expected nil cred on scan error, got %+v", cred)
 	}
@@ -121,10 +121,10 @@ func TestCredentialRepository_FindByUserID(t *testing.T) {
 		},
 	}
 
-	repo := NewCredentialRepository(&postgres.Client{})
+	credentialRepository := NewCredentialRepository(&postgres.Client{})
 	ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-	cred, err := repo.FindByUserID(ctxWithExec, "usr_123")
+	cred, err := credentialRepository.FindByUserID(ctxWithExec, "usr_123")
 	if cred != nil {
 		t.Errorf("expected nil cred on scan error, got %+v", cred)
 	}

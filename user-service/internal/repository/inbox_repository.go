@@ -16,8 +16,8 @@ func NewInboxRepository(dbClient *postgres.Client) *InboxRepository {
 	return &InboxRepository{dbClient: dbClient}
 }
 
-func (r *InboxRepository) TryInsert(ctx context.Context, eventID string) (bool, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (inboxRepository *InboxRepository) TryInsert(ctx context.Context, eventID string) (bool, error) {
+	exec := txcontext.GetExecutor(ctx, inboxRepository.dbClient)
 	const query = `INSERT INTO public.inbox (event_id) VALUES ($1) ON CONFLICT (event_id) DO NOTHING;`
 	res, err := exec.ExecContext(ctx, query, eventID)
 	if err != nil {

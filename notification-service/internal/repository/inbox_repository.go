@@ -24,11 +24,11 @@ func NewInboxRepository(dbClient *postgres.Client) *InboxRepository {
 	return &InboxRepository{dbClient: dbClient}
 }
 
-func (r *InboxRepository) AcquireTenantLock(ctx context.Context, tenantID string) error {
+func (inboxRepository *InboxRepository) AcquireTenantLock(ctx context.Context, tenantID string) error {
 	if tenantID == "" {
 		return nil
 	}
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+	exec := txcontext.GetExecutor(ctx, inboxRepository.dbClient)
 	const query = `SELECT pg_advisory_xact_lock(hashtext($1));`
 	if _, err := exec.ExecContext(ctx, query, tenantID); err != nil {
 		return fmt.Errorf("failed to acquire pg_advisory_xact_lock for tenant_id='%s': %w", tenantID, err)
@@ -36,8 +36,8 @@ func (r *InboxRepository) AcquireTenantLock(ctx context.Context, tenantID string
 	return nil
 }
 
-func (r *InboxRepository) TryInsert(ctx context.Context, input CreateInboxMessageInput) (bool, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (inboxRepository *InboxRepository) TryInsert(ctx context.Context, input CreateInboxMessageInput) (bool, error) {
+	exec := txcontext.GetExecutor(ctx, inboxRepository.dbClient)
 	const query = `
 		INSERT INTO public.inbox (event_id, tenant_id, event_type, payload)
 		VALUES ($1, $2, $3, $4)
@@ -61,8 +61,8 @@ func (r *InboxRepository) TryInsert(ctx context.Context, input CreateInboxMessag
 	return false, nil // isDuplicate = false, safe to process
 }
 
-func (r *InboxRepository) ListEventsByTenantID(ctx context.Context, tenantID string) ([]domain.InboxMessage, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (inboxRepository *InboxRepository) ListEventsByTenantID(ctx context.Context, tenantID string) ([]domain.InboxMessage, error) {
+	exec := txcontext.GetExecutor(ctx, inboxRepository.dbClient)
 	const query = `
 		SELECT event_id, tenant_id, event_type, payload
 		FROM public.inbox

@@ -76,7 +76,7 @@ func (m *mockOutboxRepository) CreateOutboxMessage(ctx context.Context, input re
 }
 
 func TestUserService_CreateUserFromWorkspace_Validation(t *testing.T) {
-	svc := NewUserService(&mockUserRepository{}, &mockOutboxRepository{})
+	userService := NewUserService(&mockUserRepository{}, &mockOutboxRepository{})
 
 	tests := []struct {
 		name    string
@@ -105,7 +105,7 @@ func TestUserService_CreateUserFromWorkspace_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := svc.CreateUserFromWorkspace(context.Background(), tt.input)
+			err := userService.CreateUserFromWorkspace(context.Background(), tt.input)
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("expected error %v, got %v", tt.wantErr, err)
 			}
@@ -118,7 +118,7 @@ func TestUserService_CreateUserFromWorkspace_Success(t *testing.T) {
 	var createdOutbox repository.CreateOutboxMessageInput
 	var membershipAdded string
 
-	userRepo := &mockUserRepository{
+	userRepository := &mockUserRepository{
 		createUserFunc: func(ctx context.Context, input repository.CreateUserInput) error {
 			createdUser = input
 			return nil
@@ -129,14 +129,14 @@ func TestUserService_CreateUserFromWorkspace_Success(t *testing.T) {
 		},
 	}
 
-	outboxRepo := &mockOutboxRepository{
+	outboxRepository := &mockOutboxRepository{
 		createOutboxMessageFunc: func(ctx context.Context, input repository.CreateOutboxMessageInput) error {
 			createdOutbox = input
 			return nil
 		},
 	}
 
-	svc := NewUserService(userRepo, outboxRepo)
+	userService := NewUserService(userRepository, outboxRepository)
 
 	input := CreateUserFromWorkspaceInput{
 		EventID:    "evt-123",
@@ -145,7 +145,7 @@ func TestUserService_CreateUserFromWorkspace_Success(t *testing.T) {
 		OwnerName:  "Alice Smith",
 	}
 
-	err := svc.CreateUserFromWorkspace(context.Background(), input)
+	err := userService.CreateUserFromWorkspace(context.Background(), input)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -163,16 +163,16 @@ func TestUserService_CreateUserFromWorkspace_Success(t *testing.T) {
 	}
 }
 
-func TestUserService_CreateUserFromWorkspace_NilOutboxRepo(t *testing.T) {
+func TestUserService_CreateUserFromWorkspace_NilOutboxRepository(t *testing.T) {
 	var createdUser repository.CreateUserInput
-	userRepo := &mockUserRepository{
+	userRepository := &mockUserRepository{
 		createUserFunc: func(ctx context.Context, input repository.CreateUserInput) error {
 			createdUser = input
 			return nil
 		},
 	}
 
-	svc := NewUserService(userRepo, nil)
+	userService := NewUserService(userRepository, nil)
 
 	input := CreateUserFromWorkspaceInput{
 		EventID:    "evt-123",
@@ -181,7 +181,7 @@ func TestUserService_CreateUserFromWorkspace_NilOutboxRepo(t *testing.T) {
 		OwnerName:  "Alice Smith",
 	}
 
-	err := svc.CreateUserFromWorkspace(context.Background(), input)
+	err := userService.CreateUserFromWorkspace(context.Background(), input)
 	if err != nil {
 		t.Fatalf("expected no error with nil outbox repo, got: %v", err)
 	}
@@ -193,42 +193,42 @@ func TestUserService_CreateUserFromWorkspace_NilOutboxRepo(t *testing.T) {
 
 func TestUserService_CreateUserFromWorkspace_UserRepoError(t *testing.T) {
 	expectedErr := errors.New("db error")
-	userRepo := &mockUserRepository{
+	userRepository := &mockUserRepository{
 		createUserFunc: func(ctx context.Context, input repository.CreateUserInput) error {
 			return expectedErr
 		},
 	}
 
-	svc := NewUserService(userRepo, nil)
+	userService := NewUserService(userRepository, nil)
 
 	input := CreateUserFromWorkspaceInput{
 		TenantID:   "tenant-123",
 		OwnerEmail: "test@example.com",
 	}
 
-	err := svc.CreateUserFromWorkspace(context.Background(), input)
+	err := userService.CreateUserFromWorkspace(context.Background(), input)
 	if err == nil || !errors.Is(err, expectedErr) {
 		t.Errorf("expected error wrapping '%v', got '%v'", expectedErr, err)
 	}
 }
 
 func TestUserService_CreateUserFromWorkspace_OutboxRepoError(t *testing.T) {
-	userRepo := &mockUserRepository{}
+	userRepository := &mockUserRepository{}
 	expectedErr := errors.New("outbox write failure")
-	outboxRepo := &mockOutboxRepository{
+	outboxRepository := &mockOutboxRepository{
 		createOutboxMessageFunc: func(ctx context.Context, input repository.CreateOutboxMessageInput) error {
 			return expectedErr
 		},
 	}
 
-	svc := NewUserService(userRepo, outboxRepo)
+	userService := NewUserService(userRepository, outboxRepository)
 
 	input := CreateUserFromWorkspaceInput{
 		TenantID:   "tenant-123",
 		OwnerEmail: "test@example.com",
 	}
 
-	err := svc.CreateUserFromWorkspace(context.Background(), input)
+	err := userService.CreateUserFromWorkspace(context.Background(), input)
 	if err == nil || !errors.Is(err, expectedErr) {
 		t.Errorf("expected error wrapping '%v', got '%v'", expectedErr, err)
 	}
@@ -253,7 +253,7 @@ func TestUserService_UpdateUser(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		updated := false
-		mockRepo := &mockUserRepository{
+		mockUserRepository := &mockUserRepository{
 			updateUserFunc: func(ctx context.Context, input repository.UpdateUserInput) error {
 				if input.ID == "usr_1" && input.Name == "Alice Smith" {
 					updated = true
@@ -261,7 +261,7 @@ func TestUserService_UpdateUser(t *testing.T) {
 				return nil
 			},
 		}
-		userService := NewUserService(mockRepo, nil)
+		userService := NewUserService(mockUserRepository, nil)
 		err := userService.UpdateUser(context.Background(), UpdateUserInput{UserID: "usr_1", Name: "Alice Smith"})
 		if err != nil {
 			t.Fatalf("expected nil error, got %v", err)
@@ -274,13 +274,13 @@ func TestUserService_UpdateUser(t *testing.T) {
 
 func TestUserService_ListUsers(t *testing.T) {
 	var gotTenantID string
-	mockRepo := &mockUserRepository{
+	mockUserRepository := &mockUserRepository{
 		listUsersFunc: func(ctx context.Context, tenantID string) ([]domain.User, error) {
 			gotTenantID = tenantID
 			return []domain.User{{ID: "usr_1"}}, nil
 		},
 	}
-	userService := NewUserService(mockRepo, nil)
+	userService := NewUserService(mockUserRepository, nil)
 	users, err := userService.ListUsers(context.Background(), "tenant-abc")
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
@@ -308,11 +308,11 @@ func TestUserService_ListUsers_RequiresTenant(t *testing.T) {
 func TestUserService_ErrorContractInvariants(t *testing.T) {
 	// 1. The service layer MUST NOT declare sentinel errors of its own.
 	fset := token.NewFileSet()
-	svcNode, err := parser.ParseFile(fset, "user_service.go", nil, parser.ParseComments)
+	serviceNode, err := parser.ParseFile(fset, "user_service.go", nil, parser.ParseComments)
 	if err != nil {
 		t.Fatalf("failed to parse user_service.go AST: %v", err)
 	}
-	for _, decl := range svcNode.Decls {
+	for _, decl := range serviceNode.Decls {
 		genDecl, ok := decl.(*ast.GenDecl)
 		if !ok || genDecl.Tok != token.VAR {
 			continue

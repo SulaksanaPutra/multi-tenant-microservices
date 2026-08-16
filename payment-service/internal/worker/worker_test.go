@@ -8,17 +8,17 @@ import (
 	"payment-service/internal/repository"
 )
 
-type mockOutboxRepo struct{}
+type mockOutboxRepository struct{}
 
-func (m *mockOutboxRepo) FetchPending(ctx context.Context, limit int) ([]*repository.OutboxMessage, error) {
+func (m *mockOutboxRepository) FetchPending(ctx context.Context, limit int) ([]*repository.OutboxMessage, error) {
 	return nil, nil
 }
 
-func (m *mockOutboxRepo) MarkFailed(ctx context.Context, eventID string, reason string) error {
+func (m *mockOutboxRepository) MarkFailed(ctx context.Context, eventID string, reason string) error {
 	return nil
 }
 
-func (m *mockOutboxRepo) MarkPublished(ctx context.Context, eventID string) error {
+func (m *mockOutboxRepository) MarkPublished(ctx context.Context, eventID string) error {
 	return nil
 }
 
@@ -35,31 +35,31 @@ func (m *mockSweeper) SweepExpiredPayments(ctx context.Context, ttl time.Duratio
 }
 
 func TestOutboxWorker_NewAndStop(t *testing.T) {
-	repo := &mockOutboxRepo{}
-	pub := &mockPublisher{}
+	outboxRepository := &mockOutboxRepository{}
+	workerPublisher := &mockPublisher{}
 
-	w := NewOutboxWorker(repo, pub, 10*time.Millisecond, 10, nil)
-	if w == nil {
+	outboxWorker := NewOutboxWorker(outboxRepository, workerPublisher, 10*time.Millisecond, 10, nil)
+	if outboxWorker == nil {
 		t.Fatal("expected NewOutboxWorker to return non-nil worker")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go w.Start(ctx)
+	go outboxWorker.Start(ctx)
 	time.Sleep(20 * time.Millisecond)
 	cancel()
-	w.Stop()
+	outboxWorker.Stop()
 }
 
 func TestExpirationSweeper_NewAndStop(t *testing.T) {
-	swp := &mockSweeper{}
-	e := NewExpirationSweeper(swp, 10*time.Millisecond, 1*time.Hour, nil)
-	if e == nil {
+	paymentSweeper := &mockSweeper{}
+	expirationSweeper := NewExpirationSweeper(paymentSweeper, 10*time.Millisecond, 1*time.Hour, nil)
+	if expirationSweeper == nil {
 		t.Fatal("expected NewExpirationSweeper to return non-nil sweeper")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go e.Start(ctx)
+	go expirationSweeper.Start(ctx)
 	time.Sleep(20 * time.Millisecond)
 	cancel()
-	e.Stop()
+	expirationSweeper.Stop()
 }

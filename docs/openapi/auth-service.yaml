@@ -19,7 +19,7 @@ paths:
             x-service: auth-service
             x-source:
                 - auth-service/cmd/router.go:34
-                - auth-service/internal/handler/auth_handler.go:215
+                - auth-service/internal/handler/auth_handler.go:214
             responses:
                 "200":
                     description: Successful response
@@ -33,7 +33,7 @@ paths:
             x-service: auth-service
             x-source:
                 - auth-service/cmd/router.go:39
-                - auth-service/internal/handler/auth_handler.go:73
+                - auth-service/internal/handler/auth_handler.go:72
             requestBody:
                 required: true
                 content:
@@ -53,7 +53,7 @@ paths:
             x-service: auth-service
             x-source:
                 - auth-service/cmd/router.go:40
-                - auth-service/internal/handler/auth_handler.go:102
+                - auth-service/internal/handler/auth_handler.go:101
             requestBody:
                 required: true
                 content:
@@ -103,7 +103,7 @@ paths:
             x-service: auth-service
             x-source:
                 - auth-service/cmd/router.go:42
-                - auth-service/internal/handler/auth_handler.go:170
+                - auth-service/internal/handler/auth_handler.go:169
             security:
                 - BearerAuth: []
             requestBody:
@@ -219,7 +219,7 @@ paths:
             x-service: auth-service
             x-source:
                 - auth-service/cmd/router.go:41
-                - auth-service/internal/handler/auth_handler.go:139
+                - auth-service/internal/handler/auth_handler.go:138
             security:
                 - BearerAuth: []
             requestBody:
@@ -312,7 +312,7 @@ paths:
             x-service: auth-service
             x-source:
                 - auth-service/cmd/router.go:74
-                - auth-service/internal/handler/internal_permission_handler.go:37
+                - auth-service/internal/handler/internal_permission_handler.go:36
             security:
                 - InternalToken: []
             requestBody:
@@ -334,7 +334,7 @@ paths:
             x-service: auth-service
             x-source:
                 - auth-service/cmd/router.go:73
-                - auth-service/internal/handler/internal_auth_handler.go:31
+                - auth-service/internal/handler/internal_auth_handler.go:30
             security:
                 - InternalToken: []
             requestBody:
@@ -356,7 +356,7 @@ paths:
             x-service: auth-service
             x-source:
                 - auth-service/cmd/router.go:75
-                - auth-service/internal/handler/internal_permission_handler.go:63
+                - auth-service/internal/handler/internal_permission_handler.go:62
             security:
                 - InternalToken: []
             parameters:

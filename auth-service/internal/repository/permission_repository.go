@@ -26,11 +26,11 @@ func NewPermissionRepository(dbClient *postgres.Client) *PermissionRepository {
 	return &PermissionRepository{dbClient: dbClient}
 }
 
-func (r *PermissionRepository) BulkUpsertPermissions(ctx context.Context, serviceName string, items []RegisterPermissionItem) error {
+func (permissionRepository *PermissionRepository) BulkUpsertPermissions(ctx context.Context, serviceName string, items []RegisterPermissionItem) error {
 	if len(items) == 0 {
 		return nil
 	}
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+	exec := txcontext.GetExecutor(ctx, permissionRepository.dbClient)
 
 	query := `
 		INSERT INTO public.permissions (id, name, service, description)
@@ -49,8 +49,8 @@ func (r *PermissionRepository) BulkUpsertPermissions(ctx context.Context, servic
 	return nil
 }
 
-func (r *PermissionRepository) ListAllPermissions(ctx context.Context) ([]domain.Permission, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (permissionRepository *PermissionRepository) ListAllPermissions(ctx context.Context) ([]domain.Permission, error) {
+	exec := txcontext.GetExecutor(ctx, permissionRepository.dbClient)
 	query := `
 		SELECT id, name, service, COALESCE(description, ''), created_at, updated_at
 		FROM public.permissions
@@ -76,11 +76,11 @@ func (r *PermissionRepository) ListAllPermissions(ctx context.Context) ([]domain
 	return permissions, nil
 }
 
-func (r *PermissionRepository) FindByIDs(ctx context.Context, ids []string) ([]domain.Permission, error) {
+func (permissionRepository *PermissionRepository) FindByIDs(ctx context.Context, ids []string) ([]domain.Permission, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+	exec := txcontext.GetExecutor(ctx, permissionRepository.dbClient)
 	query := `
 		SELECT id, name, service, COALESCE(description, ''), created_at, updated_at
 		FROM public.permissions
@@ -103,8 +103,8 @@ func (r *PermissionRepository) FindByIDs(ctx context.Context, ids []string) ([]d
 	return permissions, nil
 }
 
-func (r *PermissionRepository) FindByName(ctx context.Context, name string) (*domain.Permission, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (permissionRepository *PermissionRepository) FindByName(ctx context.Context, name string) (*domain.Permission, error) {
+	exec := txcontext.GetExecutor(ctx, permissionRepository.dbClient)
 	query := `
 		SELECT id, name, service, COALESCE(description, ''), created_at, updated_at
 		FROM public.permissions

@@ -70,16 +70,16 @@ func (m *mockAcknowledger) Reject(tag uint64, requeue bool) error {
 	return nil
 }
 
-func newUserCreatedConsumer(txm TxManager, inbox InboxService, membership MembershipService, maxDeliveries int) *UserCreatedConsumer {
+func newUserCreatedConsumer(txManager TxManager, inboxService InboxService, membershipService MembershipService, maxDeliveries int) *UserCreatedConsumer {
 	// 0 means "no cap interference" for tests; real cap logic is exercised
 	// explicitly in the max-deliveries tests.
 	if maxDeliveries <= 0 {
 		maxDeliveries = 1000
 	}
 	return &UserCreatedConsumer{
-		txManager:         txm,
-		inboxService:      inbox,
-		membershipService: membership,
+		txManager:         txManager,
+		inboxService:      inboxService,
+		membershipService: membershipService,
 		maxDeliveries:     maxDeliveries,
 	}
 }
@@ -100,28 +100,28 @@ func TestUserCreatedConsumer_HandleDelivery_Success(t *testing.T) {
 	body := makeUserCreatedBody(t)
 
 	var capturedInput service.ClaimInboxInput
-	inbox := &mockInboxService{
+	inboxService := &mockInboxService{
 		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 			capturedInput = input
 			return false, nil
 		},
 	}
 
-	membership := &mockMembershipService{}
+	membershipService := &mockMembershipService{}
 
-	c := newUserCreatedConsumer(&mockTxManager{}, inbox, membership, 0)
+	userCreatedConsumer := newUserCreatedConsumer(&mockTxManager{}, inboxService, membershipService, 0)
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 
-	err := c.handleDelivery(context.Background(), d)
+	err := userCreatedConsumer.handleDelivery(context.Background(), d)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if !mockAck.ackCalled {
 		t.Error("expected ACK")
 	}
-	if membership.calls != 1 {
-		t.Errorf("expected membership upsert called once, got %d", membership.calls)
+	if membershipService.calls != 1 {
+		t.Errorf("expected membership upsert called once, got %d", membershipService.calls)
 	}
 	if capturedInput.EventID != "evt-user-1" || capturedInput.TenantID != "tenant-99" || capturedInput.EventType != domain.RoutingKeyUserCreated {
 		t.Errorf("unexpected inbox input: %+v", capturedInput)
@@ -129,11 +129,11 @@ func TestUserCreatedConsumer_HandleDelivery_Success(t *testing.T) {
 }
 
 func TestUserCreatedConsumer_HandleDelivery_InvalidJSON(t *testing.T) {
-	c := newUserCreatedConsumer(nil, nil, nil, 0)
+	userCreatedConsumer := newUserCreatedConsumer(nil, nil, nil, 0)
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: []byte("invalid-json")}
 
-	err := c.handleDelivery(context.Background(), d)
+	err := userCreatedConsumer.handleDelivery(context.Background(), d)
 	if err == nil {
 		t.Error("expected unmarshal error")
 	}
@@ -145,27 +145,27 @@ func TestUserCreatedConsumer_HandleDelivery_InvalidJSON(t *testing.T) {
 func TestUserCreatedConsumer_HandleDelivery_DuplicateInbox_Acks(t *testing.T) {
 	body := makeUserCreatedBody(t)
 
-	inbox := &mockInboxService{
+	inboxService := &mockInboxService{
 		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 			return true, nil // duplicate — skip cleanly
 		},
 	}
 
-	membership := &mockMembershipService{}
+	membershipService := &mockMembershipService{}
 
-	c := newUserCreatedConsumer(&mockTxManager{}, inbox, membership, 0)
+	userCreatedConsumer := newUserCreatedConsumer(&mockTxManager{}, inboxService, membershipService, 0)
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 
-	err := c.handleDelivery(context.Background(), d)
+	err := userCreatedConsumer.handleDelivery(context.Background(), d)
 	if err != nil {
 		t.Fatalf("expected no error on duplicate, got %v", err)
 	}
 	if !mockAck.ackCalled {
 		t.Error("expected ACK even on duplicate (idempotent skip)")
 	}
-	if membership.calls != 0 {
-		t.Errorf("expected no membership upsert on duplicate, got %d calls", membership.calls)
+	if membershipService.calls != 0 {
+		t.Errorf("expected no membership upsert on duplicate, got %d calls", membershipService.calls)
 	}
 }
 
@@ -173,17 +173,17 @@ func TestUserCreatedConsumer_HandleDelivery_InboxClaimError_Nacks(t *testing.T) 
 	body := makeUserCreatedBody(t)
 	inboxErr := errors.New("db connection lost")
 
-	inbox := &mockInboxService{
+	inboxService := &mockInboxService{
 		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 			return false, inboxErr
 		},
 	}
 
-	c := newUserCreatedConsumer(&mockTxManager{}, inbox, &mockMembershipService{}, 0)
+	userCreatedConsumer := newUserCreatedConsumer(&mockTxManager{}, inboxService, &mockMembershipService{}, 0)
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 
-	err := c.handleDelivery(context.Background(), d)
+	err := userCreatedConsumer.handleDelivery(context.Background(), d)
 	if err == nil {
 		t.Error("expected error from inbox claim failure")
 	}
@@ -194,24 +194,24 @@ func TestUserCreatedConsumer_HandleDelivery_InboxClaimError_Nacks(t *testing.T) 
 
 func TestUserCreatedConsumer_HandleDelivery_MembershipError_Nacks(t *testing.T) {
 	body := makeUserCreatedBody(t)
-	svcErr := errors.New("membership upsert failed")
+	serviceErr := errors.New("membership upsert failed")
 
-	inbox := &mockInboxService{
+	inboxService := &mockInboxService{
 		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 			return false, nil
 		},
 	}
-	membership := &mockMembershipService{
+	membershipService := &mockMembershipService{
 		addMembershipFunc: func(ctx context.Context, userID, tenantID string) error {
-			return svcErr
+			return serviceErr
 		},
 	}
 
-	c := newUserCreatedConsumer(&mockTxManager{}, inbox, membership, 0)
+	userCreatedConsumer := newUserCreatedConsumer(&mockTxManager{}, inboxService, membershipService, 0)
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 
-	err := c.handleDelivery(context.Background(), d)
+	err := userCreatedConsumer.handleDelivery(context.Background(), d)
 	if err == nil {
 		t.Error("expected error when membership upsert fails")
 	}
@@ -223,19 +223,19 @@ func TestUserCreatedConsumer_HandleDelivery_MembershipError_Nacks(t *testing.T) 
 func TestUserCreatedConsumer_HandleDelivery_MaxDeliveries_RoutesToDLQ(t *testing.T) {
 	body := makeUserCreatedBody(t)
 
-	inbox := &mockInboxService{
+	inboxService := &mockInboxService{
 		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 			return false, nil
 		},
 	}
-	membership := &mockMembershipService{
+	membershipService := &mockMembershipService{
 		addMembershipFunc: func(ctx context.Context, userID, tenantID string) error {
 			return errors.New("persistent failure")
 		},
 	}
 
 	// maxDeliveries = 3; this is the 3rd delivery -> must Nack(false,false) to DLX.
-	c := newUserCreatedConsumer(&mockTxManager{}, inbox, membership, 3)
+	userCreatedConsumer := newUserCreatedConsumer(&mockTxManager{}, inboxService, membershipService, 3)
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{
 		Acknowledger: mockAck,
@@ -245,7 +245,7 @@ func TestUserCreatedConsumer_HandleDelivery_MaxDeliveries_RoutesToDLQ(t *testing
 		},
 	}
 
-	err := c.handleDelivery(context.Background(), d)
+	err := userCreatedConsumer.handleDelivery(context.Background(), d)
 	if err == nil {
 		t.Error("expected error when max deliveries reached")
 	}
@@ -257,19 +257,19 @@ func TestUserCreatedConsumer_HandleDelivery_MaxDeliveries_RoutesToDLQ(t *testing
 func TestUserCreatedConsumer_HandleDelivery_BelowMaxDeliveries_Requeues(t *testing.T) {
 	body := makeUserCreatedBody(t)
 
-	inbox := &mockInboxService{
+	inboxService := &mockInboxService{
 		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 			return false, nil
 		},
 	}
-	membership := &mockMembershipService{
+	membershipService := &mockMembershipService{
 		addMembershipFunc: func(ctx context.Context, userID, tenantID string) error {
 			return errors.New("transient failure")
 		},
 	}
 
 	// maxDeliveries = 3; delivery_count = 2 -> still below cap, requeue.
-	c := newUserCreatedConsumer(&mockTxManager{}, inbox, membership, 3)
+	userCreatedConsumer := newUserCreatedConsumer(&mockTxManager{}, inboxService, membershipService, 3)
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{
 		Acknowledger: mockAck,
@@ -279,7 +279,7 @@ func TestUserCreatedConsumer_HandleDelivery_BelowMaxDeliveries_Requeues(t *testi
 		},
 	}
 
-	err := c.handleDelivery(context.Background(), d)
+	err := userCreatedConsumer.handleDelivery(context.Background(), d)
 	if err == nil {
 		t.Error("expected error on transient membership failure")
 	}
@@ -295,16 +295,16 @@ func TestUserCreatedConsumer_HandleDelivery_MisroutedRoutingKey_AcksAndDiscards(
 	body := makeUserCreatedBody(t)
 
 	inboxCalled := false
-	inbox := &mockInboxService{
+	inboxService := &mockInboxService{
 		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 			inboxCalled = true
 			return false, nil
 		},
 	}
 
-	membership := &mockMembershipService{}
+	membershipService := &mockMembershipService{}
 
-	c := newUserCreatedConsumer(&mockTxManager{}, inbox, membership, 0)
+	userCreatedConsumer := newUserCreatedConsumer(&mockTxManager{}, inboxService, membershipService, 0)
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{
 		Acknowledger: mockAck,
@@ -312,7 +312,7 @@ func TestUserCreatedConsumer_HandleDelivery_MisroutedRoutingKey_AcksAndDiscards(
 		RoutingKey:   "workspace.ready", // misrouted!
 	}
 
-	err := c.handleDelivery(context.Background(), d)
+	err := userCreatedConsumer.handleDelivery(context.Background(), d)
 	if err != nil {
 		t.Fatalf("expected no error for misrouted message, got %v", err)
 	}
@@ -325,7 +325,7 @@ func TestUserCreatedConsumer_HandleDelivery_MisroutedRoutingKey_AcksAndDiscards(
 	if inboxCalled {
 		t.Error("expected inbox service NOT to be called for misrouted message")
 	}
-	if membership.calls != 0 {
+	if membershipService.calls != 0 {
 		t.Error("expected membership service NOT to be called for misrouted message")
 	}
 }
@@ -362,16 +362,16 @@ func TestGetDeliveryCount_Empty(t *testing.T) {
 }
 
 func TestNewUserCreatedConsumer(t *testing.T) {
-	c := NewUserCreatedConsumer(UserCreatedConsumerParams{
+	userCreatedConsumer := NewUserCreatedConsumer(UserCreatedConsumerParams{
 		TxManager:         &mockTxManager{},
 		Client:            &mockAMQPInterfaceClient{},
 		InboxService:      &mockInboxService{},
 		MembershipService: &mockMembershipService{},
 	})
-	if c == nil {
+	if userCreatedConsumer == nil {
 		t.Fatal("expected non-nil consumer")
 	}
-	if c.maxDeliveries != domain.MaxAuthUserCreatedDeliveries {
-		t.Errorf("expected default maxDeliveries %d, got %d", domain.MaxAuthUserCreatedDeliveries, c.maxDeliveries)
+	if userCreatedConsumer.maxDeliveries != domain.MaxAuthUserCreatedDeliveries {
+		t.Errorf("expected default maxDeliveries %d, got %d", domain.MaxAuthUserCreatedDeliveries, userCreatedConsumer.maxDeliveries)
 	}
 }

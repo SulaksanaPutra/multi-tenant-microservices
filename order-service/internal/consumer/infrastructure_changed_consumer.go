@@ -35,32 +35,32 @@ func NewInfrastructureChangedConsumer(params InfrastructureChangedConsumerParams
 	}
 }
 
-func (c *InfrastructureChangedConsumer) setupTopology() (string, error) {
-	if err := c.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
+func (infrastructureChangedConsumer *InfrastructureChangedConsumer) setupTopology() (string, error) {
+	if err := infrastructureChangedConsumer.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return "", fmt.Errorf("failed to declare exchange: %w", err)
 	}
 
-	return c.client.DeclareAndBindExclusiveQueue(domain.ExchangeCompanyEvents, domain.RoutingKeyInfraChanged)
+	return infrastructureChangedConsumer.client.DeclareAndBindExclusiveQueue(domain.ExchangeCompanyEvents, domain.RoutingKeyInfraChanged)
 }
 
 // Start launches the consumer lifecycle loop in a background goroutine and returns immediately.
-func (c *InfrastructureChangedConsumer) Start(ctx context.Context) error {
+func (infrastructureChangedConsumer *InfrastructureChangedConsumer) Start(ctx context.Context) error {
 	go func() {
 		for {
-			connCtx := c.client.ConnContext()
+			connCtx := infrastructureChangedConsumer.client.ConnContext()
 
-			err := c.runConsumerLoop(ctx, connCtx)
+			err := infrastructureChangedConsumer.runConsumerLoop(ctx, connCtx)
 
 			if ctx.Err() != nil {
 				return
 			}
 
 			log.Printf("InfrastructureChangedConsumer: connection context cancelled (%v); purging all local caches to prevent split-brain", err)
-			c.poolRegistry.PurgeAll()
-			c.routingRegistry.PurgeAll()
+			infrastructureChangedConsumer.poolRegistry.PurgeAll()
+			infrastructureChangedConsumer.routingRegistry.PurgeAll()
 
 			log.Println("InfrastructureChangedConsumer: waiting for RabbitMQ reconnection...")
-			if err := c.client.WaitUntilReady(ctx); err != nil {
+			if err := infrastructureChangedConsumer.client.WaitUntilReady(ctx); err != nil {
 				return
 			}
 
@@ -71,19 +71,19 @@ func (c *InfrastructureChangedConsumer) Start(ctx context.Context) error {
 	return nil
 }
 
-func (c *InfrastructureChangedConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
-	qName, err := c.setupTopology()
+func (infrastructureChangedConsumer *InfrastructureChangedConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
+	qName, err := infrastructureChangedConsumer.setupTopology()
 	if err != nil {
 		return fmt.Errorf("failed to setup topology: %w", err)
 	}
-	c.queueName = qName
+	infrastructureChangedConsumer.queueName = qName
 
-	msgs, err := c.client.Consume(c.queueName, "")
+	msgs, err := infrastructureChangedConsumer.client.Consume(infrastructureChangedConsumer.queueName, "")
 	if err != nil {
-		return fmt.Errorf("failed to start consume on '%s': %w", c.queueName, err)
+		return fmt.Errorf("failed to start consume on '%s': %w", infrastructureChangedConsumer.queueName, err)
 	}
 
-	log.Printf("InfrastructureChangedConsumer: listening on exclusive queue '%s'...", c.queueName)
+	log.Printf("InfrastructureChangedConsumer: listening on exclusive queue '%s'...", infrastructureChangedConsumer.queueName)
 
 	for {
 		select {
@@ -102,12 +102,12 @@ func (c *InfrastructureChangedConsumer) runConsumerLoop(appCtx, connCtx context.
 				return errors.New("delivery channel closed")
 			}
 
-			_ = c.handleDelivery(appCtx, d)
+			_ = infrastructureChangedConsumer.handleDelivery(appCtx, d)
 		}
 	}
 }
 
-func (c *InfrastructureChangedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
+func (infrastructureChangedConsumer *InfrastructureChangedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
 	var evt domain.InfraChangedEvent
 	if err := json.Unmarshal(d.Body, &evt); err != nil {
 		log.Printf("InfrastructureChangedConsumer: bad payload: %v", err)
@@ -116,8 +116,8 @@ func (c *InfrastructureChangedConsumer) handleDelivery(ctx context.Context, d ra
 	}
 
 	log.Printf("InfrastructureChangedConsumer: evicting pool & routing metadata for tenant='%s'", evt.TenantID)
-	c.poolRegistry.Evict(evt.TenantID)
-	c.routingRegistry.Delete(evt.TenantID)
+	infrastructureChangedConsumer.poolRegistry.Evict(evt.TenantID)
+	infrastructureChangedConsumer.routingRegistry.Delete(evt.TenantID)
 	_ = d.Ack(false)
 	return nil
 }

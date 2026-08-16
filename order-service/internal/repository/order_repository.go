@@ -28,17 +28,17 @@ func NewOrderRepository(config tenantdb.Config) *OrderRepository {
 	return &OrderRepository{config: config}
 }
 
-func (r *OrderRepository) ListOrders(ctx context.Context) ([]domain.Order, error) {
-	if r.config.DB == nil {
+func (orderRepository *OrderRepository) ListOrders(ctx context.Context) ([]domain.Order, error) {
+	if orderRepository.config.DB == nil {
 		return nil, errors.New("order repository: database handle is nil")
 	}
 
-	schemaName := r.config.SchemaName
+	schemaName := orderRepository.config.SchemaName
 	if schemaName == "" {
 		schemaName = "public"
 	}
 
-	exec := txcontext.GetExecutor(ctx, r.config.DB)
+	exec := txcontext.GetExecutor(ctx, orderRepository.config.DB)
 
 	query := fmt.Sprintf(`
 		SELECT id, tenant_id, customer_id, status, amount, created_at, updated_at
@@ -67,17 +67,17 @@ func (r *OrderRepository) ListOrders(ctx context.Context) ([]domain.Order, error
 	return orders, rows.Err()
 }
 
-func (r *OrderRepository) CreateOrder(ctx context.Context, input CreateOrderInput) error {
-	if r.config.DB == nil {
+func (orderRepository *OrderRepository) CreateOrder(ctx context.Context, input CreateOrderInput) error {
+	if orderRepository.config.DB == nil {
 		return errors.New("order repository: database handle is nil")
 	}
 
-	schemaName := r.config.SchemaName
+	schemaName := orderRepository.config.SchemaName
 	if schemaName == "" {
 		schemaName = "public"
 	}
 
-	exec := txcontext.GetExecutor(ctx, r.config.DB)
+	exec := txcontext.GetExecutor(ctx, orderRepository.config.DB)
 	quotedSchema := pq.QuoteIdentifier(schemaName)
 
 	// 1. Insert into orders table.
@@ -119,4 +119,3 @@ func (r *OrderRepository) CreateOrder(ctx context.Context, input CreateOrderInpu
 
 	return nil
 }
-

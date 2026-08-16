@@ -25,8 +25,8 @@ func NewInboxRepository(dbClient *postgres.Client) *InboxRepository {
 
 // TryInsert inserts the event into the inbox atomically. Returns isDuplicate
 // = true when the event_id already exists (dedup barrier satisfied).
-func (r *InboxRepository) TryInsert(ctx context.Context, input CreateInboxMessageInput) (bool, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (inboxRepository *InboxRepository) TryInsert(ctx context.Context, input CreateInboxMessageInput) (bool, error) {
+	exec := txcontext.GetExecutor(ctx, inboxRepository.dbClient)
 	const query = `
 		INSERT INTO public.inbox (event_id, tenant_id, event_type, payload)
 		VALUES ($1, $2, $3, $4)

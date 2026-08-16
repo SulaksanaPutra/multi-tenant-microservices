@@ -41,16 +41,16 @@ func NewInboxService(inboxRepository InboxServiceRepository) *InboxService {
 // Returns (isDuplicate=true, nil) if the event_id was already processed — caller should skip cleanly.
 // Returns (false, nil) if the event is new and safe to process.
 // Returns (false, err) on infrastructure failure — caller should NACK for retry.
-func (s *InboxService) ClaimEvent(txCtx context.Context, input ClaimInboxInput) (bool, error) {
+func (inboxService *InboxService) ClaimEvent(txCtx context.Context, input ClaimInboxInput) (bool, error) {
 	if input.EventID == "" {
 		return false, nil
 	}
 	if input.TenantID != "" {
-		if err := s.inboxRepository.AcquireTenantLock(txCtx, input.TenantID); err != nil {
+		if err := inboxService.inboxRepository.AcquireTenantLock(txCtx, input.TenantID); err != nil {
 			return false, fmt.Errorf("inbox service: failed to acquire tenant lock for tenant_id='%s': %w", input.TenantID, err)
 		}
 	}
-	isDuplicate, err := s.inboxRepository.TryInsert(txCtx, repository.CreateInboxMessageInput{
+	isDuplicate, err := inboxService.inboxRepository.TryInsert(txCtx, repository.CreateInboxMessageInput{
 		EventID:   input.EventID,
 		TenantID:  input.TenantID,
 		EventType: input.EventType,
@@ -63,8 +63,8 @@ func (s *InboxService) ClaimEvent(txCtx context.Context, input ClaimInboxInput) 
 }
 
 // ListBarrierEvents returns all inbox events recorded for the given tenant.
-func (s *InboxService) ListBarrierEvents(txCtx context.Context, tenantID string) ([]domain.InboxMessage, error) {
-	events, err := s.inboxRepository.ListEventsByTenantID(txCtx, tenantID)
+func (inboxService *InboxService) ListBarrierEvents(txCtx context.Context, tenantID string) ([]domain.InboxMessage, error) {
+	events, err := inboxService.inboxRepository.ListEventsByTenantID(txCtx, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("inbox service: failed to fetch barrier events for tenant_id='%s': %w", tenantID, err)
 	}

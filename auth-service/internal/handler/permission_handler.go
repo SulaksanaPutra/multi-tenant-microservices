@@ -10,7 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-
 // PermissionResponse is the transport DTO for a permission catalog entry.
 type PermissionResponse struct {
 	ID          string    `json:"id"`
@@ -40,8 +39,8 @@ func toPermissionResponse(permission service.PermissionOutput) PermissionRespons
 	}
 }
 
-func (h *PermissionHandler) ListPermissions(c *gin.Context) {
-	permissions, err := h.permissionService.ListPermissions(c.Request.Context())
+func (permissionHandler *PermissionHandler) ListPermissions(c *gin.Context) {
+	permissions, err := permissionHandler.permissionService.ListPermissions(c.Request.Context())
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return

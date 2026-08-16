@@ -35,7 +35,7 @@ var services = []string{
 func main() {
 	jsonFlag := flag.Bool("json", false, "machine-readable output")
 	quietFlag := flag.Bool("quiet", false, "summary only")
-	strictFlag := flag.Bool("strict", false, "include *_test.go in style checks")
+	strictFlag := flag.Bool("strict", true, "include *_test.go in style checks (default true)")
 	serviceFlag := flag.String("service", "", "scan one service")
 	flag.Parse()
 
@@ -401,6 +401,32 @@ func checkFile(fset *token.FileSet, file *ast.File, service, relPath string, isT
 
 		switch fn := n.(type) {
 		case *ast.FuncDecl:
+			// Rule 3.4 — Single-letter receiver check on layer types
+			if fn.Recv != nil && len(fn.Recv.List) > 0 {
+				for _, field := range fn.Recv.List {
+					for _, name := range field.Names {
+						recvName := name.Name
+						typeName := ""
+						if star, ok := field.Type.(*ast.StarExpr); ok {
+							if ident, ok := star.X.(*ast.Ident); ok {
+								typeName = ident.Name
+							}
+						} else if ident, ok := field.Type.(*ast.Ident); ok {
+							typeName = ident.Name
+						}
+						if typeName != "" {
+							if (recvName == "r" && strings.HasSuffix(typeName, "Repository")) ||
+								(recvName == "s" && strings.HasSuffix(typeName, "Service")) ||
+								(recvName == "h" && strings.HasSuffix(typeName, "Handler")) ||
+								(recvName == "c" && strings.HasSuffix(typeName, "Consumer")) ||
+								(recvName == "w" && strings.HasSuffix(typeName, "Worker")) {
+								add(name.Pos(), "3.4", "abbrev-receiver", fmt.Sprintf("single-letter receiver `%s` on `%s` — Rule 3.4 requires full-word receiver like `%s`", recvName, typeName, strings.ToLower(typeName[:1])+typeName[1:]))
+							}
+						}
+					}
+				}
+			}
+
 			// Rule 2.1 — New* constructors return concrete struct pointers
 			if strings.HasPrefix(fn.Name.Name, "New") && fn.Type.Results != nil {
 				for _, res := range fn.Type.Results.List {
@@ -713,13 +739,15 @@ func isAMQPConst(name string) bool {
 }
 
 var (
-	reAbbrevRepo = regexp.MustCompile(`\b(?:\w*Repo\b|\brepo\b)`)
-	reAbbrevSvc  = regexp.MustCompile(`\b\w*[sS]vc\b`)
-	reAbbrevPub  = regexp.MustCompile(`\bpub\b`)
-	reAbbrevCons = regexp.MustCompile(`\b\w*[cC]ons\b`)
-	reAbbrevHnd  = regexp.MustCompile(`\b\w*[hH]nd\b`)
-	reAbbrevMig  = regexp.MustCompile(`\bmig\b`)
-	reAbbrevMgr  = regexp.MustCompile(`\b\w*[mM]gr\b`)
+	reAbbrevRepo  = regexp.MustCompile(`\b(?:\w*Repo\b|\brepo\b)`)
+	reAbbrevSvc   = regexp.MustCompile(`\b\w*[sS]vc\b`)
+	reAbbrevPub   = regexp.MustCompile(`\bpub\b`)
+	reAbbrevCons  = regexp.MustCompile(`\b\w*[cC]ons\b`)
+	reAbbrevHnd   = regexp.MustCompile(`\b\w*[hH]nd\b`)
+	reAbbrevMig   = regexp.MustCompile(`\bmig\b`)
+	reAbbrevMgr   = regexp.MustCompile(`\b\w*[mM]gr\b`)
+	reAbbrevTxm   = regexp.MustCompile(`\b(?:\w*[tT]xm\b|\btxm\b)`)
+	reAbbrevNotif = regexp.MustCompile(`\b\w*[nN]otif\w*\b`)
 )
 
 func checkAbbrev(node ast.Node, relPath string, add func(token.Pos, string, string, string)) {
@@ -727,22 +755,42 @@ func checkAbbrev(node ast.Node, relPath string, add func(token.Pos, string, stri
 		name := ident.Name
 		if reAbbrevRepo.MatchString(name) {
 			add(ident.Pos(), "3.4", "abbrev-repo", "abbreviated repository identifier (`repo` / `*Repo`) — use a full word like `roleRepository``")
-		} else if reAbbrevSvc.MatchString(name) {
+		}
+		if reAbbrevSvc.MatchString(name) {
 			add(ident.Pos(), "3.4", "abbrev-svc", "abbreviated service identifier (`svc` / `*Svc`) — use a full word like `workspaceService``")
-		} else if reAbbrevPub.MatchString(name) {
+		}
+		if reAbbrevPub.MatchString(name) {
 			if strings.Contains(relPath, "/consumer/") || strings.Contains(relPath, "/publisher/") || strings.Contains(relPath, "/worker/") {
 				add(ident.Pos(), "3.4", "abbrev-pub", "abbreviated publisher identifier (`pub`) — use a full word like `tenantEventPublisher`")
 			}
-		} else if reAbbrevCons.MatchString(name) {
+		}
+		if reAbbrevCons.MatchString(name) {
 			add(ident.Pos(), "3.4", "abbrev-cons", "abbreviated consumer identifier (`cons` / `*Cons`) — use a full word like `userCreatedConsumer`")
-		} else if reAbbrevHnd.MatchString(name) {
+		}
+		if reAbbrevHnd.MatchString(name) {
 			add(ident.Pos(), "3.4", "abbrev-hnd", "abbreviated handler identifier (`hnd` / `*Hnd`) — use a full word like `orderHandler`")
-		} else if reAbbrevMig.MatchString(name) {
+		}
+		if reAbbrevMig.MatchString(name) {
 			add(ident.Pos(), "3.4", "abbrev-mig", "abbreviated migration identifier (`mig`) — use `migration`")
-		} else if reAbbrevMgr.MatchString(name) {
+		}
+		if reAbbrevMgr.MatchString(name) {
 			add(ident.Pos(), "3.4", "abbrev-mgr", "abbreviated manager identifier (`mgr` / `*Mgr`) — use a full word like `txManager`")
 		}
+		if reAbbrevTxm.MatchString(name) {
+			add(ident.Pos(), "3.4", "abbrev-txm", "abbreviated transaction manager identifier (`txm` / `*Txm`) — use a full word like `txManager`")
+		}
+		if isAbbreviatedNotif(name) {
+			add(ident.Pos(), "3.4", "abbrev-notif", "abbreviated notification identifier (`notif` / `*Notif`) — use a full word like `notificationRepository` / `notificationService`")
+		}
 	}
+}
+
+func isAbbreviatedNotif(name string) bool {
+	lower := strings.ToLower(name)
+	if strings.Contains(lower, "notification") || strings.Contains(lower, "notify") || strings.Contains(lower, "notifier") || strings.Contains(lower, "notified") {
+		return false
+	}
+	return strings.Contains(lower, "notif")
 }
 
 func isInternalFile(rel string) bool {

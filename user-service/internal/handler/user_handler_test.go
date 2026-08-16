@@ -42,21 +42,21 @@ func (m *mockUserService) UpdateUser(ctx context.Context, input service.UpdateUs
 
 func setupTestRouter(userHandler *UserHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.Use(func(c *gin.Context) {
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
 		c.Set("userID", "usr_test123")
 		c.Set("tenantID", "ten_test123")
 		c.Next()
 	})
-	r.GET("/api/users", userHandler.ListUsers)
-	r.GET("/api/users/me", userHandler.GetMe)
-	r.PUT("/api/users/me", userHandler.UpdateMe)
-	return r
+	router.GET("/api/users", userHandler.ListUsers)
+	router.GET("/api/users/me", userHandler.GetMe)
+	router.PUT("/api/users/me", userHandler.UpdateMe)
+	return router
 }
 
 func TestUserHandler_ListUsers(t *testing.T) {
 	var gotTenantID string
-	mockSvc := &mockUserService{
+	mockUserService := &mockUserService{
 		listUsersFn: func(ctx context.Context, tenantID string) ([]service.UserOutput, error) {
 			gotTenantID = tenantID
 			return []service.UserOutput{
@@ -64,12 +64,12 @@ func TestUserHandler_ListUsers(t *testing.T) {
 			}, nil
 		},
 	}
-	userHandler := NewUserHandler(mockSvc)
-	r := setupTestRouter(userHandler)
+	userHandler := NewUserHandler(mockUserService)
+	router := setupTestRouter(userHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/users", nil)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", w.Code)
@@ -81,7 +81,7 @@ func TestUserHandler_ListUsers(t *testing.T) {
 
 func TestUserHandler_UpdateMe(t *testing.T) {
 	updated := false
-	mockSvc := &mockUserService{
+	mockUserService := &mockUserService{
 		updateUserFn: func(ctx context.Context, input service.UpdateUserInput) error {
 			if input.UserID == "usr_test123" && input.Name == "Jane Doe" {
 				updated = true
@@ -89,14 +89,14 @@ func TestUserHandler_UpdateMe(t *testing.T) {
 			return nil
 		},
 	}
-	userHandler := NewUserHandler(mockSvc)
-	r := setupTestRouter(userHandler)
+	userHandler := NewUserHandler(mockUserService)
+	router := setupTestRouter(userHandler)
 
 	body, _ := json.Marshal(UpdateUserRequest{Name: "Jane Doe"})
 	req := httptest.NewRequest(http.MethodPut, "/api/users/me", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", w.Code)

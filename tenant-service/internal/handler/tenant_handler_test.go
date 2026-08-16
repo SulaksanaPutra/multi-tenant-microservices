@@ -42,19 +42,19 @@ func (m *mockTenantService) ChangeTenantPlan(ctx context.Context, input service.
 
 func setupTenantTestRouter(tenantHandler *TenantHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.Use(func(c *gin.Context) {
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
 		c.Set("tenantID", "ten_test123")
 		c.Next()
 	})
-	r.GET("/api/tenants/me", tenantHandler.GetTenantMe)
-	r.PUT("/api/tenants/me", tenantHandler.UpdateTenantMe)
-	r.PUT("/api/tenants/me/plan", tenantHandler.ChangeTenantPlanMe)
-	return r
+	router.GET("/api/tenants/me", tenantHandler.GetTenantMe)
+	router.PUT("/api/tenants/me", tenantHandler.UpdateTenantMe)
+	router.PUT("/api/tenants/me/plan", tenantHandler.ChangeTenantPlanMe)
+	return router
 }
 
 func TestTenantHandler_GetTenantMe(t *testing.T) {
-	mockSvc := &mockTenantService{
+	mockTenantService := &mockTenantService{
 		getTenantByIDFn: func(ctx context.Context, tenantID string) (*service.TenantOutput, error) {
 			return &service.TenantOutput{
 				ID:         tenantID,
@@ -65,12 +65,12 @@ func TestTenantHandler_GetTenantMe(t *testing.T) {
 			}, nil
 		},
 	}
-	tenantHandler := NewTenantHandler(mockSvc)
-	r := setupTenantTestRouter(tenantHandler)
+	tenantHandler := NewTenantHandler(mockTenantService)
+	router := setupTenantTestRouter(tenantHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/tenants/me", nil)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", w.Code)
@@ -101,7 +101,7 @@ func TestTenantHandler_GetTenantMe(t *testing.T) {
 
 func TestTenantHandler_UpdateTenantMe(t *testing.T) {
 	updated := false
-	mockSvc := &mockTenantService{
+	mockTenantService := &mockTenantService{
 		getTenantByIDFn: func(ctx context.Context, tenantID string) (*service.TenantOutput, error) {
 			return &service.TenantOutput{
 				ID:         "ten_test123",
@@ -118,8 +118,8 @@ func TestTenantHandler_UpdateTenantMe(t *testing.T) {
 			return nil
 		},
 	}
-	tenantHandler := NewTenantHandler(mockSvc)
-	r := setupTenantTestRouter(tenantHandler)
+	tenantHandler := NewTenantHandler(mockTenantService)
+	router := setupTenantTestRouter(tenantHandler)
 
 	ownerEmail := "owner@example.com"
 	body, _ := json.Marshal(UpdateTenantRequest{
@@ -130,7 +130,7 @@ func TestTenantHandler_UpdateTenantMe(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/tenants/me", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", w.Code)
@@ -142,7 +142,7 @@ func TestTenantHandler_UpdateTenantMe(t *testing.T) {
 
 func TestTenantHandler_UpdateTenantMe_OwnerFieldsOptional(t *testing.T) {
 	updated := false
-	mockSvc := &mockTenantService{
+	mockTenantService := &mockTenantService{
 		getTenantByIDFn: func(ctx context.Context, tenantID string) (*service.TenantOutput, error) {
 			return &service.TenantOutput{
 				ID:         "ten_test123",
@@ -159,8 +159,8 @@ func TestTenantHandler_UpdateTenantMe_OwnerFieldsOptional(t *testing.T) {
 			return nil
 		},
 	}
-	tenantHandler := NewTenantHandler(mockSvc)
-	r := setupTenantTestRouter(tenantHandler)
+	tenantHandler := NewTenantHandler(mockTenantService)
+	router := setupTenantTestRouter(tenantHandler)
 
 	body, _ := json.Marshal(UpdateTenantRequest{
 		Name: "New Acme",
@@ -169,7 +169,7 @@ func TestTenantHandler_UpdateTenantMe_OwnerFieldsOptional(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/tenants/me", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", w.Code)
@@ -181,7 +181,7 @@ func TestTenantHandler_UpdateTenantMe_OwnerFieldsOptional(t *testing.T) {
 
 func TestTenantHandler_ChangeTenantPlanMe(t *testing.T) {
 	changed := false
-	mockSvc := &mockTenantService{
+	mockTenantService := &mockTenantService{
 		changeTenantPlanFn: func(ctx context.Context, input service.ChangeTenantPlanInput) error {
 			if input.TenantID == "ten_test123" && input.Plan == "dedicated" {
 				changed = true
@@ -189,14 +189,14 @@ func TestTenantHandler_ChangeTenantPlanMe(t *testing.T) {
 			return nil
 		},
 	}
-	tenantHandler := NewTenantHandler(mockSvc)
-	r := setupTenantTestRouter(tenantHandler)
+	tenantHandler := NewTenantHandler(mockTenantService)
+	router := setupTenantTestRouter(tenantHandler)
 
 	body, _ := json.Marshal(ChangePlanRequest{Plan: "dedicated"})
 	req := httptest.NewRequest(http.MethodPut, "/api/tenants/me/plan", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", w.Code)

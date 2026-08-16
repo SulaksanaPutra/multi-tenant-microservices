@@ -8,11 +8,11 @@ import (
 	"auth-service/internal/repository"
 )
 
-type mockInboxRepo struct {
+type mockInboxRepository struct {
 	tryInsertFunc func(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error)
 }
 
-func (m *mockInboxRepo) TryInsert(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
+func (m *mockInboxRepository) TryInsert(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
 	if m.tryInsertFunc != nil {
 		return m.tryInsertFunc(ctx, input)
 	}
@@ -20,8 +20,8 @@ func (m *mockInboxRepo) TryInsert(ctx context.Context, input repository.CreateIn
 }
 
 func TestInboxService_ClaimEvent_EmptyEventID(t *testing.T) {
-	svc := NewInboxService(&mockInboxRepo{})
-	isDup, err := svc.ClaimEvent(context.Background(), ClaimInboxInput{EventID: ""})
+	inboxService := NewInboxService(&mockInboxRepository{})
+	isDup, err := inboxService.ClaimEvent(context.Background(), ClaimInboxInput{EventID: ""})
 	if err != nil {
 		t.Fatalf("expected no error for empty event_id, got %v", err)
 	}
@@ -31,12 +31,12 @@ func TestInboxService_ClaimEvent_EmptyEventID(t *testing.T) {
 }
 
 func TestInboxService_ClaimEvent_NewEvent(t *testing.T) {
-	svc := NewInboxService(&mockInboxRepo{
+	inboxService := NewInboxService(&mockInboxRepository{
 		tryInsertFunc: func(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
 			return false, nil // not a duplicate
 		},
 	})
-	isDup, err := svc.ClaimEvent(context.Background(), ClaimInboxInput{
+	isDup, err := inboxService.ClaimEvent(context.Background(), ClaimInboxInput{
 		EventID:   "evt-new",
 		TenantID:  "tenant-1",
 		EventType: "user.created",
@@ -50,12 +50,12 @@ func TestInboxService_ClaimEvent_NewEvent(t *testing.T) {
 }
 
 func TestInboxService_ClaimEvent_DuplicateEvent(t *testing.T) {
-	svc := NewInboxService(&mockInboxRepo{
+	inboxService := NewInboxService(&mockInboxRepository{
 		tryInsertFunc: func(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
 			return true, nil // duplicate
 		},
 	})
-	isDup, err := svc.ClaimEvent(context.Background(), ClaimInboxInput{
+	isDup, err := inboxService.ClaimEvent(context.Background(), ClaimInboxInput{
 		EventID:   "evt-dup",
 		TenantID:  "tenant-1",
 		EventType: "user.created",
@@ -70,12 +70,12 @@ func TestInboxService_ClaimEvent_DuplicateEvent(t *testing.T) {
 
 func TestInboxService_ClaimEvent_TryInsertError(t *testing.T) {
 	expectedErr := errors.New("db connection lost")
-	svc := NewInboxService(&mockInboxRepo{
+	inboxService := NewInboxService(&mockInboxRepository{
 		tryInsertFunc: func(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
 			return false, expectedErr
 		},
 	})
-	_, err := svc.ClaimEvent(context.Background(), ClaimInboxInput{
+	_, err := inboxService.ClaimEvent(context.Background(), ClaimInboxInput{
 		EventID:  "evt-fail",
 		TenantID: "tenant-1",
 	})

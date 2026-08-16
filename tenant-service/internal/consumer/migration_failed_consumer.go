@@ -34,24 +34,24 @@ func NewMigrationFailedConsumer(params MigrationFailedConsumerParams) *Migration
 	}
 }
 
-func (c *MigrationFailedConsumer) setupTopology() error {
-	if err := c.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
+func (migrationFailedConsumer *MigrationFailedConsumer) setupTopology() error {
+	if err := migrationFailedConsumer.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return fmt.Errorf("failed to declare exchange: %w", err)
 	}
 
-	if err := c.client.DeclareAndBindQueue(domain.QueueTenantServiceMigrationFailed, domain.ExchangeCompanyEvents, domain.RoutingKeyTenantMigrationFailed); err != nil {
+	if err := migrationFailedConsumer.client.DeclareAndBindQueue(domain.QueueTenantServiceMigrationFailed, domain.ExchangeCompanyEvents, domain.RoutingKeyTenantMigrationFailed); err != nil {
 		return fmt.Errorf("failed to bind queue: %w", err)
 	}
 
 	return nil
 }
 
-func (c *MigrationFailedConsumer) Start(ctx context.Context) error {
+func (migrationFailedConsumer *MigrationFailedConsumer) Start(ctx context.Context) error {
 	go func() {
 		for {
-			connCtx := c.client.ConnContext()
+			connCtx := migrationFailedConsumer.client.ConnContext()
 
-			err := c.runConsumerLoop(ctx, connCtx)
+			err := migrationFailedConsumer.runConsumerLoop(ctx, connCtx)
 
 			if ctx.Err() != nil {
 				return
@@ -59,7 +59,7 @@ func (c *MigrationFailedConsumer) Start(ctx context.Context) error {
 
 			log.Printf("MigrationFailedConsumer: connection context cancelled (%v); waiting for RabbitMQ reconnection...", err)
 
-			if err := c.client.WaitUntilReady(ctx); err != nil {
+			if err := migrationFailedConsumer.client.WaitUntilReady(ctx); err != nil {
 				return
 			}
 
@@ -70,12 +70,12 @@ func (c *MigrationFailedConsumer) Start(ctx context.Context) error {
 	return nil
 }
 
-func (c *MigrationFailedConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
-	if err := c.setupTopology(); err != nil {
+func (migrationFailedConsumer *MigrationFailedConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
+	if err := migrationFailedConsumer.setupTopology(); err != nil {
 		return err
 	}
 
-	msgs, err := c.client.Consume(
+	msgs, err := migrationFailedConsumer.client.Consume(
 		domain.QueueTenantServiceMigrationFailed,
 		"tenant-service-migration-failed-consumer",
 	)
@@ -99,12 +99,12 @@ func (c *MigrationFailedConsumer) runConsumerLoop(appCtx, connCtx context.Contex
 				return errors.New("delivery channel closed")
 			}
 
-			_ = c.handleDelivery(appCtx, d)
+			_ = migrationFailedConsumer.handleDelivery(appCtx, d)
 		}
 	}
 }
 
-func (c *MigrationFailedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
+func (migrationFailedConsumer *MigrationFailedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
 	var evt domain.TenantMigrationFailedEvent
 	if err := json.Unmarshal(d.Body, &evt); err != nil {
 		log.Printf("MigrationFailedConsumer Error: Bad payload: %v", err)
@@ -123,8 +123,8 @@ func (c *MigrationFailedConsumer) handleDelivery(ctx context.Context, d rabbitmq
 	log.Printf("MigrationFailedConsumer: Rollback triggered for tenant='%s' event_id='%s' reason='%s'",
 		evt.TenantID, evt.EventID, evt.Reason)
 
-	err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-		isDup, err := c.inboxService.ClaimEvent(txCtx, evt.EventID)
+	err := migrationFailedConsumer.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		isDup, err := migrationFailedConsumer.inboxService.ClaimEvent(txCtx, evt.EventID)
 		if err != nil {
 			return fmt.Errorf("failed to claim inbox event: %w", err)
 		}
@@ -135,7 +135,7 @@ func (c *MigrationFailedConsumer) handleDelivery(ctx context.Context, d rabbitmq
 
 		// Reset tenant status back to ACTIVE and stage the unfreeze broadcast
 		// (both owned by the Layer-2 service within the outer Unit-of-Work).
-		if err := c.migrationRollbackService.RollbackFailedMigration(txCtx, evt.TenantID); err != nil {
+		if err := migrationFailedConsumer.migrationRollbackService.RollbackFailedMigration(txCtx, evt.TenantID); err != nil {
 			return err
 		}
 

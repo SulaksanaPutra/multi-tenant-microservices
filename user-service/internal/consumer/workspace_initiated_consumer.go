@@ -35,24 +35,24 @@ func NewWorkspaceInitiatedConsumer(params WorkspaceInitiatedConsumerParams) *Wor
 	}
 }
 
-func (c *WorkspaceInitiatedConsumer) setupTopology() error {
-	if err := c.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
+func (workspaceInitiatedConsumer *WorkspaceInitiatedConsumer) setupTopology() error {
+	if err := workspaceInitiatedConsumer.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return fmt.Errorf("failed to declare exchange: %w", err)
 	}
 
-	if err := c.client.DeclareAndBindQueue(domain.QueueUserServiceWorkspaceInitiated, domain.ExchangeCompanyEvents, domain.RoutingKeyWorkspaceInitiated); err != nil {
+	if err := workspaceInitiatedConsumer.client.DeclareAndBindQueue(domain.QueueUserServiceWorkspaceInitiated, domain.ExchangeCompanyEvents, domain.RoutingKeyWorkspaceInitiated); err != nil {
 		return fmt.Errorf("failed to bind queue: %w", err)
 	}
 
 	return nil
 }
 
-func (c *WorkspaceInitiatedConsumer) Start(ctx context.Context) error {
+func (workspaceInitiatedConsumer *WorkspaceInitiatedConsumer) Start(ctx context.Context) error {
 	go func() {
 		for {
-			connCtx := c.client.ConnContext()
+			connCtx := workspaceInitiatedConsumer.client.ConnContext()
 
-			err := c.runConsumerLoop(ctx, connCtx)
+			err := workspaceInitiatedConsumer.runConsumerLoop(ctx, connCtx)
 
 			if ctx.Err() != nil {
 				return
@@ -60,7 +60,7 @@ func (c *WorkspaceInitiatedConsumer) Start(ctx context.Context) error {
 
 			log.Printf("WorkspaceInitiatedConsumer: connection context cancelled (%v); waiting for RabbitMQ reconnection...", err)
 
-			if err := c.client.WaitUntilReady(ctx); err != nil {
+			if err := workspaceInitiatedConsumer.client.WaitUntilReady(ctx); err != nil {
 				return
 			}
 
@@ -71,12 +71,12 @@ func (c *WorkspaceInitiatedConsumer) Start(ctx context.Context) error {
 	return nil
 }
 
-func (c *WorkspaceInitiatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
-	if err := c.setupTopology(); err != nil {
+func (workspaceInitiatedConsumer *WorkspaceInitiatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
+	if err := workspaceInitiatedConsumer.setupTopology(); err != nil {
 		return err
 	}
 
-	msgs, err := c.client.Consume(
+	msgs, err := workspaceInitiatedConsumer.client.Consume(
 		domain.QueueUserServiceWorkspaceInitiated,
 		"user-service-worker",
 	)
@@ -100,12 +100,12 @@ func (c *WorkspaceInitiatedConsumer) runConsumerLoop(appCtx, connCtx context.Con
 				return errors.New("delivery channel closed")
 			}
 
-			_ = c.handleDelivery(appCtx, d)
+			_ = workspaceInitiatedConsumer.handleDelivery(appCtx, d)
 		}
 	}
 }
 
-func (c *WorkspaceInitiatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
+func (workspaceInitiatedConsumer *WorkspaceInitiatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
 	if d.RoutingKey != domain.RoutingKeyWorkspaceInitiated && d.RoutingKey != "" {
 		log.Printf("[WARN] WorkspaceInitiatedConsumer: Received misrouted message with routing_key='%s' (expected '%s'). Discarding.", d.RoutingKey, domain.RoutingKeyWorkspaceInitiated)
 		_ = d.Ack(false)
@@ -129,8 +129,8 @@ func (c *WorkspaceInitiatedConsumer) handleDelivery(ctx context.Context, d rabbi
 
 	log.Printf("WorkspaceInitiatedConsumer processing event_id='%s' for tenant_id='%s'", evt.EventID, evt.TenantID)
 
-	err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-		isDup, err := c.inboxService.ClaimEvent(txCtx, evt.EventID)
+	err := workspaceInitiatedConsumer.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		isDup, err := workspaceInitiatedConsumer.inboxService.ClaimEvent(txCtx, evt.EventID)
 		if err != nil {
 			return fmt.Errorf("inbox guard failure: %w", err)
 		}
@@ -145,7 +145,7 @@ func (c *WorkspaceInitiatedConsumer) handleDelivery(ctx context.Context, d rabbi
 			OwnerEmail: evt.OwnerEmail,
 			OwnerName:  evt.OwnerName,
 		}
-		if err := c.userService.CreateUserFromWorkspace(txCtx, input); err != nil {
+		if err := workspaceInitiatedConsumer.userService.CreateUserFromWorkspace(txCtx, input); err != nil {
 			return fmt.Errorf("failed to create user profile: %w", err)
 		}
 

@@ -26,8 +26,8 @@ func NewCredentialRepository(dbClient *postgres.Client) *CredentialRepository {
 	return &CredentialRepository{dbClient: dbClient}
 }
 
-func (r *CredentialRepository) UpsertCredential(ctx context.Context, input UpsertCredentialInput) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (credentialRepository *CredentialRepository) UpsertCredential(ctx context.Context, input UpsertCredentialInput) error {
+	exec := txcontext.GetExecutor(ctx, credentialRepository.dbClient)
 	query := `
 		INSERT INTO public.user_credentials (user_id, email, password_hash, updated_at)
 		VALUES ($1, $2, $3, NOW())
@@ -41,15 +41,15 @@ func (r *CredentialRepository) UpsertCredential(ctx context.Context, input Upser
 	}
 
 	if input.TenantID != "" {
-		if err := r.AddMembership(ctx, input.UserID, input.TenantID); err != nil {
+		if err := credentialRepository.AddMembership(ctx, input.UserID, input.TenantID); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (r *CredentialRepository) AddMembership(ctx context.Context, userID, tenantID string) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (credentialRepository *CredentialRepository) AddMembership(ctx context.Context, userID, tenantID string) error {
+	exec := txcontext.GetExecutor(ctx, credentialRepository.dbClient)
 	query := `
 		INSERT INTO public.user_tenant_memberships (user_id, tenant_id)
 		VALUES ($1, $2)
@@ -61,8 +61,8 @@ func (r *CredentialRepository) AddMembership(ctx context.Context, userID, tenant
 	return nil
 }
 
-func (r *CredentialRepository) ListUserMemberships(ctx context.Context, userID string) ([]string, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (credentialRepository *CredentialRepository) ListUserMemberships(ctx context.Context, userID string) ([]string, error) {
+	exec := txcontext.GetExecutor(ctx, credentialRepository.dbClient)
 	query := `
 		SELECT tenant_id
 		FROM public.user_tenant_memberships
@@ -86,8 +86,8 @@ func (r *CredentialRepository) ListUserMemberships(ctx context.Context, userID s
 	return tenantIDs, nil
 }
 
-func (r *CredentialRepository) FindByEmail(ctx context.Context, email string) (*domain.Credential, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (credentialRepository *CredentialRepository) FindByEmail(ctx context.Context, email string) (*domain.Credential, error) {
+	exec := txcontext.GetExecutor(ctx, credentialRepository.dbClient)
 	query := `
 		SELECT user_id, email, password_hash, created_at, updated_at
 		FROM public.user_credentials
@@ -97,8 +97,8 @@ func (r *CredentialRepository) FindByEmail(ctx context.Context, email string) (*
 	return scanCredential(row)
 }
 
-func (r *CredentialRepository) FindByUserID(ctx context.Context, userID string) (*domain.Credential, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (credentialRepository *CredentialRepository) FindByUserID(ctx context.Context, userID string) (*domain.Credential, error) {
+	exec := txcontext.GetExecutor(ctx, credentialRepository.dbClient)
 	query := `
 		SELECT user_id, email, password_hash, created_at, updated_at
 		FROM public.user_credentials

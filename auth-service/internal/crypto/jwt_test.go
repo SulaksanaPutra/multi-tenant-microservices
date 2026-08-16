@@ -25,7 +25,7 @@ func generateTestPrivateKeyPEM(t *testing.T) string {
 
 func TestJWTManager_SignAndVerify(t *testing.T) {
 	pemStr := generateTestPrivateKeyPEM(t)
-	jwtMgr, err := crypto.NewJWTManager(pemStr)
+	jwtManager, err := crypto.NewJWTManager(pemStr)
 	if err != nil {
 		t.Fatalf("failed to create JWTManager: %v", err)
 	}
@@ -35,12 +35,12 @@ func TestJWTManager_SignAndVerify(t *testing.T) {
 	email := "test@example.com"
 	jti := "jti_789"
 
-	tokenStr, err := jwtMgr.SignAccessToken(userID, tenantID, email, jti, []string{"orders:read"}, 1)
+	tokenStr, err := jwtManager.SignAccessToken(userID, tenantID, email, jti, []string{"orders:read"}, 1)
 	if err != nil {
 		t.Fatalf("failed to sign access token: %v", err)
 	}
 
-	claims, err := jwtMgr.VerifyAccessToken(tokenStr)
+	claims, err := jwtManager.VerifyAccessToken(tokenStr)
 	if err != nil {
 		t.Fatalf("failed to verify access token: %v", err)
 	}
@@ -61,12 +61,12 @@ func TestJWTManager_SignAndVerify(t *testing.T) {
 
 func TestJWTManager_BuildJWKS(t *testing.T) {
 	pemStr := generateTestPrivateKeyPEM(t)
-	jwtMgr, err := crypto.NewJWTManager(pemStr)
+	jwtManager, err := crypto.NewJWTManager(pemStr)
 	if err != nil {
 		t.Fatalf("failed to create JWTManager: %v", err)
 	}
 
-	jwksBytes, err := jwtMgr.BuildJWKS()
+	jwksBytes, err := jwtManager.BuildJWKS()
 	if err != nil {
 		t.Fatalf("failed to build JWKS: %v", err)
 	}

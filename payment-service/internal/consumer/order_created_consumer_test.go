@@ -110,25 +110,25 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 	t.Run("success claims inbox and initiates payment", func(t *testing.T) {
 		mockAck := &mockAcknowledger{}
 		var claimedInput service.ClaimInboxInput
-		inbox := &mockInboxService{
+		inboxService := &mockInboxService{
 			claimEventFn: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 				claimedInput = input
 				return false, nil
 			},
 		}
 		var initiatedOrder string
-		paymentSvc := &mockInitiator{
+		paymentService := &mockInitiator{
 			initiateFn: func(ctx context.Context, tenantID, orderID string, amount float64, currency string) (*service.PaymentOutput, error) {
 				initiatedOrder = orderID
 				return &service.PaymentOutput{ID: "pay_99"}, nil
 			},
 		}
 
-		c := NewOrderCreatedConsumer(OrderCreatedConsumerParams{
+		orderCreatedConsumer := NewOrderCreatedConsumer(OrderCreatedConsumerParams{
 			Client:         &mockAMQPClient{},
 			TxManager:      &mockTxManager{},
-			InboxService:   inbox,
-			PaymentService: paymentSvc,
+			InboxService:   inboxService,
+			PaymentService: paymentService,
 		})
 
 		d := rabbitmq.Delivery{
@@ -137,7 +137,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			Body:         validBody,
 		}
 
-		c.handleDelivery(context.Background(), d)
+		orderCreatedConsumer.handleDelivery(context.Background(), d)
 
 		if !mockAck.ackCalled {
 			t.Error("expected message to be ACKed")
@@ -152,24 +152,24 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("duplicate inbox event skips payment initiation and acks", func(t *testing.T) {
 		mockAck := &mockAcknowledger{}
-		inbox := &mockInboxService{
+		inboxService := &mockInboxService{
 			claimEventFn: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 				return true, nil // duplicate
 			},
 		}
 		initiated := false
-		paymentSvc := &mockInitiator{
+		paymentService := &mockInitiator{
 			initiateFn: func(ctx context.Context, tenantID, orderID string, amount float64, currency string) (*service.PaymentOutput, error) {
 				initiated = true
 				return nil, nil
 			},
 		}
 
-		c := NewOrderCreatedConsumer(OrderCreatedConsumerParams{
+		orderCreatedConsumer := NewOrderCreatedConsumer(OrderCreatedConsumerParams{
 			Client:         &mockAMQPClient{},
 			TxManager:      &mockTxManager{},
-			InboxService:   inbox,
-			PaymentService: paymentSvc,
+			InboxService:   inboxService,
+			PaymentService: paymentService,
 		})
 
 		d := rabbitmq.Delivery{
@@ -178,7 +178,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			Body:         validBody,
 		}
 
-		c.handleDelivery(context.Background(), d)
+		orderCreatedConsumer.handleDelivery(context.Background(), d)
 
 		if !mockAck.ackCalled {
 			t.Error("expected duplicate event to be ACKed")
@@ -190,7 +190,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("invalid json nacks without requeue", func(t *testing.T) {
 		mockAck := &mockAcknowledger{}
-		c := NewOrderCreatedConsumer(OrderCreatedConsumerParams{
+		orderCreatedConsumer := NewOrderCreatedConsumer(OrderCreatedConsumerParams{
 			Client:         &mockAMQPClient{},
 			TxManager:      &mockTxManager{},
 			InboxService:   &mockInboxService{},
@@ -203,7 +203,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			Body:         []byte("invalid json"),
 		}
 
-		c.handleDelivery(context.Background(), d)
+		orderCreatedConsumer.handleDelivery(context.Background(), d)
 
 		if !mockAck.nackCalled {
 			t.Error("expected invalid json to be NACKed")
@@ -215,7 +215,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("max delivery count nacks without requeue for DLQ", func(t *testing.T) {
 		mockAck := &mockAcknowledger{}
-		c := NewOrderCreatedConsumer(OrderCreatedConsumerParams{
+		orderCreatedConsumer := NewOrderCreatedConsumer(OrderCreatedConsumerParams{
 			Client:         &mockAMQPClient{},
 			TxManager:      &mockTxManager{},
 			InboxService:   &mockInboxService{},
@@ -231,7 +231,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			},
 		}
 
-		c.handleDelivery(context.Background(), d)
+		orderCreatedConsumer.handleDelivery(context.Background(), d)
 
 		if !mockAck.nackCalled {
 			t.Error("expected poison pill to be NACKed")
@@ -243,7 +243,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("misrouted key acks and discards", func(t *testing.T) {
 		mockAck := &mockAcknowledger{}
-		c := NewOrderCreatedConsumer(OrderCreatedConsumerParams{
+		orderCreatedConsumer := NewOrderCreatedConsumer(OrderCreatedConsumerParams{
 			Client:         &mockAMQPClient{},
 			TxManager:      &mockTxManager{},
 			InboxService:   &mockInboxService{},
@@ -256,7 +256,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			Body:         validBody,
 		}
 
-		c.handleDelivery(context.Background(), d)
+		orderCreatedConsumer.handleDelivery(context.Background(), d)
 
 		if !mockAck.ackCalled {
 			t.Error("expected misrouted message to be ACKed to discard")
@@ -265,17 +265,17 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("payment initiation failure nacks with requeue", func(t *testing.T) {
 		mockAck := &mockAcknowledger{}
-		paymentSvc := &mockInitiator{
+		paymentService := &mockInitiator{
 			initiateFn: func(ctx context.Context, tenantID, orderID string, amount float64, currency string) (*service.PaymentOutput, error) {
 				return nil, errors.New("psp timeout")
 			},
 		}
 
-		c := NewOrderCreatedConsumer(OrderCreatedConsumerParams{
+		orderCreatedConsumer := NewOrderCreatedConsumer(OrderCreatedConsumerParams{
 			Client:         &mockAMQPClient{},
 			TxManager:      &mockTxManager{},
 			InboxService:   &mockInboxService{},
-			PaymentService: paymentSvc,
+			PaymentService: paymentService,
 		})
 
 		d := rabbitmq.Delivery{
@@ -284,7 +284,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			Body:         validBody,
 		}
 
-		c.handleDelivery(context.Background(), d)
+		orderCreatedConsumer.handleDelivery(context.Background(), d)
 
 		if !mockAck.nackCalled {
 			t.Error("expected failure to be NACKed")

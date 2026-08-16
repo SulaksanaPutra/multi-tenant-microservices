@@ -12,12 +12,12 @@ import (
 )
 
 // newRouter initializes HTTP routes and health endpoints for Notification Service.
-func newRouter(notifHandler *handler.NotificationHandler) http.Handler {
+func newRouter(notificationHandler *handler.NotificationHandler) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
-	r := gin.New()
-	r.Use(gin.Recovery(), gin.Logger())
+	router := gin.New()
+	router.Use(gin.Recovery(), gin.Logger())
 
-	r.GET("/health", func(c *gin.Context) {
+	router.GET("/health", func(c *gin.Context) {
 		httputil.WriteSuccess[any](c, http.StatusOK, "OK", nil)
 	})
 
@@ -30,7 +30,7 @@ func newRouter(notifHandler *handler.NotificationHandler) http.Handler {
 	internalToken := os.Getenv("INTERNAL_SERVICE_TOKEN")
 	versionCache := middleware.NewVersionCache(authServiceURL, internalToken)
 
-	r.GET("/api/notifications", middleware.RequireJWT(publicKeyPEM, middleware.WithVersionCache(versionCache)), middleware.RequirePermission("notifications:read"), notifHandler.ListNotifications)
+	router.GET("/api/notifications", middleware.RequireJWT(publicKeyPEM, middleware.WithVersionCache(versionCache)), middleware.RequirePermission("notifications:read"), notificationHandler.ListNotifications)
 
-	return r
+	return router
 }

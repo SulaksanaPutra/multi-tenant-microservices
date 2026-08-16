@@ -113,7 +113,7 @@ func NewRoleService(roleRepository RoleRepository) *RoleService {
 	}
 }
 
-func (s *RoleService) CreateRole(ctx context.Context, input CreateRoleInput) (*RoleOutput, error) {
+func (roleService *RoleService) CreateRole(ctx context.Context, input CreateRoleInput) (*RoleOutput, error) {
 	if input.TenantID == "" {
 		return nil, domain.ErrTenantIDRequired
 	}
@@ -128,10 +128,10 @@ func (s *RoleService) CreateRole(ctx context.Context, input CreateRoleInput) (*R
 		IsSystem:    false,
 	}
 
-	created, err := s.roleRepository.CreateRole(ctx, roleInput)
+	created, err := roleService.roleRepository.CreateRole(ctx, roleInput)
 	if err != nil {
 		if errors.Is(err, domain.ErrRoleAlreadyExists) {
-			existing, findErr := s.roleRepository.FindRoleByName(ctx, &input.TenantID, input.Name)
+			existing, findErr := roleService.roleRepository.FindRoleByName(ctx, &input.TenantID, input.Name)
 			if findErr != nil {
 				return nil, findErr
 			}
@@ -149,11 +149,11 @@ func (s *RoleService) CreateRole(ctx context.Context, input CreateRoleInput) (*R
 	return &output, nil
 }
 
-func (s *RoleService) GetRole(ctx context.Context, roleID string) (*RoleOutput, error) {
+func (roleService *RoleService) GetRole(ctx context.Context, roleID string) (*RoleOutput, error) {
 	if roleID == "" {
 		return nil, domain.ErrRoleIDRequired
 	}
-	role, err := s.roleRepository.FindRoleByID(ctx, roleID)
+	role, err := roleService.roleRepository.FindRoleByID(ctx, roleID)
 	if err != nil {
 		return nil, err
 	}
@@ -161,11 +161,11 @@ func (s *RoleService) GetRole(ctx context.Context, roleID string) (*RoleOutput, 
 	return &output, nil
 }
 
-func (s *RoleService) ListRolesForTenant(ctx context.Context, tenantID string) ([]RoleOutput, error) {
+func (roleService *RoleService) ListRolesForTenant(ctx context.Context, tenantID string) ([]RoleOutput, error) {
 	if tenantID == "" {
 		return nil, domain.ErrTenantIDRequired
 	}
-	roles, err := s.roleRepository.FindRolesByTenantID(ctx, tenantID)
+	roles, err := roleService.roleRepository.FindRolesByTenantID(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -176,12 +176,12 @@ func (s *RoleService) ListRolesForTenant(ctx context.Context, tenantID string) (
 	return outputs, nil
 }
 
-func (s *RoleService) UpdateRolePermissions(ctx context.Context, input UpdateRolePermissionsInput) error {
+func (roleService *RoleService) UpdateRolePermissions(ctx context.Context, input UpdateRolePermissionsInput) error {
 	if input.RoleID == "" {
 		return domain.ErrRoleIDRequired
 	}
 
-	role, err := s.roleRepository.FindRoleByID(ctx, input.RoleID)
+	role, err := roleService.roleRepository.FindRoleByID(ctx, input.RoleID)
 	if err != nil {
 		return err
 	}
@@ -190,12 +190,12 @@ func (s *RoleService) UpdateRolePermissions(ctx context.Context, input UpdateRol
 		return domain.ErrSystemRoleProtected
 	}
 
-	if err := s.roleRepository.UpdateRolePermissions(ctx, input.RoleID, input.PermissionIDs); err != nil {
+	if err := roleService.roleRepository.UpdateRolePermissions(ctx, input.RoleID, input.PermissionIDs); err != nil {
 		return fmt.Errorf("role service: failed to update role permissions: %w", err)
 	}
 
 	// Invalidate versions for users assigned to this role
-	if err := s.roleRepository.BumpUserPermissionVersionsForRole(ctx, input.RoleID); err != nil {
+	if err := roleService.roleRepository.BumpUserPermissionVersionsForRole(ctx, input.RoleID); err != nil {
 		log.Printf("RoleService: Warning — failed to bump user permission versions for role '%s': %v", input.RoleID, err)
 	}
 
@@ -203,14 +203,14 @@ func (s *RoleService) UpdateRolePermissions(ctx context.Context, input UpdateRol
 	return nil
 }
 
-func (s *RoleService) DeleteRole(ctx context.Context, roleID string) error {
+func (roleService *RoleService) DeleteRole(ctx context.Context, roleID string) error {
 	if roleID == "" {
 		return domain.ErrRoleIDRequired
 	}
-	return s.roleRepository.DeleteRole(ctx, roleID)
+	return roleService.roleRepository.DeleteRole(ctx, roleID)
 }
 
-func (s *RoleService) AssignUserRole(ctx context.Context, input AssignUserRoleInput) error {
+func (roleService *RoleService) AssignUserRole(ctx context.Context, input AssignUserRoleInput) error {
 	if input.UserID == "" {
 		return domain.ErrUserIDRequired
 	}
@@ -222,12 +222,12 @@ func (s *RoleService) AssignUserRole(ctx context.Context, input AssignUserRoleIn
 	}
 
 	// Verify role exists
-	if _, err := s.roleRepository.FindRoleByID(ctx, input.RoleID); err != nil {
+	if _, err := roleService.roleRepository.FindRoleByID(ctx, input.RoleID); err != nil {
 		return err
 	}
 
 	// Verify the target user is an actual member of the tenant to prevent cross-tenant role assignment
-	isMember, err := s.roleRepository.UserHasMembership(ctx, input.UserID, input.TenantID)
+	isMember, err := roleService.roleRepository.UserHasMembership(ctx, input.UserID, input.TenantID)
 	if err != nil {
 		return fmt.Errorf("role service: failed to verify tenant membership: %w", err)
 	}
@@ -235,7 +235,7 @@ func (s *RoleService) AssignUserRole(ctx context.Context, input AssignUserRoleIn
 		return domain.ErrTenantMembershipNotFound
 	}
 
-	if err := s.roleRepository.AssignUserRole(ctx, input.UserID, input.TenantID, input.RoleID, input.AssignedBy); err != nil {
+	if err := roleService.roleRepository.AssignUserRole(ctx, input.UserID, input.TenantID, input.RoleID, input.AssignedBy); err != nil {
 		return fmt.Errorf("role service: failed to assign user role: %w", err)
 	}
 
@@ -243,7 +243,7 @@ func (s *RoleService) AssignUserRole(ctx context.Context, input AssignUserRoleIn
 	return nil
 }
 
-func (s *RoleService) GetUserRole(ctx context.Context, userID, tenantID string) (*UserRoleOutput, error) {
+func (roleService *RoleService) GetUserRole(ctx context.Context, userID, tenantID string) (*UserRoleOutput, error) {
 	if userID == "" {
 		return nil, domain.ErrUserIDRequired
 	}
@@ -251,7 +251,7 @@ func (s *RoleService) GetUserRole(ctx context.Context, userID, tenantID string) 
 		return nil, domain.ErrTenantIDRequired
 	}
 
-	isMember, err := s.roleRepository.UserHasMembership(ctx, userID, tenantID)
+	isMember, err := roleService.roleRepository.UserHasMembership(ctx, userID, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("role service: failed to verify tenant membership: %w", err)
 	}
@@ -259,18 +259,18 @@ func (s *RoleService) GetUserRole(ctx context.Context, userID, tenantID string) 
 		return nil, domain.ErrTenantMembershipNotFound
 	}
 
-	ur, err := s.roleRepository.FindUserRole(ctx, userID, tenantID)
+	userRole, err := roleService.roleRepository.FindUserRole(ctx, userID, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	if ur == nil {
+	if userRole == nil {
 		return nil, fmt.Errorf("role service: no role found for user '%s' in tenant '%s': %w", userID, tenantID, domain.ErrRoleNotFound)
 	}
-	output := toUserRoleOutput(*ur)
+	output := toUserRoleOutput(*userRole)
 	return &output, nil
 }
 
-func (s *RoleService) ListUserRolesForTenant(ctx context.Context, tenantID string, userIDs []string) ([]UserRoleAssignmentOutput, error) {
+func (roleService *RoleService) ListUserRolesForTenant(ctx context.Context, tenantID string, userIDs []string) ([]UserRoleAssignmentOutput, error) {
 	if tenantID == "" {
 		return nil, domain.ErrTenantIDRequired
 	}
@@ -278,7 +278,7 @@ func (s *RoleService) ListUserRolesForTenant(ctx context.Context, tenantID strin
 		return []UserRoleAssignmentOutput{}, nil
 	}
 
-	briefs, err := s.roleRepository.ListUserRolesByTenant(ctx, tenantID, userIDs)
+	briefs, err := roleService.roleRepository.ListUserRolesByTenant(ctx, tenantID, userIDs)
 	if err != nil {
 		return nil, err
 	}

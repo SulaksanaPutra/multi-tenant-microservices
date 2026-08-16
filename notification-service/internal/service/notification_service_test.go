@@ -15,7 +15,7 @@ import (
 	"notification-service/internal/repository"
 )
 
-type mockNotificationRepo struct {
+type mockNotificationRepository struct {
 	createNotificationLogFunc    func(ctx context.Context, input repository.CreateNotificationLogInput) (string, error)
 	updateNotificationStatusFunc func(ctx context.Context, id string, status string) error
 	hasSentNotificationFunc      func(ctx context.Context, tenantID string) (bool, error)
@@ -23,43 +23,43 @@ type mockNotificationRepo struct {
 	listNotificationsFunc        func(ctx context.Context, tenantID string) ([]domain.NotificationLog, error)
 }
 
-func (m *mockNotificationRepo) CreateNotificationLog(ctx context.Context, input repository.CreateNotificationLogInput) (string, error) {
+func (m *mockNotificationRepository) CreateNotificationLog(ctx context.Context, input repository.CreateNotificationLogInput) (string, error) {
 	if m.createNotificationLogFunc != nil {
 		return m.createNotificationLogFunc(ctx, input)
 	}
 	return "ntf_1", nil
 }
 
-func (m *mockNotificationRepo) UpdateNotificationStatus(ctx context.Context, id string, status string) error {
+func (m *mockNotificationRepository) UpdateNotificationStatus(ctx context.Context, id string, status string) error {
 	if m.updateNotificationStatusFunc != nil {
 		return m.updateNotificationStatusFunc(ctx, id, status)
 	}
 	return nil
 }
 
-func (m *mockNotificationRepo) HasSentNotification(ctx context.Context, tenantID string) (bool, error) {
+func (m *mockNotificationRepository) HasSentNotification(ctx context.Context, tenantID string) (bool, error) {
 	if m.hasSentNotificationFunc != nil {
 		return m.hasSentNotificationFunc(ctx, tenantID)
 	}
 	return false, nil
 }
 
-func (m *mockNotificationRepo) GetPendingNotification(ctx context.Context, tenantID string) (*domain.NotificationLog, error) {
+func (m *mockNotificationRepository) GetPendingNotification(ctx context.Context, tenantID string) (*domain.NotificationLog, error) {
 	if m.getPendingNotificationFunc != nil {
 		return m.getPendingNotificationFunc(ctx, tenantID)
 	}
 	return nil, nil
 }
 
-func (m *mockNotificationRepo) ListNotifications(ctx context.Context, tenantID string) ([]domain.NotificationLog, error) {
+func (m *mockNotificationRepository) ListNotifications(ctx context.Context, tenantID string) ([]domain.NotificationLog, error) {
 	if m.listNotificationsFunc != nil {
 		return m.listNotificationsFunc(ctx, tenantID)
 	}
 	return nil, nil
 }
 
-func newSvc() *NotificationService {
-	return NewNotificationService(&mockNotificationRepo{})
+func newNotificationService() *NotificationService {
+	return NewNotificationService(&mockNotificationRepository{})
 }
 
 func userCreatedPayload(userID, email string) []byte {
@@ -89,17 +89,17 @@ func bothBarrierEvents() []domain.InboxMessage {
 }
 
 func TestProcessEventAndTrySendWelcome_Validation(t *testing.T) {
-	svc := newSvc()
+	notificationService := newNotificationService()
 
 	t.Run("missing event_id", func(t *testing.T) {
-		_, err := svc.ProcessEventAndTrySendWelcome(context.Background(), ProcessEventInput{TenantID: "tenant-1"}, nil)
+		_, err := notificationService.ProcessEventAndTrySendWelcome(context.Background(), ProcessEventInput{TenantID: "tenant-1"}, nil)
 		if !errors.Is(err, domain.ErrEventIDRequired) {
 			t.Errorf("expected ErrEventIDRequired, got %v", err)
 		}
 	})
 
 	t.Run("missing tenant_id", func(t *testing.T) {
-		_, err := svc.ProcessEventAndTrySendWelcome(context.Background(), ProcessEventInput{EventID: "evt-1"}, nil)
+		_, err := notificationService.ProcessEventAndTrySendWelcome(context.Background(), ProcessEventInput{EventID: "evt-1"}, nil)
 		if !errors.Is(err, domain.ErrTenantIDRequired) {
 			t.Errorf("expected domain.ErrTenantIDRequired, got %v", err)
 		}
@@ -112,8 +112,8 @@ func TestProcessEventAndTrySendWelcome_WaitingBarrierCondition(t *testing.T) {
 		{EventType: "user.created", Payload: userCreatedPayload("usr_123", "owner@company.com")},
 	}
 
-	svc := newSvc()
-	details, err := svc.ProcessEventAndTrySendWelcome(context.Background(), ProcessEventInput{
+	notificationService := newNotificationService()
+	details, err := notificationService.ProcessEventAndTrySendWelcome(context.Background(), ProcessEventInput{
 		EventID:   "evt-1",
 		TenantID:  "tenant-1",
 		EventType: "user.created",
@@ -129,15 +129,15 @@ func TestProcessEventAndTrySendWelcome_WaitingBarrierCondition(t *testing.T) {
 
 func TestProcessEventAndTrySendWelcome_BarrierMet_ReturnsDetails(t *testing.T) {
 	var capturedLog repository.CreateNotificationLogInput
-	notifRepo := &mockNotificationRepo{
+	mockNotificationRepository := &mockNotificationRepository{
 		createNotificationLogFunc: func(ctx context.Context, input repository.CreateNotificationLogInput) (string, error) {
 			capturedLog = input
 			return "ntf_42", nil
 		},
 	}
-	svc := NewNotificationService(notifRepo)
+	notificationService := NewNotificationService(mockNotificationRepository)
 
-	details, err := svc.ProcessEventAndTrySendWelcome(context.Background(), ProcessEventInput{
+	details, err := notificationService.ProcessEventAndTrySendWelcome(context.Background(), ProcessEventInput{
 		EventID:   "evt-2",
 		TenantID:  "tenant-1",
 		EventType: "workspace.ready",
@@ -162,14 +162,14 @@ func TestProcessEventAndTrySendWelcome_BarrierMet_ReturnsDetails(t *testing.T) {
 }
 
 func TestProcessEventAndTrySendWelcome_AlreadySent(t *testing.T) {
-	notifRepo := &mockNotificationRepo{
+	mockNotificationRepository := &mockNotificationRepository{
 		hasSentNotificationFunc: func(ctx context.Context, tenantID string) (bool, error) {
 			return true, nil // already sent
 		},
 	}
-	svc := NewNotificationService(notifRepo)
+	notificationService := NewNotificationService(mockNotificationRepository)
 
-	details, err := svc.ProcessEventAndTrySendWelcome(context.Background(),
+	details, err := notificationService.ProcessEventAndTrySendWelcome(context.Background(),
 		ProcessEventInput{EventID: "e-1", TenantID: "tenant-1"},
 		bothBarrierEvents())
 
@@ -185,13 +185,13 @@ func TestProcessEventAndTrySendWelcome_Errors(t *testing.T) {
 	expectedErr := errors.New("infra failure")
 
 	t.Run("HasSentNotification error", func(t *testing.T) {
-		notifRepo := &mockNotificationRepo{
+		mockNotificationRepository := &mockNotificationRepository{
 			hasSentNotificationFunc: func(ctx context.Context, tenantID string) (bool, error) {
 				return false, expectedErr
 			},
 		}
-		svc := NewNotificationService(notifRepo)
-		_, err := svc.ProcessEventAndTrySendWelcome(context.Background(),
+		notificationService := NewNotificationService(mockNotificationRepository)
+		_, err := notificationService.ProcessEventAndTrySendWelcome(context.Background(),
 			ProcessEventInput{EventID: "e-1", TenantID: "t-1"},
 			bothBarrierEvents())
 		if !errors.Is(err, expectedErr) {
@@ -200,13 +200,13 @@ func TestProcessEventAndTrySendWelcome_Errors(t *testing.T) {
 	})
 
 	t.Run("GetPendingNotification error", func(t *testing.T) {
-		notifRepo := &mockNotificationRepo{
+		mockNotificationRepository := &mockNotificationRepository{
 			getPendingNotificationFunc: func(ctx context.Context, tenantID string) (*domain.NotificationLog, error) {
 				return nil, expectedErr
 			},
 		}
-		svc := NewNotificationService(notifRepo)
-		_, err := svc.ProcessEventAndTrySendWelcome(context.Background(),
+		notificationService := NewNotificationService(mockNotificationRepository)
+		_, err := notificationService.ProcessEventAndTrySendWelcome(context.Background(),
 			ProcessEventInput{EventID: "e-1", TenantID: "t-1"},
 			bothBarrierEvents())
 		if !errors.Is(err, expectedErr) {
@@ -215,13 +215,13 @@ func TestProcessEventAndTrySendWelcome_Errors(t *testing.T) {
 	})
 
 	t.Run("CreateNotificationLog error", func(t *testing.T) {
-		notifRepo := &mockNotificationRepo{
+		mockNotificationRepository := &mockNotificationRepository{
 			createNotificationLogFunc: func(ctx context.Context, input repository.CreateNotificationLogInput) (string, error) {
 				return "", expectedErr
 			},
 		}
-		svc := NewNotificationService(notifRepo)
-		_, err := svc.ProcessEventAndTrySendWelcome(context.Background(),
+		notificationService := NewNotificationService(mockNotificationRepository)
+		_, err := notificationService.ProcessEventAndTrySendWelcome(context.Background(),
 			ProcessEventInput{EventID: "e-1", TenantID: "t-1"},
 			bothBarrierEvents())
 		if !errors.Is(err, expectedErr) {
@@ -232,7 +232,7 @@ func TestProcessEventAndTrySendWelcome_Errors(t *testing.T) {
 
 func TestProcessEventAndTrySendWelcome_ReusesExistingPendingLog(t *testing.T) {
 	createCalled := false
-	notifRepo := &mockNotificationRepo{
+	mockNotificationRepository := &mockNotificationRepository{
 		getPendingNotificationFunc: func(ctx context.Context, tenantID string) (*domain.NotificationLog, error) {
 			return &domain.NotificationLog{
 				ID:       "ntf_existing_pending_1",
@@ -245,9 +245,9 @@ func TestProcessEventAndTrySendWelcome_ReusesExistingPendingLog(t *testing.T) {
 			return "ntf_should_not_be_called", nil
 		},
 	}
-	svc := NewNotificationService(notifRepo)
+	notificationService := NewNotificationService(mockNotificationRepository)
 
-	details, err := svc.ProcessEventAndTrySendWelcome(context.Background(), ProcessEventInput{
+	details, err := notificationService.ProcessEventAndTrySendWelcome(context.Background(), ProcessEventInput{
 		EventID:   "evt-retry",
 		TenantID:  "tenant-retry",
 		EventType: "user.created",
@@ -269,21 +269,21 @@ func TestProcessEventAndTrySendWelcome_ReusesExistingPendingLog(t *testing.T) {
 
 func TestNotificationService_HasSentNotification(t *testing.T) {
 	t.Run("empty tenant_id returns ErrTenantIDRequired", func(t *testing.T) {
-		svc := newSvc()
-		_, err := svc.HasSentNotification(context.Background(), "")
+		notificationService := newNotificationService()
+		_, err := notificationService.HasSentNotification(context.Background(), "")
 		if !errors.Is(err, domain.ErrTenantIDRequired) {
 			t.Errorf("expected ErrTenantIDRequired, got %v", err)
 		}
 	})
 
 	t.Run("delegates to repo", func(t *testing.T) {
-		notifRepo := &mockNotificationRepo{
+		mockNotificationRepository := &mockNotificationRepository{
 			hasSentNotificationFunc: func(ctx context.Context, tenantID string) (bool, error) {
 				return true, nil
 			},
 		}
-		svc := NewNotificationService(notifRepo)
-		sent, err := svc.HasSentNotification(context.Background(), "t-1")
+		notificationService := NewNotificationService(mockNotificationRepository)
+		sent, err := notificationService.HasSentNotification(context.Background(), "t-1")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -301,13 +301,13 @@ func TestProcessEventAndTrySendWelcome_PayloadFallback(t *testing.T) {
 	}
 
 	var capturedLog repository.CreateNotificationLogInput
-	notifRepo := &mockNotificationRepo{
+	mockNotificationRepository := &mockNotificationRepository{
 		createNotificationLogFunc: func(ctx context.Context, input repository.CreateNotificationLogInput) (string, error) {
 			capturedLog = input
 			return "ntf_1", nil
 		},
 	}
-	svc := NewNotificationService(notifRepo)
+	notificationService := NewNotificationService(mockNotificationRepository)
 
 	input := ProcessEventInput{
 		EventID:    "evt-fallback",
@@ -316,7 +316,7 @@ func TestProcessEventAndTrySendWelcome_PayloadFallback(t *testing.T) {
 		OwnerEmail: "explicit@domain.com",
 	}
 
-	details, err := svc.ProcessEventAndTrySendWelcome(context.Background(), input, events)
+	details, err := notificationService.ProcessEventAndTrySendWelcome(context.Background(), input, events)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -333,20 +333,20 @@ func TestProcessEventAndTrySendWelcome_PayloadFallback(t *testing.T) {
 
 func TestProcessEventAndTrySendWelcome_BarrierMet_IncludesTenantInfo(t *testing.T) {
 	var capturedLog repository.CreateNotificationLogInput
-	notifRepo := &mockNotificationRepo{
+	mockNotificationRepository := &mockNotificationRepository{
 		createNotificationLogFunc: func(ctx context.Context, input repository.CreateNotificationLogInput) (string, error) {
 			capturedLog = input
 			return "ntf_7", nil
 		},
 	}
-	svc := NewNotificationService(notifRepo)
+	notificationService := NewNotificationService(mockNotificationRepository)
 
 	events := []domain.InboxMessage{
 		{EventType: "user.created", Payload: userCreatedPayload("usr_123", "owner@acme.com")},
 		{EventType: "workspace.ready", Payload: workspaceReadyPayloadWithTenant("owner@acme.com", "Acme Corp", "acme-corp", "Bob Jones")},
 	}
 
-	details, err := svc.ProcessEventAndTrySendWelcome(context.Background(), ProcessEventInput{
+	details, err := notificationService.ProcessEventAndTrySendWelcome(context.Background(), ProcessEventInput{
 		EventID:   "evt-tenant-info",
 		TenantID:  "tenant-acme",
 		EventType: "workspace.ready",
@@ -377,13 +377,13 @@ func TestProcessEventAndTrySendWelcome_BarrierMet_IncludesTenantInfo(t *testing.
 
 func TestProcessEventAndTrySendWelcome_TenantInfoFallback(t *testing.T) {
 	var capturedLog repository.CreateNotificationLogInput
-	notifRepo := &mockNotificationRepo{
+	mockNotificationRepository := &mockNotificationRepository{
 		createNotificationLogFunc: func(ctx context.Context, input repository.CreateNotificationLogInput) (string, error) {
 			capturedLog = input
 			return "ntf_8", nil
 		},
 	}
-	svc := NewNotificationService(notifRepo)
+	notificationService := NewNotificationService(mockNotificationRepository)
 
 	// Legacy workspace.ready payloads do not carry tenant_name/tenant_slug/owner_name.
 	events := []domain.InboxMessage{
@@ -391,7 +391,7 @@ func TestProcessEventAndTrySendWelcome_TenantInfoFallback(t *testing.T) {
 		{EventType: "workspace.ready", Payload: workspaceReadyPayload("owner@legacy.com")},
 	}
 
-	details, err := svc.ProcessEventAndTrySendWelcome(context.Background(), ProcessEventInput{
+	details, err := notificationService.ProcessEventAndTrySendWelcome(context.Background(), ProcessEventInput{
 		EventID:   "evt-legacy",
 		TenantID:  "tenant-legacy",
 		EventType: "workspace.ready",
@@ -422,16 +422,16 @@ func TestNotificationService_ListNotifications(t *testing.T) {
 		expectedLogs := []NotificationLogOutput{
 			{ID: "ntf_1", TenantID: "t-1", Description: "Welcome"},
 		}
-		notifRepo := &mockNotificationRepo{
+		mockNotificationRepository := &mockNotificationRepository{
 			listNotificationsFunc: func(ctx context.Context, tenantID string) ([]domain.NotificationLog, error) {
 				return []domain.NotificationLog{
 					{ID: "ntf_1", TenantID: "t-1", Description: "Welcome"},
 				}, nil
 			},
 		}
-		svc := NewNotificationService(notifRepo)
+		notificationService := NewNotificationService(mockNotificationRepository)
 
-		logs, err := svc.ListNotifications(context.Background(), "t-1")
+		logs, err := notificationService.ListNotifications(context.Background(), "t-1")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -442,14 +442,14 @@ func TestNotificationService_ListNotifications(t *testing.T) {
 
 	t.Run("returns repo error", func(t *testing.T) {
 		expectedErr := errors.New("db fail")
-		notifRepo := &mockNotificationRepo{
+		mockNotificationRepository := &mockNotificationRepository{
 			listNotificationsFunc: func(ctx context.Context, tenantID string) ([]domain.NotificationLog, error) {
 				return nil, expectedErr
 			},
 		}
-		svc := NewNotificationService(notifRepo)
+		notificationService := NewNotificationService(mockNotificationRepository)
 
-		_, err := svc.ListNotifications(context.Background(), "t-1")
+		_, err := notificationService.ListNotifications(context.Background(), "t-1")
 		if !errors.Is(err, expectedErr) {
 			t.Errorf("expected error %v, got %v", expectedErr, err)
 		}
@@ -459,15 +459,15 @@ func TestNotificationService_ListNotifications(t *testing.T) {
 func TestNotificationService_CreateOrderNotification(t *testing.T) {
 	t.Run("persists notification with order details", func(t *testing.T) {
 		var captured repository.CreateNotificationLogInput
-		notifRepo := &mockNotificationRepo{
+		mockNotificationRepository := &mockNotificationRepository{
 			createNotificationLogFunc: func(ctx context.Context, input repository.CreateNotificationLogInput) (string, error) {
 				captured = input
 				return "ntf_order_1", nil
 			},
 		}
-		svc := NewNotificationService(notifRepo)
+		notificationService := NewNotificationService(mockNotificationRepository)
 
-		err := svc.CreateOrderNotification(context.Background(), domain.OrderCreatedEvent{
+		err := notificationService.CreateOrderNotification(context.Background(), domain.OrderCreatedEvent{
 			EventID:    "evt-1",
 			TenantID:   "tenant-1",
 			OrderID:    "order-1",
@@ -497,12 +497,12 @@ func TestNotificationService_CreateOrderNotification(t *testing.T) {
 	})
 
 	t.Run("missing tenant_id returns ErrTenantIDRequired", func(t *testing.T) {
-		svc := newSvc()
-		err := svc.CreateOrderNotification(context.Background(), domain.OrderCreatedEvent{
-			EventID:  "evt-1",
-			OrderID:  "order-1",
-			Amount:   10,
-			Status:   "pending",
+		notificationService := newNotificationService()
+		err := notificationService.CreateOrderNotification(context.Background(), domain.OrderCreatedEvent{
+			EventID: "evt-1",
+			OrderID: "order-1",
+			Amount:  10,
+			Status:  "pending",
 		})
 		if !errors.Is(err, domain.ErrTenantIDRequired) {
 			t.Errorf("expected ErrTenantIDRequired, got %v", err)
@@ -511,20 +511,20 @@ func TestNotificationService_CreateOrderNotification(t *testing.T) {
 
 	t.Run("falls back to usr_unknown when customer_id empty", func(t *testing.T) {
 		var captured repository.CreateNotificationLogInput
-		notifRepo := &mockNotificationRepo{
+		mockNotificationRepository := &mockNotificationRepository{
 			createNotificationLogFunc: func(ctx context.Context, input repository.CreateNotificationLogInput) (string, error) {
 				captured = input
 				return "ntf_order_2", nil
 			},
 		}
-		svc := NewNotificationService(notifRepo)
+		notificationService := NewNotificationService(mockNotificationRepository)
 
-		err := svc.CreateOrderNotification(context.Background(), domain.OrderCreatedEvent{
-			EventID:   "evt-2",
-			TenantID:  "tenant-1",
-			OrderID:   "order-2",
-			Amount:    10,
-			Status:    "pending",
+		err := notificationService.CreateOrderNotification(context.Background(), domain.OrderCreatedEvent{
+			EventID:  "evt-2",
+			TenantID: "tenant-1",
+			OrderID:  "order-2",
+			Amount:   10,
+			Status:   "pending",
 		})
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
@@ -536,14 +536,14 @@ func TestNotificationService_CreateOrderNotification(t *testing.T) {
 
 	t.Run("repo error propagates", func(t *testing.T) {
 		expectedErr := errors.New("db down")
-		notifRepo := &mockNotificationRepo{
+		mockNotificationRepository := &mockNotificationRepository{
 			createNotificationLogFunc: func(ctx context.Context, input repository.CreateNotificationLogInput) (string, error) {
 				return "", expectedErr
 			},
 		}
-		svc := NewNotificationService(notifRepo)
+		notificationService := NewNotificationService(mockNotificationRepository)
 
-		err := svc.CreateOrderNotification(context.Background(), domain.OrderCreatedEvent{
+		err := notificationService.CreateOrderNotification(context.Background(), domain.OrderCreatedEvent{
 			EventID:  "evt-3",
 			TenantID: "tenant-1",
 			OrderID:  "order-3",

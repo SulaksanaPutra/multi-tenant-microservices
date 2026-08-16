@@ -28,8 +28,8 @@ type SaveConfigInput struct {
 	ProviderConfigs map[domain.ProviderType]domain.ProviderCredentials
 }
 
-func (r *PSPConfigRepository) SaveConfig(ctx context.Context, input SaveConfigInput, masterKey []byte) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (pspConfigRepository *PSPConfigRepository) SaveConfig(ctx context.Context, input SaveConfigInput, masterKey []byte) error {
+	exec := txcontext.GetExecutor(ctx, pspConfigRepository.dbClient)
 
 	chainJSON, err := json.Marshal(input.PriorityChain)
 	if err != nil {
@@ -64,8 +64,8 @@ func (r *PSPConfigRepository) SaveConfig(ctx context.Context, input SaveConfigIn
 	return nil
 }
 
-func (r *PSPConfigRepository) GetConfig(ctx context.Context, tenantID string, masterKey []byte) (*domain.TenantPSPConfig, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (pspConfigRepository *PSPConfigRepository) GetConfig(ctx context.Context, tenantID string, masterKey []byte) (*domain.TenantPSPConfig, error) {
+	exec := txcontext.GetExecutor(ctx, pspConfigRepository.dbClient)
 
 	query := `
 		SELECT tenant_id, priority_chain, encrypted_credentials

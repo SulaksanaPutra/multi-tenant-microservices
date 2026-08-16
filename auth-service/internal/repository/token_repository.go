@@ -35,8 +35,8 @@ func NewTokenRepository(dbClient *postgres.Client) *TokenRepository {
 	return &TokenRepository{dbClient: dbClient}
 }
 
-func (r *TokenRepository) CreateRefreshToken(ctx context.Context, input CreateRefreshTokenInput) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (tokenRepository *TokenRepository) CreateRefreshToken(ctx context.Context, input CreateRefreshTokenInput) error {
+	exec := txcontext.GetExecutor(ctx, tokenRepository.dbClient)
 	query := `
 		INSERT INTO public.refresh_tokens (user_id, tenant_id, token_hash, expires_at)
 		VALUES ($1, $2, $3, $4);
@@ -47,8 +47,8 @@ func (r *TokenRepository) CreateRefreshToken(ctx context.Context, input CreateRe
 	return nil
 }
 
-func (r *TokenRepository) FindByTokenHash(ctx context.Context, tokenHash string) (*domain.RefreshToken, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (tokenRepository *TokenRepository) FindByTokenHash(ctx context.Context, tokenHash string) (*domain.RefreshToken, error) {
+	exec := txcontext.GetExecutor(ctx, tokenRepository.dbClient)
 	query := `
 		SELECT id, user_id, tenant_id, token_hash, expires_at, revoked_at, created_at
 		FROM public.refresh_tokens
@@ -70,8 +70,8 @@ func (r *TokenRepository) FindByTokenHash(ctx context.Context, tokenHash string)
 	return &rt, nil
 }
 
-func (r *TokenRepository) RevokeRefreshToken(ctx context.Context, input RevokeRefreshTokenInput) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (tokenRepository *TokenRepository) RevokeRefreshToken(ctx context.Context, input RevokeRefreshTokenInput) error {
+	exec := txcontext.GetExecutor(ctx, tokenRepository.dbClient)
 	query := `
 		UPDATE public.refresh_tokens
 		SET revoked_at = NOW()
@@ -91,8 +91,8 @@ func (r *TokenRepository) RevokeRefreshToken(ctx context.Context, input RevokeRe
 	return nil
 }
 
-func (r *TokenRepository) DeleteRefreshToken(ctx context.Context, input DeleteRefreshTokenInput) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (tokenRepository *TokenRepository) DeleteRefreshToken(ctx context.Context, input DeleteRefreshTokenInput) error {
+	exec := txcontext.GetExecutor(ctx, tokenRepository.dbClient)
 	query := `DELETE FROM public.refresh_tokens WHERE token_hash = $1;`
 	if _, err := exec.ExecContext(ctx, query, input.TokenHash); err != nil {
 		return fmt.Errorf("token repository: failed to delete refresh token: %w", err)

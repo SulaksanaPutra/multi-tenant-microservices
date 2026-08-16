@@ -14,8 +14,8 @@ import (
 
 func TestTenantRepository_Constructor(t *testing.T) {
 	client := &postgres.Client{}
-	repo := NewTenantRepository(client)
-	if repo == nil {
+	tenantRepository := NewTenantRepository(client)
+	if tenantRepository == nil {
 		t.Fatal("expected NewTenantRepository to return a non-nil struct pointer")
 	}
 }
@@ -32,7 +32,7 @@ func TestTenantRepository_CreateTenant_Success(t *testing.T) {
 		},
 	}
 
-	repo := NewTenantRepository(&postgres.Client{})
+	tenantRepository := NewTenantRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	input := CreateTenantInput{
@@ -44,7 +44,7 @@ func TestTenantRepository_CreateTenant_Success(t *testing.T) {
 		Plan:       "enterprise",
 	}
 
-	err := repo.CreateTenant(ctx, input)
+	err := tenantRepository.CreateTenant(ctx, input)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -73,7 +73,7 @@ func TestTenantRepository_CreateTenant_ExecError(t *testing.T) {
 		},
 	}
 
-	repo := NewTenantRepository(&postgres.Client{})
+	tenantRepository := NewTenantRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	input := CreateTenantInput{
@@ -81,7 +81,7 @@ func TestTenantRepository_CreateTenant_ExecError(t *testing.T) {
 		Name: "Error Corp",
 	}
 
-	err := repo.CreateTenant(ctx, input)
+	err := tenantRepository.CreateTenant(ctx, input)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -105,10 +105,10 @@ func TestTenantRepository_ActivateTenant_Success(t *testing.T) {
 		},
 	}
 
-	repo := NewTenantRepository(&postgres.Client{})
+	tenantRepository := NewTenantRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.ActivateTenant(ctx, "t-100")
+	err := tenantRepository.ActivateTenant(ctx, "t-100")
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -130,10 +130,10 @@ func TestTenantRepository_ActivateTenant_ExecError(t *testing.T) {
 		},
 	}
 
-	repo := NewTenantRepository(&postgres.Client{})
+	tenantRepository := NewTenantRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.ActivateTenant(ctx, "t-err")
+	err := tenantRepository.ActivateTenant(ctx, "t-err")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -157,10 +157,10 @@ func TestTenantRepository_GetTenantByID_Query(t *testing.T) {
 		},
 	}
 
-	repo := NewTenantRepository(&postgres.Client{})
+	tenantRepository := NewTenantRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	_, err := repo.GetTenantByID(ctx, "t-100")
+	_, err := tenantRepository.GetTenantByID(ctx, "t-100")
 	if err == nil {
 		t.Fatal("expected scan error on dummy row, got nil")
 	}
@@ -191,12 +191,12 @@ func TestTenantRepository_UpdateTenant_Success(t *testing.T) {
 		},
 	}
 
-	repo := NewTenantRepository(&postgres.Client{})
+	tenantRepository := NewTenantRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	ownerEmail := "owner@example.com"
 	ownerName := "Owner Name"
-	err := repo.UpdateTenant(ctx, UpdateTenantInput{
+	err := tenantRepository.UpdateTenant(ctx, UpdateTenantInput{
 		ID:         "t-100",
 		Name:       "Updated Name",
 		Slug:       "updated-slug",
@@ -230,10 +230,10 @@ func TestTenantRepository_UpdateTenant_OwnerFieldsOmitted(t *testing.T) {
 		},
 	}
 
-	repo := NewTenantRepository(&postgres.Client{})
+	tenantRepository := NewTenantRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.UpdateTenant(ctx, UpdateTenantInput{
+	err := tenantRepository.UpdateTenant(ctx, UpdateTenantInput{
 		ID:   "t-100",
 		Name: "Updated Name",
 		Slug: "updated-slug",
@@ -262,10 +262,10 @@ func TestTenantRepository_UpdateTenantPlan_Success(t *testing.T) {
 		},
 	}
 
-	repo := NewTenantRepository(&postgres.Client{})
+	tenantRepository := NewTenantRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.UpdateTenantPlan(ctx, UpdateTenantPlanInput{
+	err := tenantRepository.UpdateTenantPlan(ctx, UpdateTenantPlanInput{
 		ID:   "t-100",
 		Plan: "dedicated",
 	})

@@ -9,35 +9,35 @@ import (
 	"user-service/internal/domain"
 )
 
-type mockOutboxRepo struct {
+type mockOutboxRepository struct {
 	recoverStuckClaimsFunc func(ctx context.Context, eventType string) error
 	fetchAndClaimBatchFunc func(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error)
 	markFailedFunc         func(ctx context.Context, id string, err error) error
 	markPublishedFunc      func(ctx context.Context, id string) error
 }
 
-func (m *mockOutboxRepo) RecoverStuckClaims(ctx context.Context, eventType string) error {
+func (m *mockOutboxRepository) RecoverStuckClaims(ctx context.Context, eventType string) error {
 	if m.recoverStuckClaimsFunc != nil {
 		return m.recoverStuckClaimsFunc(ctx, eventType)
 	}
 	return nil
 }
 
-func (m *mockOutboxRepo) FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
+func (m *mockOutboxRepository) FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
 	if m.fetchAndClaimBatchFunc != nil {
 		return m.fetchAndClaimBatchFunc(ctx, eventType, limit)
 	}
 	return nil, nil
 }
 
-func (m *mockOutboxRepo) MarkFailed(ctx context.Context, id string, err error) error {
+func (m *mockOutboxRepository) MarkFailed(ctx context.Context, id string, err error) error {
 	if m.markFailedFunc != nil {
 		return m.markFailedFunc(ctx, id, err)
 	}
 	return nil
 }
 
-func (m *mockOutboxRepo) MarkPublished(ctx context.Context, id string) error {
+func (m *mockOutboxRepository) MarkPublished(ctx context.Context, id string) error {
 	if m.markPublishedFunc != nil {
 		return m.markPublishedFunc(ctx, id)
 	}
@@ -66,7 +66,7 @@ func TestOutboxWorker_ProcessBatch_Success(t *testing.T) {
 
 	publishedIDs := make([]string, 0)
 
-	repo := &mockOutboxRepo{
+	outboxRepository := &mockOutboxRepository{
 		fetchAndClaimBatchFunc: func(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
 			return []domain.OutboxMessage{
 				{
@@ -82,10 +82,10 @@ func TestOutboxWorker_ProcessBatch_Success(t *testing.T) {
 		},
 	}
 
-	pub := &mockUserEventPublisher{}
+	userEventPublisher := &mockUserEventPublisher{}
 
-	worker := NewOutboxWorker(repo, pub)
-	worker.processBatch(context.Background(), domain.RoutingKeyUserCreated)
+	outboxWorker := NewOutboxWorker(outboxRepository, userEventPublisher)
+	outboxWorker.processBatch(context.Background(), domain.RoutingKeyUserCreated)
 
 	if len(publishedIDs) != 1 || publishedIDs[0] != "evt-1" {
 		t.Errorf("expected msg 'evt-1' to be marked as published, got %v", publishedIDs)
@@ -100,7 +100,7 @@ func TestOutboxWorker_ProcessBatch_PublishError(t *testing.T) {
 
 	failedIDs := make([]string, 0)
 
-	repo := &mockOutboxRepo{
+	outboxRepository := &mockOutboxRepository{
 		fetchAndClaimBatchFunc: func(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
 			return []domain.OutboxMessage{
 				{
@@ -116,14 +116,14 @@ func TestOutboxWorker_ProcessBatch_PublishError(t *testing.T) {
 		},
 	}
 
-	pub := &mockUserEventPublisher{
+	userEventPublisher := &mockUserEventPublisher{
 		publishUserCreatedFunc: func(ctx context.Context, evt domain.UserCreatedEvent) error {
 			return errors.New("rabbit disconnect")
 		},
 	}
 
-	worker := NewOutboxWorker(repo, pub)
-	worker.processBatch(context.Background(), domain.RoutingKeyUserCreated)
+	outboxWorker := NewOutboxWorker(outboxRepository, userEventPublisher)
+	outboxWorker.processBatch(context.Background(), domain.RoutingKeyUserCreated)
 
 	if len(failedIDs) != 1 || failedIDs[0] != "evt-2" {
 		t.Errorf("expected msg 'evt-2' to be marked as failed, got %v", failedIDs)
@@ -131,8 +131,8 @@ func TestOutboxWorker_ProcessBatch_PublishError(t *testing.T) {
 }
 
 func TestOutboxWorker_Poke(t *testing.T) {
-	worker := NewOutboxWorker(&mockOutboxRepo{}, &mockUserEventPublisher{})
-	worker.Poke()
+	outboxWorker := NewOutboxWorker(&mockOutboxRepository{}, &mockUserEventPublisher{})
+	outboxWorker.Poke()
 	// Consecutive non-blocking poke should not block
-	worker.Poke()
+	outboxWorker.Poke()
 }

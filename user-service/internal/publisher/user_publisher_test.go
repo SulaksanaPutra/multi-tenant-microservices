@@ -11,18 +11,18 @@ import (
 
 func TestUserPublisher_Constructor_NilChannel(t *testing.T) {
 	client := &rabbitmq.Client{}
-	pub, err := NewUserPublisher(client)
+	userPublisher, err := NewUserPublisher(client)
 	if err == nil {
 		t.Fatalf("expected error when declaring exchange on uninitialized channel, got nil")
 	}
-	if pub != nil {
-		t.Fatalf("expected UserPublisher pointer to be nil on constructor failure, got %v", pub)
+	if userPublisher != nil {
+		t.Fatalf("expected UserPublisher pointer to be nil on constructor failure, got %v", userPublisher)
 	}
 }
 
 func TestUserPublisher_PublishUserCreated_NilChannel(t *testing.T) {
 	client := &rabbitmq.Client{}
-	pub := &UserPublisher{client: client}
+	userPublisher := &UserPublisher{client: client}
 
 	evt := domain.UserCreatedEvent{
 		EventID:   "evt-123",
@@ -33,7 +33,7 @@ func TestUserPublisher_PublishUserCreated_NilChannel(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	}
 
-	err := pub.PublishUserCreated(context.Background(), evt)
+	err := userPublisher.PublishUserCreated(context.Background(), evt)
 	if err == nil {
 		t.Fatalf("expected error publishing UserCreated event with uninitialized channel, got nil")
 	}
@@ -41,7 +41,7 @@ func TestUserPublisher_PublishUserCreated_NilChannel(t *testing.T) {
 
 func TestUserPublisher_PublishUserCreated_ContextCancelled(t *testing.T) {
 	client := &rabbitmq.Client{}
-	pub := &UserPublisher{client: client}
+	userPublisher := &UserPublisher{client: client}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -52,7 +52,7 @@ func TestUserPublisher_PublishUserCreated_ContextCancelled(t *testing.T) {
 		TenantID: "tenant-777",
 	}
 
-	err := pub.PublishUserCreated(ctx, evt)
+	err := userPublisher.PublishUserCreated(ctx, evt)
 	if err == nil {
 		t.Fatalf("expected error when context is cancelled, got nil")
 	}
@@ -60,8 +60,8 @@ func TestUserPublisher_PublishUserCreated_ContextCancelled(t *testing.T) {
 
 func TestUserPublisher_StructInitialization(t *testing.T) {
 	client := &rabbitmq.Client{}
-	pub := &UserPublisher{client: client}
-	if pub.client != client {
+	userPublisher := &UserPublisher{client: client}
+	if userPublisher.client != client {
 		t.Fatalf("expected client reference to match")
 	}
 }

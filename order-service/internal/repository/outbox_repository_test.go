@@ -60,17 +60,17 @@ func TestSanitizeError(t *testing.T) {
 
 func TestOutboxRepository_Constructor(t *testing.T) {
 	cfg := tenantdb.Config{SchemaName: "tenant_100"}
-	repo := NewOutboxRepository(cfg)
-	if repo == nil {
+	outboxRepository := NewOutboxRepository(cfg)
+	if outboxRepository == nil {
 		t.Fatal("expected NewOutboxRepository to return non-nil pointer")
 	}
-	if repo.schemaName() != "tenant_100" {
-		t.Errorf("expected schemaName tenant_100, got %s", repo.schemaName())
+	if outboxRepository.schemaName() != "tenant_100" {
+		t.Errorf("expected schemaName tenant_100, got %s", outboxRepository.schemaName())
 	}
 
-	defaultRepo := NewOutboxRepository(tenantdb.Config{})
-	if defaultRepo.schemaName() != "public" {
-		t.Errorf("expected default schemaName public, got %s", defaultRepo.schemaName())
+	defaultOutboxRepository := NewOutboxRepository(tenantdb.Config{})
+	if defaultOutboxRepository.schemaName() != "public" {
+		t.Errorf("expected default schemaName public, got %s", defaultOutboxRepository.schemaName())
 	}
 }
 
@@ -86,7 +86,7 @@ func TestOutboxRepository_CreateOutboxMessage_Success(t *testing.T) {
 		},
 	}
 
-	repo := NewOutboxRepository(tenantdb.Config{SchemaName: "tenant_abc"})
+	outboxRepository := NewOutboxRepository(tenantdb.Config{SchemaName: "tenant_abc"})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	input := CreateOutboxMessageInput{
@@ -98,7 +98,7 @@ func TestOutboxRepository_CreateOutboxMessage_Success(t *testing.T) {
 		Payload:       []byte(`{"total":100}`),
 	}
 
-	err := repo.CreateOutboxMessage(ctx, input)
+	err := outboxRepository.CreateOutboxMessage(ctx, input)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -120,10 +120,10 @@ func TestOutboxRepository_CreateOutboxMessage_Error(t *testing.T) {
 		},
 	}
 
-	repo := NewOutboxRepository(tenantdb.Config{})
+	outboxRepository := NewOutboxRepository(tenantdb.Config{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.CreateOutboxMessage(ctx, CreateOutboxMessageInput{ID: "msg-err"})
+	err := outboxRepository.CreateOutboxMessage(ctx, CreateOutboxMessageInput{ID: "msg-err"})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -140,10 +140,10 @@ func TestOutboxRepository_FetchAndClaimBatch_QueryError(t *testing.T) {
 		},
 	}
 
-	repo := NewOutboxRepository(tenantdb.Config{})
+	outboxRepository := NewOutboxRepository(tenantdb.Config{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	_, err := repo.FetchAndClaimBatch(ctx, "order.created", 10)
+	_, err := outboxRepository.FetchAndClaimBatch(ctx, "order.created", 10)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -161,10 +161,10 @@ func TestOutboxRepository_RecoverStuckClaims_Success(t *testing.T) {
 		},
 	}
 
-	repo := NewOutboxRepository(tenantdb.Config{SchemaName: "tenant_def"})
+	outboxRepository := NewOutboxRepository(tenantdb.Config{SchemaName: "tenant_def"})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.RecoverStuckClaims(ctx, "order.created")
+	err := outboxRepository.RecoverStuckClaims(ctx, "order.created")
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -183,10 +183,10 @@ func TestOutboxRepository_MarkPublished(t *testing.T) {
 		},
 	}
 
-	repo := NewOutboxRepository(tenantdb.Config{})
+	outboxRepository := NewOutboxRepository(tenantdb.Config{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.MarkPublished(ctx, "msg-777")
+	err := outboxRepository.MarkPublished(ctx, "msg-777")
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -205,10 +205,10 @@ func TestOutboxRepository_MarkFailed(t *testing.T) {
 		},
 	}
 
-	repo := NewOutboxRepository(tenantdb.Config{})
+	outboxRepository := NewOutboxRepository(tenantdb.Config{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.MarkFailed(ctx, "msg-888", errors.New("some error"))
+	err := outboxRepository.MarkFailed(ctx, "msg-888", errors.New("some error"))
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}

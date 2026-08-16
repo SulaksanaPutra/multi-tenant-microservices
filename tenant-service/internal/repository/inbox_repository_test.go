@@ -14,8 +14,8 @@ import (
 
 func TestInboxRepository_Constructor(t *testing.T) {
 	client := &postgres.Client{}
-	repo := NewInboxRepository(client)
-	if repo == nil {
+	inboxRepository := NewInboxRepository(client)
+	if inboxRepository == nil {
 		t.Fatal("expected NewInboxRepository to return a non-nil struct pointer")
 	}
 }
@@ -32,11 +32,11 @@ func TestInboxRepository_TryInsert_NewEvent(t *testing.T) {
 		},
 	}
 
-	repo := NewInboxRepository(&postgres.Client{})
+	inboxRepository := NewInboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	eventID := "evt-unique-tenant-123"
-	isDuplicate, err := repo.TryInsert(ctx, eventID)
+	isDuplicate, err := inboxRepository.TryInsert(ctx, eventID)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -59,10 +59,10 @@ func TestInboxRepository_TryInsert_DuplicateEvent(t *testing.T) {
 		},
 	}
 
-	repo := NewInboxRepository(&postgres.Client{})
+	inboxRepository := NewInboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	isDuplicate, err := repo.TryInsert(ctx, "evt-dup-tenant-456")
+	isDuplicate, err := inboxRepository.TryInsert(ctx, "evt-dup-tenant-456")
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -79,10 +79,10 @@ func TestInboxRepository_TryInsert_ExecError(t *testing.T) {
 		},
 	}
 
-	repo := NewInboxRepository(&postgres.Client{})
+	inboxRepository := NewInboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	isDuplicate, err := repo.TryInsert(ctx, "evt-err")
+	isDuplicate, err := inboxRepository.TryInsert(ctx, "evt-err")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -102,10 +102,10 @@ func TestInboxRepository_TryInsert_RowsAffectedError(t *testing.T) {
 		},
 	}
 
-	repo := NewInboxRepository(&postgres.Client{})
+	inboxRepository := NewInboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	isDuplicate, err := repo.TryInsert(ctx, "evt-ra-err")
+	isDuplicate, err := inboxRepository.TryInsert(ctx, "evt-ra-err")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

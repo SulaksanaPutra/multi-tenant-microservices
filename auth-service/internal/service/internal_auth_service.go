@@ -39,7 +39,7 @@ func NewInternalAuthService(
 	}
 }
 
-func (s *InternalAuthService) CreatePasswordSetupToken(ctx context.Context, input InternalCreateSetupTokenInput) (string, error) {
+func (internalAuthService *InternalAuthService) CreatePasswordSetupToken(ctx context.Context, input InternalCreateSetupTokenInput) (string, error) {
 	if input.UserID == "" {
 		return "", domain.ErrUserIDRequired
 	}
@@ -47,8 +47,8 @@ func (s *InternalAuthService) CreatePasswordSetupToken(ctx context.Context, inpu
 		return "", domain.ErrEmailRequired
 	}
 
-	if s.membershipRepository != nil && input.TenantID != "" {
-		_ = s.membershipRepository.AddMembership(ctx, input.UserID, input.TenantID)
+	if internalAuthService.membershipRepository != nil && input.TenantID != "" {
+		_ = internalAuthService.membershipRepository.AddMembership(ctx, input.UserID, input.TenantID)
 	}
 
 	rawToken, tokenHash, err := crypto.GenerateRefreshToken()
@@ -57,7 +57,7 @@ func (s *InternalAuthService) CreatePasswordSetupToken(ctx context.Context, inpu
 	}
 
 	expiresAt := time.Now().UTC().Add(24 * time.Hour)
-	if err := s.setupTokenRepository.CreateSetupToken(ctx, repository.CreateSetupTokenInput{
+	if err := internalAuthService.setupTokenRepository.CreateSetupToken(ctx, repository.CreateSetupTokenInput{
 		UserID:    input.UserID,
 		TenantID:  input.TenantID,
 		Email:     input.Email,
@@ -69,8 +69,8 @@ func (s *InternalAuthService) CreatePasswordSetupToken(ctx context.Context, inpu
 
 	log.Printf("InternalAuthService: Created password setup token for user_id='%s' email='%s'", input.UserID, input.Email)
 
-	if s.roleSeeder != nil && input.TenantID != "" {
-		if err := s.roleSeeder.SeedDefaultRolesForTenant(ctx, input.TenantID, input.UserID); err != nil {
+	if internalAuthService.roleSeeder != nil && input.TenantID != "" {
+		if err := internalAuthService.roleSeeder.SeedDefaultRolesForTenant(ctx, input.TenantID, input.UserID); err != nil {
 			log.Printf("InternalAuthService: Warning — failed to seed default roles for tenant_id='%s': %v", input.TenantID, err)
 		}
 	}

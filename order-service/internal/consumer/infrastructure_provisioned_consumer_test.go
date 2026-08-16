@@ -112,7 +112,7 @@ func TestInfrastructureProvisionedConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("success_shared_plan", func(t *testing.T) {
 		var capturedDSN string
-		migSvc := &mockMigrationService{
+		migrationService := &mockMigrationService{
 			migrateTenantDBFunc: func(ctx context.Context, dsn, schemaName string) error {
 				capturedDSN = dsn
 				return nil
@@ -120,7 +120,7 @@ func TestInfrastructureProvisionedConsumer_HandleDelivery(t *testing.T) {
 		}
 
 		var publishedEvt domain.TenantOrderDBReadyEvent
-		pub := &mockOrderDBReadyPublisher{
+		orderDBReadyPublisher := &mockOrderDBReadyPublisher{
 			publishFunc: func(ctx context.Context, evt domain.TenantOrderDBReadyEvent) error {
 				publishedEvt = evt
 				return nil
@@ -130,9 +130,9 @@ func TestInfrastructureProvisionedConsumer_HandleDelivery(t *testing.T) {
 		poolReg := registry.NewPoolRegistry()
 		routingReg := registry.NewRoutingRegistry()
 
-		c := &InfrastructureProvisionedConsumer{
-			orderDBReadyPublisher: pub,
-			migrationService:      migSvc,
+		infrastructureProvisionedConsumer := &InfrastructureProvisionedConsumer{
+			orderDBReadyPublisher: orderDBReadyPublisher,
+			migrationService:      migrationService,
 			poolRegistry:          poolReg,
 			routingRegistry:       routingReg,
 			sharedSecret:          "secret123",
@@ -145,7 +145,7 @@ func TestInfrastructureProvisionedConsumer_HandleDelivery(t *testing.T) {
 			Body:         bodyShared,
 		}
 
-		err := c.handleDelivery(context.Background(), d)
+		err := infrastructureProvisionedConsumer.handleDelivery(context.Background(), d)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -168,14 +168,14 @@ func TestInfrastructureProvisionedConsumer_HandleDelivery(t *testing.T) {
 	})
 
 	t.Run("success_dedicated_plan_derives_password", func(t *testing.T) {
-		migSvc := &mockMigrationService{}
-		pub := &mockOrderDBReadyPublisher{}
+		migrationService := &mockMigrationService{}
+		orderDBReadyPublisher := &mockOrderDBReadyPublisher{}
 		poolReg := registry.NewPoolRegistry()
 		routingReg := registry.NewRoutingRegistry()
 
-		c := &InfrastructureProvisionedConsumer{
-			orderDBReadyPublisher: pub,
-			migrationService:      migSvc,
+		infrastructureProvisionedConsumer := &InfrastructureProvisionedConsumer{
+			orderDBReadyPublisher: orderDBReadyPublisher,
+			migrationService:      migrationService,
 			poolRegistry:          poolReg,
 			routingRegistry:       routingReg,
 			sharedSecret:          "master_secret_key",
@@ -188,7 +188,7 @@ func TestInfrastructureProvisionedConsumer_HandleDelivery(t *testing.T) {
 			Body:         bodyDedicated,
 		}
 
-		err := c.handleDelivery(context.Background(), d)
+		err := infrastructureProvisionedConsumer.handleDelivery(context.Background(), d)
 		if err != nil {
 			t.Fatalf("expected no error on dedicated plan, got %v", err)
 		}
@@ -198,7 +198,7 @@ func TestInfrastructureProvisionedConsumer_HandleDelivery(t *testing.T) {
 	})
 
 	t.Run("poison_pill_max_retries_reached", func(t *testing.T) {
-		c := &InfrastructureProvisionedConsumer{}
+		infrastructureProvisionedConsumer := &InfrastructureProvisionedConsumer{}
 		mockAck := &mockAcknowledger{}
 		d := rabbitmq.Delivery{
 			Acknowledger: mockAck,
@@ -206,7 +206,7 @@ func TestInfrastructureProvisionedConsumer_HandleDelivery(t *testing.T) {
 			Headers:      map[string]any{"x-delivery-count": 3},
 		}
 
-		err := c.handleDelivery(context.Background(), d)
+		err := infrastructureProvisionedConsumer.handleDelivery(context.Background(), d)
 		if err == nil {
 			t.Error("expected max delivery count error")
 		}
@@ -219,14 +219,14 @@ func TestInfrastructureProvisionedConsumer_HandleDelivery(t *testing.T) {
 	})
 
 	t.Run("invalid_json_nacks_without_requeue", func(t *testing.T) {
-		c := &InfrastructureProvisionedConsumer{}
+		infrastructureProvisionedConsumer := &InfrastructureProvisionedConsumer{}
 		mockAck := &mockAcknowledger{}
 		d := rabbitmq.Delivery{
 			Acknowledger: mockAck,
 			Body:         []byte("invalid-json"),
 		}
 
-		err := c.handleDelivery(context.Background(), d)
+		err := infrastructureProvisionedConsumer.handleDelivery(context.Background(), d)
 		if err == nil {
 			t.Error("expected json unmarshal error")
 		}
@@ -240,14 +240,14 @@ func TestInfrastructureProvisionedConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("migration_error_nacks_with_requeue", func(t *testing.T) {
 		migErr := errors.New("sql migration script failed")
-		migSvc := &mockMigrationService{
+		migrationService := &mockMigrationService{
 			migrateTenantDBFunc: func(ctx context.Context, dsn, schemaName string) error {
 				return migErr
 			},
 		}
 
-		c := &InfrastructureProvisionedConsumer{
-			migrationService: migSvc,
+		infrastructureProvisionedConsumer := &InfrastructureProvisionedConsumer{
+			migrationService: migrationService,
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -256,7 +256,7 @@ func TestInfrastructureProvisionedConsumer_HandleDelivery(t *testing.T) {
 			Body:         bodyShared,
 		}
 
-		err := c.handleDelivery(context.Background(), d)
+		err := infrastructureProvisionedConsumer.handleDelivery(context.Background(), d)
 		if err == nil {
 			t.Error("expected error when migration fails")
 		}
@@ -269,9 +269,9 @@ func TestInfrastructureProvisionedConsumer_HandleDelivery(t *testing.T) {
 	})
 
 	t.Run("publisher_error_nacks_with_requeue", func(t *testing.T) {
-		migSvc := &mockMigrationService{}
+		migrationService := &mockMigrationService{}
 		pubErr := errors.New("rabbitmq connection dropped while publishing")
-		pub := &mockOrderDBReadyPublisher{
+		orderDBReadyPublisher := &mockOrderDBReadyPublisher{
 			publishFunc: func(ctx context.Context, evt domain.TenantOrderDBReadyEvent) error {
 				return pubErr
 			},
@@ -279,9 +279,9 @@ func TestInfrastructureProvisionedConsumer_HandleDelivery(t *testing.T) {
 		poolReg := registry.NewPoolRegistry()
 		routingReg := registry.NewRoutingRegistry()
 
-		c := &InfrastructureProvisionedConsumer{
-			orderDBReadyPublisher: pub,
-			migrationService:      migSvc,
+		infrastructureProvisionedConsumer := &InfrastructureProvisionedConsumer{
+			orderDBReadyPublisher: orderDBReadyPublisher,
+			migrationService:      migrationService,
 			poolRegistry:          poolReg,
 			routingRegistry:       routingReg,
 		}
@@ -292,7 +292,7 @@ func TestInfrastructureProvisionedConsumer_HandleDelivery(t *testing.T) {
 			Body:         bodyShared,
 		}
 
-		err := c.handleDelivery(context.Background(), d)
+		err := infrastructureProvisionedConsumer.handleDelivery(context.Background(), d)
 		if err == nil {
 			t.Error("expected error when publishing fails")
 		}
@@ -306,7 +306,7 @@ func TestInfrastructureProvisionedConsumer_HandleDelivery(t *testing.T) {
 }
 
 func TestNewInfrastructureProvisionedConsumer(t *testing.T) {
-	c := NewInfrastructureProvisionedConsumer(InfrastructureProvisionedConsumerParams{
+	infrastructureProvisionedConsumer := NewInfrastructureProvisionedConsumer(InfrastructureProvisionedConsumerParams{
 		Client:           &mockAMQPInterfaceClient{},
 		Publisher:        &mockOrderDBReadyPublisher{},
 		MigrationService: &mockMigrationService{},
@@ -315,7 +315,7 @@ func TestNewInfrastructureProvisionedConsumer(t *testing.T) {
 		SharedSecret:     "secret",
 		SharedDBPass:     "postgres",
 	})
-	if c == nil {
+	if infrastructureProvisionedConsumer == nil {
 		t.Fatal("expected non-nil consumer")
 	}
 }

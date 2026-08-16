@@ -31,14 +31,14 @@ func NewNotificationHandler(notificationService NotificationService) *Notificati
 	return &NotificationHandler{notificationService: notificationService}
 }
 
-func (h *NotificationHandler) ListNotifications(c *gin.Context) {
+func (notificationHandler *NotificationHandler) ListNotifications(c *gin.Context) {
 	tenantID := c.GetString(middleware.ContextKeyTenantID)
 	if tenantID == "" {
 		httputil.WriteError(c, http.StatusUnauthorized, "notification handler: missing tenant_id in token claims")
 		return
 	}
 
-	logs, err := h.notificationService.ListNotifications(c.Request.Context(), tenantID)
+	logs, err := notificationHandler.notificationService.ListNotifications(c.Request.Context(), tenantID)
 	if err != nil {
 		if errors.Is(err, domain.ErrTenantIDRequired) {
 			httputil.WriteError(c, http.StatusBadRequest, err.Error())

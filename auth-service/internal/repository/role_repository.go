@@ -30,8 +30,8 @@ func NewRoleRepository(dbClient *postgres.Client) *RoleRepository {
 	return &RoleRepository{dbClient: dbClient}
 }
 
-func (r *RoleRepository) CreateRole(ctx context.Context, input CreateRoleInput) (*domain.Role, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (roleRepository *RoleRepository) CreateRole(ctx context.Context, input CreateRoleInput) (*domain.Role, error) {
+	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 	query := `
 		INSERT INTO public.roles (tenant_id, name, description, is_system)
 		VALUES ($1, $2, $3, $4)
@@ -59,8 +59,8 @@ func (r *RoleRepository) CreateRole(ctx context.Context, input CreateRoleInput) 
 	return &created, nil
 }
 
-func (r *RoleRepository) FindRoleByID(ctx context.Context, id string) (*domain.Role, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (roleRepository *RoleRepository) FindRoleByID(ctx context.Context, id string) (*domain.Role, error) {
+	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 	query := `
 		SELECT id, tenant_id, name, COALESCE(description, ''), is_system, created_at, updated_at
 		FROM public.roles
@@ -79,7 +79,7 @@ func (r *RoleRepository) FindRoleByID(ctx context.Context, id string) (*domain.R
 	}
 
 	// Fetch permissions attached to this role
-	perms, err := r.ListPermissionsForRole(ctx, id)
+	perms, err := roleRepository.ListPermissionsForRole(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -88,8 +88,8 @@ func (r *RoleRepository) FindRoleByID(ctx context.Context, id string) (*domain.R
 	return &role, nil
 }
 
-func (r *RoleRepository) FindRoleByName(ctx context.Context, tenantID *string, name string) (*domain.Role, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (roleRepository *RoleRepository) FindRoleByName(ctx context.Context, tenantID *string, name string) (*domain.Role, error) {
+	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 	var query string
 	var args []any
 
@@ -123,7 +123,7 @@ func (r *RoleRepository) FindRoleByName(ctx context.Context, tenantID *string, n
 		role.TenantID = &tenantIDVal.String
 	}
 
-	perms, err := r.ListPermissionsForRole(ctx, role.ID)
+	perms, err := roleRepository.ListPermissionsForRole(ctx, role.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -132,8 +132,8 @@ func (r *RoleRepository) FindRoleByName(ctx context.Context, tenantID *string, n
 	return &role, nil
 }
 
-func (r *RoleRepository) FindRolesByTenantID(ctx context.Context, tenantID string) ([]domain.Role, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (roleRepository *RoleRepository) FindRolesByTenantID(ctx context.Context, tenantID string) ([]domain.Role, error) {
+	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 	query := `
 		SELECT r.id, r.tenant_id, r.name, COALESCE(r.description, ''), r.is_system, r.created_at, r.updated_at,
 		       COALESCE(
@@ -185,8 +185,8 @@ func (r *RoleRepository) FindRolesByTenantID(ctx context.Context, tenantID strin
 	return roles, nil
 }
 
-func (r *RoleRepository) ListPermissionsForRole(ctx context.Context, roleID string) ([]domain.Permission, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (roleRepository *RoleRepository) ListPermissionsForRole(ctx context.Context, roleID string) ([]domain.Permission, error) {
+	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 	query := `
 		SELECT p.id, p.name, p.service, COALESCE(p.description, ''), p.created_at, p.updated_at
 		FROM public.permissions p
@@ -211,8 +211,8 @@ func (r *RoleRepository) ListPermissionsForRole(ctx context.Context, roleID stri
 	return permissions, nil
 }
 
-func (r *RoleRepository) UpdateRolePermissions(ctx context.Context, roleID string, permissionIDs []string) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (roleRepository *RoleRepository) UpdateRolePermissions(ctx context.Context, roleID string, permissionIDs []string) error {
+	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 
 	// Delete existing permissions for role
 	if _, err := exec.ExecContext(ctx, `DELETE FROM public.role_permissions WHERE role_id = $1;`, roleID); err != nil {
@@ -252,8 +252,8 @@ func (r *RoleRepository) UpdateRolePermissions(ctx context.Context, roleID strin
 	return nil
 }
 
-func (r *RoleRepository) DeleteRole(ctx context.Context, id string) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (roleRepository *RoleRepository) DeleteRole(ctx context.Context, id string) error {
+	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 
 	// Verify not system role
 	var isSystem bool
@@ -274,8 +274,8 @@ func (r *RoleRepository) DeleteRole(ctx context.Context, id string) error {
 	return nil
 }
 
-func (r *RoleRepository) AssignUserRole(ctx context.Context, userID, tenantID, roleID string, assignedBy *string) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (roleRepository *RoleRepository) AssignUserRole(ctx context.Context, userID, tenantID, roleID string, assignedBy *string) error {
+	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 	query := `
 		INSERT INTO public.user_roles (user_id, tenant_id, role_id, assigned_by, assigned_at)
 		VALUES ($1, $2, $3, $4, NOW())
@@ -303,8 +303,8 @@ func (r *RoleRepository) AssignUserRole(ctx context.Context, userID, tenantID, r
 	return nil
 }
 
-func (r *RoleRepository) UserHasMembership(ctx context.Context, userID, tenantID string) (bool, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (roleRepository *RoleRepository) UserHasMembership(ctx context.Context, userID, tenantID string) (bool, error) {
+	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 	query := `
 		SELECT EXISTS(
 			SELECT 1
@@ -319,8 +319,8 @@ func (r *RoleRepository) UserHasMembership(ctx context.Context, userID, tenantID
 	return exists, nil
 }
 
-func (r *RoleRepository) FindUserRole(ctx context.Context, userID, tenantID string) (*domain.UserRole, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (roleRepository *RoleRepository) FindUserRole(ctx context.Context, userID, tenantID string) (*domain.UserRole, error) {
+	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 	query := `
 		SELECT ur.user_id, ur.tenant_id, ur.role_id, ur.assigned_at, ur.assigned_by,
 		       r.id, r.tenant_id, r.name, COALESCE(r.description, ''), r.is_system, r.created_at, r.updated_at
@@ -328,14 +328,14 @@ func (r *RoleRepository) FindUserRole(ctx context.Context, userID, tenantID stri
 		JOIN public.roles r ON r.id = ur.role_id
 		WHERE ur.user_id = $1 AND ur.tenant_id = $2;
 	`
-	var ur domain.UserRole
+	var userRole domain.UserRole
 	var role domain.Role
 	var assignedBy sql.NullString
 	var roleTenantID sql.NullString
 
 	row := exec.QueryRowContext(ctx, query, userID, tenantID)
 	if err := row.Scan(
-		&ur.UserID, &ur.TenantID, &ur.RoleID, &ur.AssignedAt, &assignedBy,
+		&userRole.UserID, &userRole.TenantID, &userRole.RoleID, &userRole.AssignedAt, &assignedBy,
 		&role.ID, &roleTenantID, &role.Name, &role.Description, &role.IsSystem, &role.CreatedAt, &role.UpdatedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -345,24 +345,24 @@ func (r *RoleRepository) FindUserRole(ctx context.Context, userID, tenantID stri
 	}
 
 	if assignedBy.Valid {
-		ur.AssignedBy = &assignedBy.String
+		userRole.AssignedBy = &assignedBy.String
 	}
 	if roleTenantID.Valid {
 		role.TenantID = &roleTenantID.String
 	}
-	ur.Role = &role
+	userRole.Role = &role
 
-	perms, err := r.ListPermissionsForRole(ctx, role.ID)
+	perms, err := roleRepository.ListPermissionsForRole(ctx, role.ID)
 	if err != nil {
 		return nil, err
 	}
 	role.Permissions = perms
 
-	return &ur, nil
+	return &userRole, nil
 }
 
-func (r *RoleRepository) FindUserPermissions(ctx context.Context, userID, tenantID string) ([]string, int64, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (roleRepository *RoleRepository) FindUserPermissions(ctx context.Context, userID, tenantID string) ([]string, int64, error) {
+	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 
 	// Fetch permission names
 	query := `
@@ -408,8 +408,8 @@ type UserRoleBrief struct {
 	RoleName string `json:"role_name"`
 }
 
-func (r *RoleRepository) ListUserRolesByTenant(ctx context.Context, tenantID string, userIDs []string) ([]UserRoleBrief, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (roleRepository *RoleRepository) ListUserRolesByTenant(ctx context.Context, tenantID string, userIDs []string) ([]UserRoleBrief, error) {
+	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 	query := `
 		SELECT ur.user_id, r.id, r.name
 		FROM public.user_roles ur
@@ -439,8 +439,8 @@ func (r *RoleRepository) ListUserRolesByTenant(ctx context.Context, tenantID str
 	return assignments, nil
 }
 
-func (r *RoleRepository) GetUserPermissionVersion(ctx context.Context, userID, tenantID string) (int64, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (roleRepository *RoleRepository) GetUserPermissionVersion(ctx context.Context, userID, tenantID string) (int64, error) {
+	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 	var version int64 = 1
 	query := `SELECT version FROM public.user_permission_versions WHERE user_id = $1 AND tenant_id = $2;`
 	if err := exec.QueryRowContext(ctx, query, userID, tenantID).Scan(&version); err != nil {
@@ -452,8 +452,8 @@ func (r *RoleRepository) GetUserPermissionVersion(ctx context.Context, userID, t
 	return version, nil
 }
 
-func (r *RoleRepository) BumpUserPermissionVersionsForRole(ctx context.Context, roleID string) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (roleRepository *RoleRepository) BumpUserPermissionVersionsForRole(ctx context.Context, roleID string) error {
+	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 	query := `
 		UPDATE public.user_permission_versions upv
 		SET version    = upv.version + 1,

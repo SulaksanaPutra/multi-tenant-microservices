@@ -64,7 +64,7 @@ func NewTenantInfrastructureService(params TenantInfrastructureServiceParams) *T
 	}
 }
 
-func (s *TenantInfrastructureService) HandleInfrastructureUpdate(ctx context.Context, input InfrastructureUpdateInput) error {
+func (tenantInfrastructureService *TenantInfrastructureService) HandleInfrastructureUpdate(ctx context.Context, input InfrastructureUpdateInput) error {
 	if strings.TrimSpace(input.TenantID) == "" {
 		return domain.ErrTenantIDRequired
 	}
@@ -72,7 +72,7 @@ func (s *TenantInfrastructureService) HandleInfrastructureUpdate(ctx context.Con
 		return domain.ErrServiceNameRequired
 	}
 
-	if err := s.infrastructureRepository.UpsertServiceInfrastructure(ctx, repository.UpsertServiceInfrastructureInput{
+	if err := tenantInfrastructureService.infrastructureRepository.UpsertServiceInfrastructure(ctx, repository.UpsertServiceInfrastructureInput{
 		TenantID:    input.TenantID,
 		ServiceName: input.ServiceName,
 		DBHost:      input.DBHost,
@@ -87,7 +87,7 @@ func (s *TenantInfrastructureService) HandleInfrastructureUpdate(ctx context.Con
 	log.Printf("TenantInfrastructureService: Infrastructure routing updated for tenant_id='%s' service='%s' host='%s'",
 		input.TenantID, input.ServiceName, input.DBHost)
 
-	pendingCount, err := s.infrastructureRepository.GetPendingServiceCount(ctx, input.TenantID, s.requiredServices)
+	pendingCount, err := tenantInfrastructureService.infrastructureRepository.GetPendingServiceCount(ctx, input.TenantID, tenantInfrastructureService.requiredServices)
 	if err != nil {
 		return fmt.Errorf("failed to check pending service count: %w", err)
 	}
@@ -97,8 +97,8 @@ func (s *TenantInfrastructureService) HandleInfrastructureUpdate(ctx context.Con
 		return nil
 	}
 
-	if s.workspaceActivator != nil {
-		if err := s.workspaceActivator.ActivateWorkspace(ctx, input.TenantID); err != nil {
+	if tenantInfrastructureService.workspaceActivator != nil {
+		if err := tenantInfrastructureService.workspaceActivator.ActivateWorkspace(ctx, input.TenantID); err != nil {
 			return fmt.Errorf("failed to trigger workspace activation: %w", err)
 		}
 	}
@@ -106,7 +106,7 @@ func (s *TenantInfrastructureService) HandleInfrastructureUpdate(ctx context.Con
 	return nil
 }
 
-func (s *TenantInfrastructureService) GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*RoutingOutput, error) {
+func (tenantInfrastructureService *TenantInfrastructureService) GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*RoutingOutput, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return nil, domain.ErrTenantIDRequired
 	}
@@ -114,7 +114,7 @@ func (s *TenantInfrastructureService) GetServiceInfrastructure(ctx context.Conte
 		return nil, domain.ErrServiceNameRequired
 	}
 
-	infra, err := s.infrastructureRepository.GetServiceInfrastructure(ctx, tenantID, serviceName)
+	infra, err := tenantInfrastructureService.infrastructureRepository.GetServiceInfrastructure(ctx, tenantID, serviceName)
 	if err != nil {
 		return nil, err
 	}

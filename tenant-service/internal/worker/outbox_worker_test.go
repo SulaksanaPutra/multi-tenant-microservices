@@ -132,53 +132,53 @@ func (m *mockTenantPublisher) PublishMigrationFailed(ctx context.Context, evt do
 }
 
 func TestNewOutboxWorker(t *testing.T) {
-	repo := newMockOutboxRepository()
-	pub := &mockTenantPublisher{}
+	outboxRepository := newMockOutboxRepository()
+	mockTenantPublisher := &mockTenantPublisher{}
 
-	w := NewOutboxWorker(repo, pub)
+	outboxWorker := NewOutboxWorker(outboxRepository, mockTenantPublisher)
 
-	if w == nil {
+	if outboxWorker == nil {
 		t.Fatal("expected NewOutboxWorker to return non-nil instance")
 	}
-	if w.outboxRepository != repo {
+	if outboxWorker.outboxRepository != outboxRepository {
 		t.Errorf("expected outboxRepository to be set")
 	}
-	if w.publisher != pub {
+	if outboxWorker.publisher != mockTenantPublisher {
 		t.Errorf("expected publisher to be set")
 	}
-	if cap(w.wakeUpChan) != 1 {
-		t.Errorf("expected wakeUpChan capacity to be 1, got %d", cap(w.wakeUpChan))
+	if cap(outboxWorker.wakeUpChan) != 1 {
+		t.Errorf("expected wakeUpChan capacity to be 1, got %d", cap(outboxWorker.wakeUpChan))
 	}
-	if w.debounceDelay != defaultDebounceDelay {
-		t.Errorf("expected debounceDelay %v, got %v", defaultDebounceDelay, w.debounceDelay)
+	if outboxWorker.debounceDelay != defaultDebounceDelay {
+		t.Errorf("expected debounceDelay %v, got %v", defaultDebounceDelay, outboxWorker.debounceDelay)
 	}
-	if w.pollInterval != defaultPollInterval {
-		t.Errorf("expected pollInterval %v, got %v", defaultPollInterval, w.pollInterval)
+	if outboxWorker.pollInterval != defaultPollInterval {
+		t.Errorf("expected pollInterval %v, got %v", defaultPollInterval, outboxWorker.pollInterval)
 	}
-	if w.batchSize != defaultBatchSize {
-		t.Errorf("expected batchSize %d, got %d", defaultBatchSize, w.batchSize)
+	if outboxWorker.batchSize != defaultBatchSize {
+		t.Errorf("expected batchSize %d, got %d", defaultBatchSize, outboxWorker.batchSize)
 	}
 }
 
 func TestOutboxWorker_Poke(t *testing.T) {
-	repo := newMockOutboxRepository()
-	pub := &mockTenantPublisher{}
-	w := NewOutboxWorker(repo, pub)
+	outboxRepository := newMockOutboxRepository()
+	mockTenantPublisher := &mockTenantPublisher{}
+	outboxWorker := NewOutboxWorker(outboxRepository, mockTenantPublisher)
 
 	// First Poke should write to wakeUpChan
-	w.Poke()
+	outboxWorker.Poke()
 	select {
-	case <-w.wakeUpChan:
+	case <-outboxWorker.wakeUpChan:
 		// Success
 	default:
 		t.Error("expected channel to receive signal on Poke")
 	}
 
 	// Second Poke when buffer full should not block
-	w.Poke()
-	w.Poke() // Non-blocking drop
+	outboxWorker.Poke()
+	outboxWorker.Poke() // Non-blocking drop
 	select {
-	case <-w.wakeUpChan:
+	case <-outboxWorker.wakeUpChan:
 		// Received one signal from buffer
 	default:
 		t.Error("expected channel to have buffer filled")
@@ -186,9 +186,9 @@ func TestOutboxWorker_Poke(t *testing.T) {
 }
 
 func TestOutboxWorker_ProcessBatch_WorkspaceInitiated_Success(t *testing.T) {
-	repo := newMockOutboxRepository()
-	pub := &mockTenantPublisher{}
-	w := NewOutboxWorker(repo, pub)
+	outboxRepository := newMockOutboxRepository()
+	mockTenantPublisher := &mockTenantPublisher{}
+	outboxWorker := NewOutboxWorker(outboxRepository, mockTenantPublisher)
 
 	evt := domain.WorkspaceInitiatedEvent{
 		EventID:    "evt-1",
@@ -205,32 +205,32 @@ func TestOutboxWorker_ProcessBatch_WorkspaceInitiated_Success(t *testing.T) {
 		Payload:   payload,
 	}
 
-	repo.fetchAndClaimBatchFunc = func(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
+	outboxRepository.fetchAndClaimBatchFunc = func(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
 		return []domain.OutboxMessage{msg}, nil
 	}
 
-	w.processBatch(context.Background(), domain.RoutingKeyWorkspaceInitiated)
+	outboxWorker.processBatch(context.Background(), domain.RoutingKeyWorkspaceInitiated)
 
-	pub.mu.Lock()
-	defer pub.mu.Unlock()
-	if len(pub.publishedInitiatedEvents) != 1 {
-		t.Fatalf("expected 1 published WorkspaceInitiatedEvent, got %d", len(pub.publishedInitiatedEvents))
+	mockTenantPublisher.mu.Lock()
+	defer mockTenantPublisher.mu.Unlock()
+	if len(mockTenantPublisher.publishedInitiatedEvents) != 1 {
+		t.Fatalf("expected 1 published WorkspaceInitiatedEvent, got %d", len(mockTenantPublisher.publishedInitiatedEvents))
 	}
-	if pub.publishedInitiatedEvents[0].EventID != "evt-1" {
-		t.Errorf("expected EventID 'evt-1', got '%s'", pub.publishedInitiatedEvents[0].EventID)
+	if mockTenantPublisher.publishedInitiatedEvents[0].EventID != "evt-1" {
+		t.Errorf("expected EventID 'evt-1', got '%s'", mockTenantPublisher.publishedInitiatedEvents[0].EventID)
 	}
 
-	repo.mu.Lock()
-	defer repo.mu.Unlock()
-	if len(repo.markPublishedCalls) != 1 || repo.markPublishedCalls[0] != "msg-1" {
-		t.Errorf("expected MarkPublished call for 'msg-1', got %v", repo.markPublishedCalls)
+	outboxRepository.mu.Lock()
+	defer outboxRepository.mu.Unlock()
+	if len(outboxRepository.markPublishedCalls) != 1 || outboxRepository.markPublishedCalls[0] != "msg-1" {
+		t.Errorf("expected MarkPublished call for 'msg-1', got %v", outboxRepository.markPublishedCalls)
 	}
 }
 
 func TestOutboxWorker_ProcessBatch_WorkspaceReady_Success(t *testing.T) {
-	repo := newMockOutboxRepository()
-	pub := &mockTenantPublisher{}
-	w := NewOutboxWorker(repo, pub)
+	outboxRepository := newMockOutboxRepository()
+	mockTenantPublisher := &mockTenantPublisher{}
+	outboxWorker := NewOutboxWorker(outboxRepository, mockTenantPublisher)
 
 	evt := domain.WorkspaceReadyEvent{
 		EventID:    "evt-2",
@@ -248,32 +248,32 @@ func TestOutboxWorker_ProcessBatch_WorkspaceReady_Success(t *testing.T) {
 		Payload:   payload,
 	}
 
-	repo.fetchAndClaimBatchFunc = func(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
+	outboxRepository.fetchAndClaimBatchFunc = func(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
 		return []domain.OutboxMessage{msg}, nil
 	}
 
-	w.processBatch(context.Background(), domain.RoutingKeyWorkspaceReady)
+	outboxWorker.processBatch(context.Background(), domain.RoutingKeyWorkspaceReady)
 
-	pub.mu.Lock()
-	defer pub.mu.Unlock()
-	if len(pub.publishedReadyEvents) != 1 {
-		t.Fatalf("expected 1 published WorkspaceReadyEvent, got %d", len(pub.publishedReadyEvents))
+	mockTenantPublisher.mu.Lock()
+	defer mockTenantPublisher.mu.Unlock()
+	if len(mockTenantPublisher.publishedReadyEvents) != 1 {
+		t.Fatalf("expected 1 published WorkspaceReadyEvent, got %d", len(mockTenantPublisher.publishedReadyEvents))
 	}
-	if pub.publishedReadyEvents[0].EventID != "evt-2" {
-		t.Errorf("expected EventID 'evt-2', got '%s'", pub.publishedReadyEvents[0].EventID)
+	if mockTenantPublisher.publishedReadyEvents[0].EventID != "evt-2" {
+		t.Errorf("expected EventID 'evt-2', got '%s'", mockTenantPublisher.publishedReadyEvents[0].EventID)
 	}
 
-	repo.mu.Lock()
-	defer repo.mu.Unlock()
-	if len(repo.markPublishedCalls) != 1 || repo.markPublishedCalls[0] != "msg-2" {
-		t.Errorf("expected MarkPublished call for 'msg-2', got %v", repo.markPublishedCalls)
+	outboxRepository.mu.Lock()
+	defer outboxRepository.mu.Unlock()
+	if len(outboxRepository.markPublishedCalls) != 1 || outboxRepository.markPublishedCalls[0] != "msg-2" {
+		t.Errorf("expected MarkPublished call for 'msg-2', got %v", outboxRepository.markPublishedCalls)
 	}
 }
 
 func TestOutboxWorker_ProcessBatch_InvalidJSON(t *testing.T) {
-	repo := newMockOutboxRepository()
-	pub := &mockTenantPublisher{}
-	w := NewOutboxWorker(repo, pub)
+	outboxRepository := newMockOutboxRepository()
+	mockTenantPublisher := &mockTenantPublisher{}
+	outboxWorker := NewOutboxWorker(outboxRepository, mockTenantPublisher)
 
 	msg := domain.OutboxMessage{
 		ID:        "msg-invalid",
@@ -281,34 +281,34 @@ func TestOutboxWorker_ProcessBatch_InvalidJSON(t *testing.T) {
 		Payload:   []byte("invalid-json-{"),
 	}
 
-	repo.fetchAndClaimBatchFunc = func(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
+	outboxRepository.fetchAndClaimBatchFunc = func(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
 		return []domain.OutboxMessage{msg}, nil
 	}
 
-	w.processBatch(context.Background(), domain.RoutingKeyWorkspaceInitiated)
+	outboxWorker.processBatch(context.Background(), domain.RoutingKeyWorkspaceInitiated)
 
-	repo.mu.Lock()
-	defer repo.mu.Unlock()
-	if err, ok := repo.markFailedCalls["msg-invalid"]; !ok || err == nil {
+	outboxRepository.mu.Lock()
+	defer outboxRepository.mu.Unlock()
+	if err, ok := outboxRepository.markFailedCalls["msg-invalid"]; !ok || err == nil {
 		t.Errorf("expected MarkFailed call for 'msg-invalid' with unmarshal error")
 	}
 
-	pub.mu.Lock()
-	defer pub.mu.Unlock()
-	if len(pub.publishedInitiatedEvents) != 0 {
+	mockTenantPublisher.mu.Lock()
+	defer mockTenantPublisher.mu.Unlock()
+	if len(mockTenantPublisher.publishedInitiatedEvents) != 0 {
 		t.Errorf("expected no events published on invalid JSON")
 	}
 }
 
 func TestOutboxWorker_ProcessBatch_PublishError(t *testing.T) {
-	repo := newMockOutboxRepository()
+	outboxRepository := newMockOutboxRepository()
 	pubErr := errors.New("amqp publish connection error")
-	pub := &mockTenantPublisher{
+	mockTenantPublisher := &mockTenantPublisher{
 		publishWorkspaceInitiatedFunc: func(ctx context.Context, evt domain.WorkspaceInitiatedEvent) error {
 			return pubErr
 		},
 	}
-	w := NewOutboxWorker(repo, pub)
+	outboxWorker := NewOutboxWorker(outboxRepository, mockTenantPublisher)
 
 	evt := domain.WorkspaceInitiatedEvent{EventID: "evt-err"}
 	payload, _ := json.Marshal(evt)
@@ -318,31 +318,31 @@ func TestOutboxWorker_ProcessBatch_PublishError(t *testing.T) {
 		Payload:   payload,
 	}
 
-	repo.fetchAndClaimBatchFunc = func(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
+	outboxRepository.fetchAndClaimBatchFunc = func(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
 		return []domain.OutboxMessage{msg}, nil
 	}
 
-	w.processBatch(context.Background(), domain.RoutingKeyWorkspaceInitiated)
+	outboxWorker.processBatch(context.Background(), domain.RoutingKeyWorkspaceInitiated)
 
-	repo.mu.Lock()
-	defer repo.mu.Unlock()
-	if err, ok := repo.markFailedCalls["msg-pub-err"]; !ok || !errors.Is(err, pubErr) {
+	outboxRepository.mu.Lock()
+	defer outboxRepository.mu.Unlock()
+	if err, ok := outboxRepository.markFailedCalls["msg-pub-err"]; !ok || !errors.Is(err, pubErr) {
 		t.Errorf("expected MarkFailed call for 'msg-pub-err' with pubErr, got %v", err)
 	}
-	if len(repo.markPublishedCalls) != 0 {
+	if len(outboxRepository.markPublishedCalls) != 0 {
 		t.Errorf("expected MarkPublished NOT to be called on publish failure")
 	}
 }
 
 func TestOutboxWorker_ProcessBatch_MarkPublishedError(t *testing.T) {
-	repo := newMockOutboxRepository()
+	outboxRepository := newMockOutboxRepository()
 	markErr := errors.New("db connection failure")
-	repo.markPublishedFunc = func(ctx context.Context, id string) error {
+	outboxRepository.markPublishedFunc = func(ctx context.Context, id string) error {
 		return markErr
 	}
 
-	pub := &mockTenantPublisher{}
-	w := NewOutboxWorker(repo, pub)
+	mockTenantPublisher := &mockTenantPublisher{}
+	outboxWorker := NewOutboxWorker(outboxRepository, mockTenantPublisher)
 
 	evt := domain.WorkspaceInitiatedEvent{EventID: "evt-mark-err"}
 	payload, _ := json.Marshal(evt)
@@ -352,24 +352,24 @@ func TestOutboxWorker_ProcessBatch_MarkPublishedError(t *testing.T) {
 		Payload:   payload,
 	}
 
-	repo.fetchAndClaimBatchFunc = func(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
+	outboxRepository.fetchAndClaimBatchFunc = func(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
 		return []domain.OutboxMessage{msg}, nil
 	}
 
 	// Should handle error gracefully without panicking
-	w.processBatch(context.Background(), domain.RoutingKeyWorkspaceInitiated)
+	outboxWorker.processBatch(context.Background(), domain.RoutingKeyWorkspaceInitiated)
 
-	repo.mu.Lock()
-	defer repo.mu.Unlock()
-	if len(repo.markPublishedCalls) != 1 || repo.markPublishedCalls[0] != "msg-mark-err" {
+	outboxRepository.mu.Lock()
+	defer outboxRepository.mu.Unlock()
+	if len(outboxRepository.markPublishedCalls) != 1 || outboxRepository.markPublishedCalls[0] != "msg-mark-err" {
 		t.Errorf("expected MarkPublished to be attempted for 'msg-mark-err'")
 	}
 }
 
 func TestOutboxWorker_ProcessBatch_UnknownEventType(t *testing.T) {
-	repo := newMockOutboxRepository()
-	pub := &mockTenantPublisher{}
-	w := NewOutboxWorker(repo, pub)
+	outboxRepository := newMockOutboxRepository()
+	mockTenantPublisher := &mockTenantPublisher{}
+	outboxWorker := NewOutboxWorker(outboxRepository, mockTenantPublisher)
 
 	msg := domain.OutboxMessage{
 		ID:        "msg-unknown",
@@ -377,59 +377,59 @@ func TestOutboxWorker_ProcessBatch_UnknownEventType(t *testing.T) {
 		Payload:   []byte("{}"),
 	}
 
-	repo.fetchAndClaimBatchFunc = func(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
+	outboxRepository.fetchAndClaimBatchFunc = func(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
 		return []domain.OutboxMessage{msg}, nil
 	}
 
-	w.processBatch(context.Background(), "unknown.event.key")
+	outboxWorker.processBatch(context.Background(), "unknown.event.key")
 
-	repo.mu.Lock()
-	defer repo.mu.Unlock()
-	if len(repo.markPublishedCalls) != 0 || len(repo.markFailedCalls) != 0 {
+	outboxRepository.mu.Lock()
+	defer outboxRepository.mu.Unlock()
+	if len(outboxRepository.markPublishedCalls) != 0 || len(outboxRepository.markFailedCalls) != 0 {
 		t.Errorf("expected no mark calls for unknown event type")
 	}
 }
 
 func TestOutboxWorker_ProcessBatch_FetchError(t *testing.T) {
-	repo := newMockOutboxRepository()
+	outboxRepository := newMockOutboxRepository()
 	fetchErr := errors.New("failed to claim outbox batch")
-	repo.fetchAndClaimBatchFunc = func(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
+	outboxRepository.fetchAndClaimBatchFunc = func(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
 		return nil, fetchErr
 	}
 
-	pub := &mockTenantPublisher{}
-	w := NewOutboxWorker(repo, pub)
+	mockTenantPublisher := &mockTenantPublisher{}
+	outboxWorker := NewOutboxWorker(outboxRepository, mockTenantPublisher)
 
 	// Should log error and return without panic
-	w.processBatch(context.Background(), domain.RoutingKeyWorkspaceInitiated)
+	outboxWorker.processBatch(context.Background(), domain.RoutingKeyWorkspaceInitiated)
 }
 
 func TestOutboxWorker_ProcessBatch_StuckClaimRecoveryError(t *testing.T) {
-	repo := newMockOutboxRepository()
-	repo.recoverStuckClaimsFunc = func(ctx context.Context, eventType string) error {
+	outboxRepository := newMockOutboxRepository()
+	outboxRepository.recoverStuckClaimsFunc = func(ctx context.Context, eventType string) error {
 		return errors.New("recovery failed")
 	}
 
-	pub := &mockTenantPublisher{}
-	w := NewOutboxWorker(repo, pub)
+	mockTenantPublisher := &mockTenantPublisher{}
+	outboxWorker := NewOutboxWorker(outboxRepository, mockTenantPublisher)
 
-	w.recoverAndProcess(context.Background())
+	outboxWorker.recoverAndProcess(context.Background())
 
-	repo.mu.Lock()
-	defer repo.mu.Unlock()
-	if repo.recoverStuckClaimsCalls[domain.RoutingKeyWorkspaceInitiated] != 1 {
+	outboxRepository.mu.Lock()
+	defer outboxRepository.mu.Unlock()
+	if outboxRepository.recoverStuckClaimsCalls[domain.RoutingKeyWorkspaceInitiated] != 1 {
 		t.Errorf("expected RecoverStuckClaims call for workspace.initiated")
 	}
-	if repo.recoverStuckClaimsCalls[domain.RoutingKeyWorkspaceReady] != 1 {
+	if outboxRepository.recoverStuckClaimsCalls[domain.RoutingKeyWorkspaceReady] != 1 {
 		t.Errorf("expected RecoverStuckClaims call for workspace.ready")
 	}
 }
 
 func TestOutboxWorker_ProcessBatch_FullBatchPokesWorker(t *testing.T) {
-	repo := newMockOutboxRepository()
-	pub := &mockTenantPublisher{}
-	w := NewOutboxWorker(repo, pub)
-	w.batchSize = 1 // Set batchSize to 1 for test
+	outboxRepository := newMockOutboxRepository()
+	mockTenantPublisher := &mockTenantPublisher{}
+	outboxWorker := NewOutboxWorker(outboxRepository, mockTenantPublisher)
+	outboxWorker.batchSize = 1 // Set batchSize to 1 for test
 
 	evt := domain.WorkspaceInitiatedEvent{EventID: "evt-full"}
 	payload, _ := json.Marshal(evt)
@@ -439,14 +439,14 @@ func TestOutboxWorker_ProcessBatch_FullBatchPokesWorker(t *testing.T) {
 		Payload:   payload,
 	}
 
-	repo.fetchAndClaimBatchFunc = func(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
+	outboxRepository.fetchAndClaimBatchFunc = func(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
 		return []domain.OutboxMessage{msg}, nil
 	}
 
-	w.processBatch(context.Background(), domain.RoutingKeyWorkspaceInitiated)
+	outboxWorker.processBatch(context.Background(), domain.RoutingKeyWorkspaceInitiated)
 
 	select {
-	case <-w.wakeUpChan:
+	case <-outboxWorker.wakeUpChan:
 		// Verified Poke was called upon filling batchSize
 	default:
 		t.Error("expected Poke() to be called when messages count equals batchSize")
@@ -454,18 +454,18 @@ func TestOutboxWorker_ProcessBatch_FullBatchPokesWorker(t *testing.T) {
 }
 
 func TestOutboxWorker_StartAndShutdown(t *testing.T) {
-	repo := newMockOutboxRepository()
-	pub := &mockTenantPublisher{}
-	w := NewOutboxWorker(repo, pub)
-	w.pollInterval = 10 * time.Millisecond
-	w.debounceDelay = 5 * time.Millisecond
+	outboxRepository := newMockOutboxRepository()
+	mockTenantPublisher := &mockTenantPublisher{}
+	outboxWorker := NewOutboxWorker(outboxRepository, mockTenantPublisher)
+	outboxWorker.pollInterval = 10 * time.Millisecond
+	outboxWorker.debounceDelay = 5 * time.Millisecond
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 
 	done := make(chan struct{})
 	go func() {
-		w.Start(ctx)
+		outboxWorker.Start(ctx)
 		close(done)
 	}()
 
@@ -478,21 +478,21 @@ func TestOutboxWorker_StartAndShutdown(t *testing.T) {
 }
 
 func TestOutboxWorker_DebounceAndProcess(t *testing.T) {
-	repo := newMockOutboxRepository()
-	pub := &mockTenantPublisher{}
-	w := NewOutboxWorker(repo, pub)
-	w.debounceDelay = 5 * time.Millisecond
+	outboxRepository := newMockOutboxRepository()
+	mockTenantPublisher := &mockTenantPublisher{}
+	outboxWorker := NewOutboxWorker(outboxRepository, mockTenantPublisher)
+	outboxWorker.debounceDelay = 5 * time.Millisecond
 
-	w.Poke()
+	outboxWorker.Poke()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	w.debounceAndProcess(ctx)
+	outboxWorker.debounceAndProcess(ctx)
 
-	repo.mu.Lock()
-	defer repo.mu.Unlock()
-	if repo.recoverStuckClaimsCalls[domain.RoutingKeyWorkspaceInitiated] == 0 {
+	outboxRepository.mu.Lock()
+	defer outboxRepository.mu.Unlock()
+	if outboxRepository.recoverStuckClaimsCalls[domain.RoutingKeyWorkspaceInitiated] == 0 {
 		t.Errorf("expected debounceAndProcess to execute recoverAndProcess")
 	}
 }

@@ -30,18 +30,18 @@ func TestPermissionHandler_ListPermissions(t *testing.T) {
 
 	t.Run("service failure -> 500", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		_, r := gin.CreateTestContext(w)
+		_, router := gin.CreateTestContext(w)
 
-		mockSvc := &mockPermissionService{
+		mockPermissionService := &mockPermissionService{
 			ListPermissionsFn: func(_ context.Context) ([]service.PermissionOutput, error) {
 				return nil, errors.New("list failure")
 			},
 		}
-		h := NewPermissionHandler(mockSvc)
-		r.GET("/api/auth/permissions", h.ListPermissions)
+		permissionHandler := NewPermissionHandler(mockPermissionService)
+		router.GET("/api/auth/permissions", permissionHandler.ListPermissions)
 
 		req := httptest.NewRequest(http.MethodGet, "/api/auth/permissions", nil)
-		r.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 		if w.Code != http.StatusInternalServerError {
 			t.Fatalf("expected status 500, got %d", w.Code)
 		}
@@ -49,20 +49,20 @@ func TestPermissionHandler_ListPermissions(t *testing.T) {
 
 	t.Run("success -> returns permissions list", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		_, r := gin.CreateTestContext(w)
+		_, router := gin.CreateTestContext(w)
 
-		mockSvc := &mockPermissionService{
+		mockPermissionService := &mockPermissionService{
 			ListPermissionsFn: func(_ context.Context) ([]service.PermissionOutput, error) {
 				return []service.PermissionOutput{
 					{ID: "p1", Name: "orders:read", Service: "order-service"},
 				}, nil
 			},
 		}
-		h := NewPermissionHandler(mockSvc)
-		r.GET("/api/auth/permissions", h.ListPermissions)
+		permissionHandler := NewPermissionHandler(mockPermissionService)
+		router.GET("/api/auth/permissions", permissionHandler.ListPermissions)
 
 		req := httptest.NewRequest(http.MethodGet, "/api/auth/permissions", nil)
-		r.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected status 200, got %d", w.Code)
 		}

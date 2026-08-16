@@ -10,18 +10,18 @@ import (
 
 func TestOrderEventPublisher_Constructor_NilChannel(t *testing.T) {
 	client := &rabbitmq.Client{}
-	pub, err := NewOrderEventPublisher(client)
+	orderEventPublisher, err := NewOrderEventPublisher(client)
 	if err == nil {
 		t.Fatalf("expected error when declaring exchange on uninitialized channel, got nil")
 	}
-	if pub != nil {
-		t.Fatalf("expected OrderEventPublisher pointer to be nil on constructor failure, got %v", pub)
+	if orderEventPublisher != nil {
+		t.Fatalf("expected OrderEventPublisher pointer to be nil on constructor failure, got %v", orderEventPublisher)
 	}
 }
 
 func TestOrderEventPublisher_PublishOrderCreated_NilChannel(t *testing.T) {
 	client := &rabbitmq.Client{}
-	pub := &OrderEventPublisher{client: client}
+	orderEventPublisher := &OrderEventPublisher{client: client}
 
 	evt := domain.OrderCreatedEvent{
 		EventID:  "evt-101",
@@ -29,7 +29,7 @@ func TestOrderEventPublisher_PublishOrderCreated_NilChannel(t *testing.T) {
 		OrderID:  "order-101",
 	}
 
-	err := pub.PublishOrderCreated(context.Background(), evt)
+	err := orderEventPublisher.PublishOrderCreated(context.Background(), evt)
 	if err == nil {
 		t.Fatalf("expected error publishing OrderCreated event with uninitialized channel, got nil")
 	}
@@ -37,7 +37,7 @@ func TestOrderEventPublisher_PublishOrderCreated_NilChannel(t *testing.T) {
 
 func TestOrderEventPublisher_PublishOrderCreated_ContextCancelled(t *testing.T) {
 	client := &rabbitmq.Client{}
-	pub := &OrderEventPublisher{client: client}
+	orderEventPublisher := &OrderEventPublisher{client: client}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -48,7 +48,7 @@ func TestOrderEventPublisher_PublishOrderCreated_ContextCancelled(t *testing.T) 
 		OrderID:  "order-102",
 	}
 
-	err := pub.PublishOrderCreated(ctx, evt)
+	err := orderEventPublisher.PublishOrderCreated(ctx, evt)
 	if err == nil {
 		t.Fatalf("expected error when context is cancelled, got nil")
 	}
@@ -56,8 +56,8 @@ func TestOrderEventPublisher_PublishOrderCreated_ContextCancelled(t *testing.T) 
 
 func TestOrderEventPublisher_StructInitialization(t *testing.T) {
 	client := &rabbitmq.Client{}
-	pub := &OrderEventPublisher{client: client}
-	if pub.client != client {
+	orderEventPublisher := &OrderEventPublisher{client: client}
+	if orderEventPublisher.client != client {
 		t.Fatalf("expected client reference to match")
 	}
 }

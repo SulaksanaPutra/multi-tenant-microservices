@@ -29,8 +29,8 @@ func NewOutboxRepository(dbClient *postgres.Client) *OutboxRepository {
 	return &OutboxRepository{dbClient: dbClient}
 }
 
-func (r *OutboxRepository) SaveOutboxEvent(ctx context.Context, eventID, routingKey string, payload any) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (outboxRepository *OutboxRepository) SaveOutboxEvent(ctx context.Context, eventID, routingKey string, payload any) error {
+	exec := txcontext.GetExecutor(ctx, outboxRepository.dbClient)
 
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
@@ -50,8 +50,8 @@ func (r *OutboxRepository) SaveOutboxEvent(ctx context.Context, eventID, routing
 	return nil
 }
 
-func (r *OutboxRepository) FetchPending(ctx context.Context, limit int) ([]*OutboxMessage, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (outboxRepository *OutboxRepository) FetchPending(ctx context.Context, limit int) ([]*OutboxMessage, error) {
+	exec := txcontext.GetExecutor(ctx, outboxRepository.dbClient)
 
 	query := `
 		SELECT event_id, routing_key, payload, status, retry_count, last_error, created_at, published_at
@@ -83,8 +83,8 @@ func (r *OutboxRepository) FetchPending(ctx context.Context, limit int) ([]*Outb
 	return messages, nil
 }
 
-func (r *OutboxRepository) MarkPublished(ctx context.Context, eventID string) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (outboxRepository *OutboxRepository) MarkPublished(ctx context.Context, eventID string) error {
+	exec := txcontext.GetExecutor(ctx, outboxRepository.dbClient)
 	now := time.Now()
 
 	query := `
@@ -99,8 +99,8 @@ func (r *OutboxRepository) MarkPublished(ctx context.Context, eventID string) er
 	return err
 }
 
-func (r *OutboxRepository) MarkFailed(ctx context.Context, eventID, lastErr string) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (outboxRepository *OutboxRepository) MarkFailed(ctx context.Context, eventID string, reason string) error {
+	exec := txcontext.GetExecutor(ctx, outboxRepository.dbClient)
 
 	query := `
 		UPDATE payment_outbox SET
@@ -109,6 +109,6 @@ func (r *OutboxRepository) MarkFailed(ctx context.Context, eventID, lastErr stri
 		WHERE event_id = $2
 	`
 
-	_, err := exec.ExecContext(ctx, query, lastErr, eventID)
+	_, err := exec.ExecContext(ctx, query, reason, eventID)
 	return err
 }

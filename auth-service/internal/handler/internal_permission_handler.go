@@ -9,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-
 type InternalPermissionItemRequest struct {
 	Name        string `json:"name"        binding:"required"`
 	Description string `json:"description"`
@@ -34,7 +33,7 @@ func NewInternalPermissionHandler(internalPermissionService InternalPermissionSe
 	return &InternalPermissionHandler{internalPermissionService: internalPermissionService}
 }
 
-func (h *InternalPermissionHandler) RegisterPermissions(c *gin.Context) {
+func (internalPermissionHandler *InternalPermissionHandler) RegisterPermissions(c *gin.Context) {
 	var req InternalRegisterPermissionsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httputil.WriteValidationError(c, err)
@@ -49,7 +48,7 @@ func (h *InternalPermissionHandler) RegisterPermissions(c *gin.Context) {
 		}
 	}
 
-	if err := h.internalPermissionService.RegisterPermissions(c.Request.Context(), service.InternalRegisterPermissionsInput{
+	if err := internalPermissionHandler.internalPermissionService.RegisterPermissions(c.Request.Context(), service.InternalRegisterPermissionsInput{
 		Service:     req.Service,
 		Permissions: items,
 	}); err != nil {
@@ -60,7 +59,7 @@ func (h *InternalPermissionHandler) RegisterPermissions(c *gin.Context) {
 	httputil.WriteSuccess[any](c, http.StatusOK, "Permissions registered successfully", nil)
 }
 
-func (h *InternalPermissionHandler) GetUserPermissionVersion(c *gin.Context) {
+func (internalPermissionHandler *InternalPermissionHandler) GetUserPermissionVersion(c *gin.Context) {
 	userID := c.Param("user_id")
 	tenantID := c.Query("tenant_id")
 
@@ -69,7 +68,7 @@ func (h *InternalPermissionHandler) GetUserPermissionVersion(c *gin.Context) {
 		return
 	}
 
-	ver, err := h.internalPermissionService.GetUserPermissionVersion(c.Request.Context(), userID, tenantID)
+	ver, err := internalPermissionHandler.internalPermissionService.GetUserPermissionVersion(c.Request.Context(), userID, tenantID)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return

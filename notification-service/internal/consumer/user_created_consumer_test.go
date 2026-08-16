@@ -25,7 +25,7 @@ func (m *mockTxManager) WithTransaction(ctx context.Context, fn func(txCtx conte
 type mockNotificationService struct {
 	processEventAndTrySendWelcomeFunc func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error)
 	updateNotificationStatusFunc      func(ctx context.Context, logID string, status string) error
-	hasSentNotificationFunc          func(ctx context.Context, tenantID string) (bool, error)
+	hasSentNotificationFunc           func(ctx context.Context, tenantID string) (bool, error)
 	createOrderNotificationFunc       func(ctx context.Context, evt domain.OrderCreatedEvent) error
 }
 
@@ -58,7 +58,7 @@ func (m *mockNotificationService) CreateOrderNotification(ctx context.Context, e
 }
 
 type mockInboxService struct {
-	claimEventFunc       func(txCtx context.Context, input service.ClaimInboxInput) (bool, error)
+	claimEventFunc        func(txCtx context.Context, input service.ClaimInboxInput) (bool, error)
 	listBarrierEventsFunc func(txCtx context.Context, tenantID string) ([]domain.InboxMessage, error)
 }
 
@@ -122,14 +122,14 @@ func (m *mockAcknowledger) Reject(tag uint64, requeue bool) error {
 	return nil
 }
 
-func newUserCreatedConsumer(txm TxManager, inbox InboxService, notif NotificationService, authClient AuthClient, mailer Mailer) *UserCreatedConsumer {
+func newUserCreatedConsumer(txManager TxManager, inboxService InboxService, notificationService NotificationService, authClient AuthClient, mailer Mailer) *UserCreatedConsumer {
 	if authClient == nil {
 		authClient = &mockAuthClient{}
 	}
 	return &UserCreatedConsumer{
-		txManager:           txm,
-		inboxService:        inbox,
-		notificationService: notif,
+		txManager:           txManager,
+		inboxService:        inboxService,
+		notificationService: notificationService,
 		authClient:          authClient,
 		mailer:              mailer,
 	}
@@ -152,7 +152,7 @@ func TestUserCreatedConsumer_HandleDelivery_Success(t *testing.T) {
 
 	var capturedInput service.ProcessEventInput
 	statusUpdated := false
-	notifSvc := &mockNotificationService{
+	mockNotificationService := &mockNotificationService{
 		processEventAndTrySendWelcomeFunc: func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
 			capturedInput = input
 			return &service.ProcessEventOutput{LogID: "ntf_1", UserID: "usr_100", RecipientEmail: "john@example.com", TenantID: "tenant-99"}, nil
@@ -173,11 +173,11 @@ func TestUserCreatedConsumer_HandleDelivery_Success(t *testing.T) {
 		},
 	}
 
-	c := newUserCreatedConsumer(&mockTxManager{}, &mockInboxService{}, notifSvc, nil, mailer)
+	userCreatedConsumer := newUserCreatedConsumer(&mockTxManager{}, &mockInboxService{}, mockNotificationService, nil, mailer)
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 
-	err := c.handleDelivery(context.Background(), d)
+	err := userCreatedConsumer.handleDelivery(context.Background(), d)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -196,11 +196,11 @@ func TestUserCreatedConsumer_HandleDelivery_Success(t *testing.T) {
 }
 
 func TestUserCreatedConsumer_HandleDelivery_InvalidJSON(t *testing.T) {
-	c := newUserCreatedConsumer(nil, nil, nil, nil, nil)
+	userCreatedConsumer := newUserCreatedConsumer(nil, nil, nil, nil, nil)
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: []byte("invalid-json")}
 
-	err := c.handleDelivery(context.Background(), d)
+	err := userCreatedConsumer.handleDelivery(context.Background(), d)
 	if err == nil {
 		t.Error("expected unmarshal error")
 	}
@@ -212,22 +212,22 @@ func TestUserCreatedConsumer_HandleDelivery_InvalidJSON(t *testing.T) {
 func TestUserCreatedConsumer_HandleDelivery_DuplicateInbox_AlreadySent_Acks(t *testing.T) {
 	body := makeUserCreatedBody(t)
 
-	inbox := &mockInboxService{
+	inboxService := &mockInboxService{
 		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 			return true, nil // duplicate
 		},
 	}
-	notifSvc := &mockNotificationService{
+	mockNotificationService := &mockNotificationService{
 		hasSentNotificationFunc: func(ctx context.Context, tenantID string) (bool, error) {
 			return true, nil // already sent
 		},
 	}
 
-	c := newUserCreatedConsumer(&mockTxManager{}, inbox, notifSvc, nil, &mockMailer{})
+	userCreatedConsumer := newUserCreatedConsumer(&mockTxManager{}, inboxService, mockNotificationService, nil, &mockMailer{})
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 
-	err := c.handleDelivery(context.Background(), d)
+	err := userCreatedConsumer.handleDelivery(context.Background(), d)
 	if err != nil {
 		t.Fatalf("expected no error on duplicate, got %v", err)
 	}
@@ -239,13 +239,13 @@ func TestUserCreatedConsumer_HandleDelivery_DuplicateInbox_AlreadySent_Acks(t *t
 func TestUserCreatedConsumer_HandleDelivery_DuplicateInbox_Pending_RetriesAndSends(t *testing.T) {
 	body := makeUserCreatedBody(t)
 
-	inbox := &mockInboxService{
+	inboxService := &mockInboxService{
 		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 			return true, nil // duplicate event_id
 		},
 	}
 	emailSent := false
-	notifSvc := &mockNotificationService{
+	mockNotificationService := &mockNotificationService{
 		hasSentNotificationFunc: func(ctx context.Context, tenantID string) (bool, error) {
 			return false, nil // NOT yet sent!
 		},
@@ -263,11 +263,11 @@ func TestUserCreatedConsumer_HandleDelivery_DuplicateInbox_Pending_RetriesAndSen
 		},
 	}
 
-	c := newUserCreatedConsumer(&mockTxManager{}, inbox, notifSvc, nil, mailer)
+	userCreatedConsumer := newUserCreatedConsumer(&mockTxManager{}, inboxService, mockNotificationService, nil, mailer)
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 
-	err := c.handleDelivery(context.Background(), d)
+	err := userCreatedConsumer.handleDelivery(context.Background(), d)
 	if err != nil {
 		t.Fatalf("expected no error on duplicate retry, got %v", err)
 	}
@@ -283,17 +283,17 @@ func TestUserCreatedConsumer_HandleDelivery_InboxClaimError_Nacks(t *testing.T) 
 	body := makeUserCreatedBody(t)
 	inboxErr := errors.New("db connection lost")
 
-	inbox := &mockInboxService{
+	inboxService := &mockInboxService{
 		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 			return false, inboxErr
 		},
 	}
 
-	c := newUserCreatedConsumer(&mockTxManager{}, inbox, &mockNotificationService{}, nil, &mockMailer{})
+	userCreatedConsumer := newUserCreatedConsumer(&mockTxManager{}, inboxService, &mockNotificationService{}, nil, &mockMailer{})
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 
-	err := c.handleDelivery(context.Background(), d)
+	err := userCreatedConsumer.handleDelivery(context.Background(), d)
 	if err == nil {
 		t.Error("expected error from inbox claim failure")
 	}
@@ -306,7 +306,7 @@ func TestUserCreatedConsumer_HandleDelivery_SMTPError_Nacks(t *testing.T) {
 	body := makeUserCreatedBody(t)
 	smtpErr := errors.New("smtp timeout")
 
-	notifSvc := &mockNotificationService{
+	mockNotificationService := &mockNotificationService{
 		processEventAndTrySendWelcomeFunc: func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
 			return &service.ProcessEventOutput{LogID: "ntf_1", UserID: "usr_100", RecipientEmail: "john@example.com", TenantID: "tenant-99"}, nil
 		},
@@ -317,11 +317,11 @@ func TestUserCreatedConsumer_HandleDelivery_SMTPError_Nacks(t *testing.T) {
 		},
 	}
 
-	c := newUserCreatedConsumer(&mockTxManager{}, &mockInboxService{}, notifSvc, nil, mailer)
+	userCreatedConsumer := newUserCreatedConsumer(&mockTxManager{}, &mockInboxService{}, mockNotificationService, nil, mailer)
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 
-	err := c.handleDelivery(context.Background(), d)
+	err := userCreatedConsumer.handleDelivery(context.Background(), d)
 	if !errors.Is(err, smtpErr) {
 		t.Errorf("expected smtpErr, got %v", err)
 	}
@@ -332,19 +332,19 @@ func TestUserCreatedConsumer_HandleDelivery_SMTPError_Nacks(t *testing.T) {
 
 func TestUserCreatedConsumer_HandleDelivery_ServiceError_Nacks(t *testing.T) {
 	body := makeUserCreatedBody(t)
-	svcErr := errors.New("service failure")
+	serviceErr := errors.New("service failure")
 
-	notifSvc := &mockNotificationService{
+	mockNotificationService := &mockNotificationService{
 		processEventAndTrySendWelcomeFunc: func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
-			return nil, svcErr
+			return nil, serviceErr
 		},
 	}
 
-	c := newUserCreatedConsumer(&mockTxManager{}, &mockInboxService{}, notifSvc, nil, &mockMailer{})
+	userCreatedConsumer := newUserCreatedConsumer(&mockTxManager{}, &mockInboxService{}, mockNotificationService, nil, &mockMailer{})
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 
-	err := c.handleDelivery(context.Background(), d)
+	err := userCreatedConsumer.handleDelivery(context.Background(), d)
 	if err == nil {
 		t.Error("expected error when service fails")
 	}
@@ -356,9 +356,9 @@ func TestUserCreatedConsumer_HandleDelivery_ServiceError_Nacks(t *testing.T) {
 func TestUserCreatedConsumer_HandleDelivery_NoEmailWhenBarrierNotMet(t *testing.T) {
 	body := makeUserCreatedBody(t)
 
-	notifSvc := &mockNotificationService{
+	mockNotificationService := &mockNotificationService{
 		processEventAndTrySendWelcomeFunc: func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
-			return nil, nil // barrier not met  Eno email needed
+			return nil, nil // barrier not met
 		},
 	}
 
@@ -370,13 +370,13 @@ func TestUserCreatedConsumer_HandleDelivery_NoEmailWhenBarrierNotMet(t *testing.
 		},
 	}
 
-	c := newUserCreatedConsumer(&mockTxManager{}, &mockInboxService{}, notifSvc, nil, mailer)
+	userCreatedConsumer := newUserCreatedConsumer(&mockTxManager{}, &mockInboxService{}, mockNotificationService, nil, mailer)
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 
-	err := c.handleDelivery(context.Background(), d)
+	err := userCreatedConsumer.handleDelivery(context.Background(), d)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("expected no error, got %v", err)
 	}
 	if emailSent {
 		t.Error("expected NO email when barrier is not met")
@@ -389,7 +389,7 @@ func TestUserCreatedConsumer_HandleDelivery_NoEmailWhenBarrierNotMet(t *testing.
 func TestUserCreatedConsumer_HandleDelivery_MisroutedRoutingKey_AcksAndDiscards(t *testing.T) {
 	// Simulates a ghost AMQP binding delivering a workspace.ready message to
 	// the notification_service_user_created queue. The routing key guard must
-	// discard silently with Ack  Eno inbox write, no notification service call.
+	// discard silently with Ack.
 	body, _ := json.Marshal(domain.WorkspaceReadyEvent{
 		EventID:    "evt-misrouted-1",
 		TenantID:   "tenant-99",
@@ -397,22 +397,22 @@ func TestUserCreatedConsumer_HandleDelivery_MisroutedRoutingKey_AcksAndDiscards(
 	})
 
 	inboxCalled := false
-	inbox := &mockInboxService{
+	inboxService := &mockInboxService{
 		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 			inboxCalled = true
 			return false, nil
 		},
 	}
 
-	notifCalled := false
-	notifSvc := &mockNotificationService{
+	notificationCalled := false
+	mockNotificationService := &mockNotificationService{
 		processEventAndTrySendWelcomeFunc: func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
-			notifCalled = true
+			notificationCalled = true
 			return nil, nil
 		},
 	}
 
-	c := newUserCreatedConsumer(&mockTxManager{}, inbox, notifSvc, nil, &mockMailer{})
+	userCreatedConsumer := newUserCreatedConsumer(&mockTxManager{}, inboxService, mockNotificationService, nil, &mockMailer{})
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{
 		Acknowledger: mockAck,
@@ -420,7 +420,7 @@ func TestUserCreatedConsumer_HandleDelivery_MisroutedRoutingKey_AcksAndDiscards(
 		RoutingKey:   domain.RoutingKeyWorkspaceReady, // misrouted!
 	}
 
-	err := c.handleDelivery(context.Background(), d)
+	err := userCreatedConsumer.handleDelivery(context.Background(), d)
 	if err != nil {
 		t.Fatalf("expected no error for misrouted message, got %v", err)
 	}
@@ -433,7 +433,7 @@ func TestUserCreatedConsumer_HandleDelivery_MisroutedRoutingKey_AcksAndDiscards(
 	if inboxCalled {
 		t.Error("expected inbox service NOT to be called for misrouted message")
 	}
-	if notifCalled {
+	if notificationCalled {
 		t.Error("expected notification service NOT to be called for misrouted message")
 	}
 }

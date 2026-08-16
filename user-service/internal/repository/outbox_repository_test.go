@@ -59,8 +59,8 @@ func TestSanitizeError(t *testing.T) {
 
 func TestOutboxRepository_Constructor(t *testing.T) {
 	client := &postgres.Client{}
-	repo := NewOutboxRepository(client)
-	if repo == nil {
+	outboxRepository := NewOutboxRepository(client)
+	if outboxRepository == nil {
 		t.Fatal("expected NewOutboxRepository to return a non-nil struct pointer")
 	}
 }
@@ -77,7 +77,7 @@ func TestOutboxRepository_CreateOutboxMessage_Success(t *testing.T) {
 		},
 	}
 
-	repo := NewOutboxRepository(&postgres.Client{})
+	outboxRepository := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	input := CreateOutboxMessageInput{
@@ -89,7 +89,7 @@ func TestOutboxRepository_CreateOutboxMessage_Success(t *testing.T) {
 		Payload:       []byte(`{"email":"test@example.com"}`),
 	}
 
-	err := repo.CreateOutboxMessage(ctx, input)
+	err := outboxRepository.CreateOutboxMessage(ctx, input)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -114,11 +114,11 @@ func TestOutboxRepository_CreateOutboxMessage_Error(t *testing.T) {
 		},
 	}
 
-	repo := NewOutboxRepository(&postgres.Client{})
+	outboxRepository := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	input := CreateOutboxMessageInput{ID: "msg-err"}
-	err := repo.CreateOutboxMessage(ctx, input)
+	err := outboxRepository.CreateOutboxMessage(ctx, input)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -137,10 +137,10 @@ func TestOutboxRepository_FetchAndClaimBatch_QueryError(t *testing.T) {
 			return nil, dbErr
 		},
 	}
-	repo := NewOutboxRepository(&postgres.Client{})
+	outboxRepository := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	_, err := repo.FetchAndClaimBatch(ctx, "user.created", 10)
+	_, err := outboxRepository.FetchAndClaimBatch(ctx, "user.created", 10)
 	if err == nil {
 		t.Fatal("expected error when QueryContext returns nil rows/error, got nil")
 	}
@@ -163,10 +163,10 @@ func TestOutboxRepository_FetchAndClaimBatch_EmptyResult(t *testing.T) {
 		},
 	}
 
-	repo := NewOutboxRepository(&postgres.Client{})
+	outboxRepository := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	list, err := repo.FetchAndClaimBatch(ctx, "user.created", 10)
+	list, err := outboxRepository.FetchAndClaimBatch(ctx, "user.created", 10)
 	if err != nil {
 		t.Fatalf("expected nil error on empty batch result, got %v", err)
 	}
@@ -187,10 +187,10 @@ func TestOutboxRepository_RecoverStuckClaims_Success(t *testing.T) {
 		},
 	}
 
-	repo := NewOutboxRepository(&postgres.Client{})
+	outboxRepository := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.RecoverStuckClaims(ctx, "user.created")
+	err := outboxRepository.RecoverStuckClaims(ctx, "user.created")
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -212,10 +212,10 @@ func TestOutboxRepository_RecoverStuckClaims_Error(t *testing.T) {
 		},
 	}
 
-	repo := NewOutboxRepository(&postgres.Client{})
+	outboxRepository := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.RecoverStuckClaims(ctx, "user.created")
+	err := outboxRepository.RecoverStuckClaims(ctx, "user.created")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -236,10 +236,10 @@ func TestOutboxRepository_MarkPublished_Success(t *testing.T) {
 		},
 	}
 
-	repo := NewOutboxRepository(&postgres.Client{})
+	outboxRepository := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.MarkPublished(ctx, "msg-777")
+	err := outboxRepository.MarkPublished(ctx, "msg-777")
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -260,10 +260,10 @@ func TestOutboxRepository_MarkPublished_Error(t *testing.T) {
 		},
 	}
 
-	repo := NewOutboxRepository(&postgres.Client{})
+	outboxRepository := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.MarkPublished(ctx, "msg-777")
+	err := outboxRepository.MarkPublished(ctx, "msg-777")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -282,11 +282,11 @@ func TestOutboxRepository_MarkFailed_Success(t *testing.T) {
 		},
 	}
 
-	repo := NewOutboxRepository(&postgres.Client{})
+	outboxRepository := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	inputErr := errors.New("network failure with password=secret")
-	err := repo.MarkFailed(ctx, "msg-888", inputErr)
+	err := outboxRepository.MarkFailed(ctx, "msg-888", inputErr)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -313,10 +313,10 @@ func TestOutboxRepository_MarkFailed_Error(t *testing.T) {
 		},
 	}
 
-	repo := NewOutboxRepository(&postgres.Client{})
+	outboxRepository := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.MarkFailed(ctx, "msg-888", errors.New("some error"))
+	err := outboxRepository.MarkFailed(ctx, "msg-888", errors.New("some error"))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

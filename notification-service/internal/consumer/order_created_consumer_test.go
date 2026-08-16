@@ -25,24 +25,24 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 	t.Run("success_claims_inbox_creates_notification_and_acks", func(t *testing.T) {
 		txManager := &mockTxManager{}
 		var claimedInput service.ClaimInboxInput
-		inboxSvc := &mockInboxService{
+		inboxService := &mockInboxService{
 			claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 				claimedInput = input
 				return false, nil
 			},
 		}
 		var notifiedEvt domain.OrderCreatedEvent
-		notifSvc := &mockNotificationService{
+		notificationService := &mockNotificationService{
 			createOrderNotificationFunc: func(txCtx context.Context, evt domain.OrderCreatedEvent) error {
 				notifiedEvt = evt
 				return nil
 			},
 		}
 
-		c := &OrderCreatedConsumer{
+		orderCreatedConsumer := &OrderCreatedConsumer{
 			txManager:           txManager,
-			inboxService:        inboxSvc,
-			notificationService: notifSvc,
+			inboxService:        inboxService,
+			notificationService: notificationService,
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -52,7 +52,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			RoutingKey:   domain.RoutingKeyOrderCreated,
 		}
 
-		if err := c.handleDelivery(context.Background(), d); err != nil {
+		if err := orderCreatedConsumer.handleDelivery(context.Background(), d); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 		if !mockAck.ackCalled {
@@ -68,23 +68,23 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("duplicate_event_is_skipped_and_acked", func(t *testing.T) {
 		txManager := &mockTxManager{}
-		inboxSvc := &mockInboxService{
+		inboxService := &mockInboxService{
 			claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 				return true, nil // duplicate
 			},
 		}
 		createCalled := false
-		notifSvc := &mockNotificationService{
+		notificationService := &mockNotificationService{
 			createOrderNotificationFunc: func(txCtx context.Context, evt domain.OrderCreatedEvent) error {
 				createCalled = true
 				return nil
 			},
 		}
 
-		c := &OrderCreatedConsumer{
+		orderCreatedConsumer := &OrderCreatedConsumer{
 			txManager:           txManager,
-			inboxService:        inboxSvc,
-			notificationService: notifSvc,
+			inboxService:        inboxService,
+			notificationService: notificationService,
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -94,7 +94,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			RoutingKey:   domain.RoutingKeyOrderCreated,
 		}
 
-		if err := c.handleDelivery(context.Background(), d); err != nil {
+		if err := orderCreatedConsumer.handleDelivery(context.Background(), d); err != nil {
 			t.Fatalf("expected no error for duplicate, got %v", err)
 		}
 		if !mockAck.ackCalled {
@@ -107,21 +107,21 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("notification_persist_failure_nacks_with_requeue", func(t *testing.T) {
 		txManager := &mockTxManager{}
-		inboxSvc := &mockInboxService{
+		inboxService := &mockInboxService{
 			claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
 				return false, nil
 			},
 		}
-		notifSvc := &mockNotificationService{
+		notificationService := &mockNotificationService{
 			createOrderNotificationFunc: func(txCtx context.Context, evt domain.OrderCreatedEvent) error {
 				return errors.New("db down")
 			},
 		}
 
-		c := &OrderCreatedConsumer{
+		orderCreatedConsumer := &OrderCreatedConsumer{
 			txManager:           txManager,
-			inboxService:        inboxSvc,
-			notificationService: notifSvc,
+			inboxService:        inboxService,
+			notificationService: notificationService,
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -131,7 +131,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			RoutingKey:   domain.RoutingKeyOrderCreated,
 		}
 
-		if err := c.handleDelivery(context.Background(), d); err == nil {
+		if err := orderCreatedConsumer.handleDelivery(context.Background(), d); err == nil {
 			t.Error("expected notification persist error to propagate")
 		}
 		if !mockAck.nackCalled {
@@ -143,7 +143,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 	})
 
 	t.Run("invalid_json_nacks_without_requeue", func(t *testing.T) {
-		c := &OrderCreatedConsumer{
+		orderCreatedConsumer := &OrderCreatedConsumer{
 			txManager:           &mockTxManager{},
 			inboxService:        &mockInboxService{},
 			notificationService: &mockNotificationService{},
@@ -156,7 +156,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			RoutingKey:   domain.RoutingKeyOrderCreated,
 		}
 
-		if err := c.handleDelivery(context.Background(), d); err == nil {
+		if err := orderCreatedConsumer.handleDelivery(context.Background(), d); err == nil {
 			t.Error("expected json unmarshal error")
 		}
 		if !mockAck.nackCalled {
@@ -174,7 +174,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			},
 		}
 
-		c := &OrderCreatedConsumer{
+		orderCreatedConsumer := &OrderCreatedConsumer{
 			txManager:           txManager,
 			inboxService:        &mockInboxService{},
 			notificationService: &mockNotificationService{},
@@ -187,7 +187,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			RoutingKey:   domain.RoutingKeyOrderCreated,
 		}
 
-		if err := c.handleDelivery(context.Background(), d); err == nil {
+		if err := orderCreatedConsumer.handleDelivery(context.Background(), d); err == nil {
 			t.Error("expected transaction error to propagate")
 		}
 		if !mockAck.nackCalled {
@@ -199,7 +199,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 	})
 
 	t.Run("max_delivery_count_nacks_without_requeue_for_dlq", func(t *testing.T) {
-		c := &OrderCreatedConsumer{
+		orderCreatedConsumer := &OrderCreatedConsumer{
 			txManager:           &mockTxManager{},
 			inboxService:        &mockInboxService{},
 			notificationService: &mockNotificationService{},
@@ -215,7 +215,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			},
 		}
 
-		if err := c.handleDelivery(context.Background(), d); err == nil {
+		if err := orderCreatedConsumer.handleDelivery(context.Background(), d); err == nil {
 			t.Error("expected max delivery count error")
 		}
 		if !mockAck.nackCalled {

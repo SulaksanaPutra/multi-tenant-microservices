@@ -57,7 +57,7 @@ func NewOrderHandler(factory OrderServiceFactory) *OrderHandler {
 	}
 }
 
-func (h *OrderHandler) getService(c *gin.Context) (OrderService, bool) {
+func (orderHandler *OrderHandler) getService(c *gin.Context) (OrderService, bool) {
 	cfgVal, ok := c.Get("tenantConfig")
 	if !ok {
 		httputil.WriteError(c, http.StatusInternalServerError, "tenant database configuration missing from context")
@@ -68,11 +68,11 @@ func (h *OrderHandler) getService(c *gin.Context) (OrderService, bool) {
 		httputil.WriteError(c, http.StatusInternalServerError, "invalid tenant database configuration type")
 		return nil, false
 	}
-	return h.factory(tenantCfg), true
+	return orderHandler.factory(tenantCfg), true
 }
 
-func (h *OrderHandler) ListOrders(c *gin.Context) {
-	orderService, ok := h.getService(c)
+func (orderHandler *OrderHandler) ListOrders(c *gin.Context) {
+	orderService, ok := orderHandler.getService(c)
 	if !ok {
 		return
 	}
@@ -91,8 +91,8 @@ func (h *OrderHandler) ListOrders(c *gin.Context) {
 	httputil.WriteSuccess(c, http.StatusOK, "Orders retrieved successfully", resp)
 }
 
-func (h *OrderHandler) CreateOrder(c *gin.Context) {
-	orderService, ok := h.getService(c)
+func (orderHandler *OrderHandler) CreateOrder(c *gin.Context) {
+	orderService, ok := orderHandler.getService(c)
 	if !ok {
 		return
 	}

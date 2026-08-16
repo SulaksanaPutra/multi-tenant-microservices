@@ -63,7 +63,7 @@ paths:
             x-service: tenant-service
             x-source:
                 - tenant-service/cmd/router.go:26
-                - tenant-service/internal/handler/workspace_handler.go:37
+                - tenant-service/internal/handler/workspace_handler.go:36
             requestBody:
                 required: true
                 content:

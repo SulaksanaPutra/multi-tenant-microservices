@@ -65,15 +65,15 @@ func (m *mockAcknowledger) Reject(tag uint64, requeue bool) error {
 }
 
 type mockMigrator struct {
-	checkSchemaExistsFn     func(ctx context.Context, dsn, schemaName string) (bool, error)
-	lockSchemaFn            func(ctx context.Context, sharedDSN, schemaName, lockedSchemaName string) error
-	restoreSchemaFn         func(ctx context.Context, sharedDSN, lockedSchemaName, originalSchemaName string) error
-	migrateDataFn           func(ctx context.Context, sourceHost string, sourcePort int, sourceUser, sourcePass, sourceDB, sourceSchema string, targetHost string, targetPort int, targetUser, targetPass, targetDB, targetSchema string) error
-	tableHasRowsFn          func(ctx context.Context, dsn, schema, table string) (bool, error)
-	dropSchemaIfExistsFn    func(ctx context.Context, dsn, schemaName string) error
-	provisionTenantDBFn     func(ctx context.Context, host string, port int, superUser, superPass, dbName, roleName, rolePass string) error
-	dropTenantDBFn          func(ctx context.Context, host string, port int, superUser, superPass, dbName, roleName string) error
-	destroyContainerFn      func(ctx context.Context, containerName string) error
+	checkSchemaExistsFn  func(ctx context.Context, dsn, schemaName string) (bool, error)
+	lockSchemaFn         func(ctx context.Context, sharedDSN, schemaName, lockedSchemaName string) error
+	restoreSchemaFn      func(ctx context.Context, sharedDSN, lockedSchemaName, originalSchemaName string) error
+	migrateDataFn        func(ctx context.Context, sourceHost string, sourcePort int, sourceUser, sourcePass, sourceDB, sourceSchema string, targetHost string, targetPort int, targetUser, targetPass, targetDB, targetSchema string) error
+	tableHasRowsFn       func(ctx context.Context, dsn, schema, table string) (bool, error)
+	dropSchemaIfExistsFn func(ctx context.Context, dsn, schemaName string) error
+	provisionTenantDBFn  func(ctx context.Context, host string, port int, superUser, superPass, dbName, roleName, rolePass string) error
+	dropTenantDBFn       func(ctx context.Context, host string, port int, superUser, superPass, dbName, roleName string) error
+	destroyContainerFn   func(ctx context.Context, containerName string) error
 }
 
 func (m *mockMigrator) CheckSchemaExists(ctx context.Context, dsn, schemaName string) (bool, error) {
@@ -150,7 +150,7 @@ func TestWorkspaceInitiatedConsumer_SharedPlanDestroysDedicatedContainer(t *test
 	t.Run("migrates_back_then_destroys_container", func(t *testing.T) {
 		var destroyedName string
 		var migrated bool
-		mig := &mockMigrator{
+		migrator := &mockMigrator{
 			tableHasRowsFn: func(_ context.Context, _, _, _ string) (bool, error) { return true, nil },
 			migrateDataFn: func(_ context.Context, _ string, _ int, _, _, _, _ string, _ string, _ int, _, _, _, _ string) error {
 				migrated = true
@@ -163,16 +163,16 @@ func TestWorkspaceInitiatedConsumer_SharedPlanDestroysDedicatedContainer(t *test
 		}
 
 		var publishedEvt domain.InfrastructureProvisionedEvent
-		pub := &mockInfrastructureEventPublisher{
+		infrastructurePublisher := &mockInfrastructureEventPublisher{
 			publishInfrastructureProvisionedFunc: func(_ context.Context, evt domain.InfrastructureProvisionedEvent) error {
 				publishedEvt = evt
 				return nil
 			},
 		}
 
-		c := &WorkspaceInitiatedConsumer{
-			infrastructureEventPublisher: pub,
-			migrator:                     mig,
+		workspaceInitiatedConsumer := &WorkspaceInitiatedConsumer{
+			infrastructureEventPublisher: infrastructurePublisher,
+			migrator:                     migrator,
 			sharedDBHost:                 "postgres-shared-host",
 			sharedDBPass:                 "postgres",
 			domainSecrets:                map[string]string{"order_db": "secret_key"},
@@ -181,7 +181,7 @@ func TestWorkspaceInitiatedConsumer_SharedPlanDestroysDedicatedContainer(t *test
 		mockAck := &mockAcknowledger{}
 		d := rabbitmq.Delivery{Acknowledger: mockAck, Body: bodyShared}
 
-		if err := c.handleDelivery(context.Background(), d); err != nil {
+		if err := workspaceInitiatedConsumer.handleDelivery(context.Background(), d); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 		if !mockAck.ackCalled {
@@ -200,7 +200,7 @@ func TestWorkspaceInitiatedConsumer_SharedPlanDestroysDedicatedContainer(t *test
 
 	t.Run("fresh_shared_registration_destroy_is_best_effort", func(t *testing.T) {
 		var destroyedName string
-		mig := &mockMigrator{
+		migrator := &mockMigrator{
 			tableHasRowsFn: func(_ context.Context, _, _, _ string) (bool, error) {
 				return false, errors.New("connect: no such host")
 			},
@@ -210,9 +210,9 @@ func TestWorkspaceInitiatedConsumer_SharedPlanDestroysDedicatedContainer(t *test
 			},
 		}
 
-		c := &WorkspaceInitiatedConsumer{
+		workspaceInitiatedConsumer := &WorkspaceInitiatedConsumer{
 			infrastructureEventPublisher: &mockInfrastructureEventPublisher{},
-			migrator:                     mig,
+			migrator:                     migrator,
 			sharedDBHost:                 "postgres-shared-host",
 			sharedDBPass:                 "postgres",
 			domainSecrets:                map[string]string{"order_db": "secret_key"},
@@ -221,7 +221,7 @@ func TestWorkspaceInitiatedConsumer_SharedPlanDestroysDedicatedContainer(t *test
 		mockAck := &mockAcknowledger{}
 		d := rabbitmq.Delivery{Acknowledger: mockAck, Body: bodyShared}
 
-		if err := c.handleDelivery(context.Background(), d); err != nil {
+		if err := workspaceInitiatedConsumer.handleDelivery(context.Background(), d); err != nil {
 			t.Fatalf("expected no error for fresh shared registration, got %v", err)
 		}
 		if destroyedName != "postgres-tenant-tenant_acme_corp" {
@@ -249,7 +249,7 @@ func TestWorkspaceInitiatedConsumer_SameInstanceMode(t *testing.T) {
 		var provisionedDB, provisionedRole string
 		var migrated bool
 		var migTargetHost, migTargetUser, migTargetDB, migTargetSchema string
-		mig := &mockMigrator{
+		migrator := &mockMigrator{
 			checkSchemaExistsFn: func(_ context.Context, _, schema string) (bool, error) {
 				return schema == "tenant_acme_corp_order_db", nil
 			},
@@ -269,16 +269,16 @@ func TestWorkspaceInitiatedConsumer_SameInstanceMode(t *testing.T) {
 		}
 
 		var publishedEvt domain.InfrastructureProvisionedEvent
-		pub := &mockInfrastructureEventPublisher{
+		infrastructurePublisher := &mockInfrastructureEventPublisher{
 			publishInfrastructureProvisionedFunc: func(_ context.Context, evt domain.InfrastructureProvisionedEvent) error {
 				publishedEvt = evt
 				return nil
 			},
 		}
 
-		c := &WorkspaceInitiatedConsumer{
-			infrastructureEventPublisher: pub,
-			migrator:                     mig,
+		workspaceInitiatedConsumer := &WorkspaceInitiatedConsumer{
+			infrastructureEventPublisher: infrastructurePublisher,
+			migrator:                     migrator,
 			sharedDBHost:                 "postgres-shared-host",
 			sharedDBPass:                 "postgres",
 			domainSecrets:                map[string]string{"order_db": "secret_key"},
@@ -288,7 +288,7 @@ func TestWorkspaceInitiatedConsumer_SameInstanceMode(t *testing.T) {
 		mockAck := &mockAcknowledger{}
 		d := rabbitmq.Delivery{Acknowledger: mockAck, Body: bodyDedicated}
 
-		if err := c.handleDelivery(context.Background(), d); err != nil {
+		if err := workspaceInitiatedConsumer.handleDelivery(context.Background(), d); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 		if provisionedDB != "tenant_acme_corp_order_db" {
@@ -314,7 +314,7 @@ func TestWorkspaceInitiatedConsumer_SameInstanceMode(t *testing.T) {
 	t.Run("downgrade_migrates_back_and_drops_tenant_database", func(t *testing.T) {
 		var migrated bool
 		var droppedDB, droppedRole string
-		mig := &mockMigrator{
+		migrator := &mockMigrator{
 			tableHasRowsFn: func(_ context.Context, _, _, _ string) (bool, error) { return true, nil },
 			migrateDataFn: func(_ context.Context, _ string, _ int, _, _, _, _ string, _ string, _ int, _, _, _, _ string) error {
 				migrated = true
@@ -327,9 +327,9 @@ func TestWorkspaceInitiatedConsumer_SameInstanceMode(t *testing.T) {
 			},
 		}
 
-		c := &WorkspaceInitiatedConsumer{
+		workspaceInitiatedConsumer := &WorkspaceInitiatedConsumer{
 			infrastructureEventPublisher: &mockInfrastructureEventPublisher{},
-			migrator:                     mig,
+			migrator:                     migrator,
 			sharedDBHost:                 "postgres-shared-host",
 			sharedDBPass:                 "postgres",
 			domainSecrets:                map[string]string{"order_db": "secret_key"},
@@ -339,7 +339,7 @@ func TestWorkspaceInitiatedConsumer_SameInstanceMode(t *testing.T) {
 		mockAck := &mockAcknowledger{}
 		d := rabbitmq.Delivery{Acknowledger: mockAck, Body: bodyShared}
 
-		if err := c.handleDelivery(context.Background(), d); err != nil {
+		if err := workspaceInitiatedConsumer.handleDelivery(context.Background(), d); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 		if !migrated {
@@ -352,7 +352,7 @@ func TestWorkspaceInitiatedConsumer_SameInstanceMode(t *testing.T) {
 
 	t.Run("downgrade_fresh_shared_drop_tenant_database_best_effort", func(t *testing.T) {
 		var droppedDB string
-		mig := &mockMigrator{
+		migrator := &mockMigrator{
 			tableHasRowsFn: func(_ context.Context, _, _, _ string) (bool, error) {
 				return false, errors.New("connect: no such database")
 			},
@@ -362,9 +362,9 @@ func TestWorkspaceInitiatedConsumer_SameInstanceMode(t *testing.T) {
 			},
 		}
 
-		c := &WorkspaceInitiatedConsumer{
+		workspaceInitiatedConsumer := &WorkspaceInitiatedConsumer{
 			infrastructureEventPublisher: &mockInfrastructureEventPublisher{},
-			migrator:                     mig,
+			migrator:                     migrator,
 			sharedDBHost:                 "postgres-shared-host",
 			sharedDBPass:                 "postgres",
 			domainSecrets:                map[string]string{"order_db": "secret_key"},
@@ -374,7 +374,7 @@ func TestWorkspaceInitiatedConsumer_SameInstanceMode(t *testing.T) {
 		mockAck := &mockAcknowledger{}
 		d := rabbitmq.Delivery{Acknowledger: mockAck, Body: bodyShared}
 
-		if err := c.handleDelivery(context.Background(), d); err != nil {
+		if err := workspaceInitiatedConsumer.handleDelivery(context.Background(), d); err != nil {
 			t.Fatalf("expected no error for fresh shared registration, got %v", err)
 		}
 		if droppedDB != "tenant_acme_corp_order_db" {
@@ -392,23 +392,23 @@ func TestWorkspaceInitiatedConsumer_ContainerModeDoesNotProvisionTenantDatabase(
 	bodyDedicated, _ := json.Marshal(evtDedicated)
 
 	provisionedCalled := false
-	mig := &mockMigrator{
+	migrator := &mockMigrator{
 		provisionTenantDBFn: func(_ context.Context, _ string, _ int, _, _, _, _, _ string) error {
 			provisionedCalled = true
 			return nil
 		},
 	}
 
-	prov := &mockProvisioner{
+	provisioner := &mockProvisioner{
 		provisionDedicatedContainerFunc: func(_ context.Context, _, _ string, _ map[string]string) (string, int, string, string, error) {
 			return "172.20.0.30", 5432, "tenant_db", "order_user", nil
 		},
 	}
 
-	c := &WorkspaceInitiatedConsumer{
+	workspaceInitiatedConsumer := &WorkspaceInitiatedConsumer{
 		infrastructureEventPublisher: &mockInfrastructureEventPublisher{},
-		provisioner:                  prov,
-		migrator:                     mig,
+		provisioner:                  provisioner,
+		migrator:                     migrator,
 		sharedDBHost:                 "postgres-shared-host",
 		sharedDBPass:                 "postgres",
 		domainSecrets:                map[string]string{"order_db": "secret_key"},
@@ -418,7 +418,7 @@ func TestWorkspaceInitiatedConsumer_ContainerModeDoesNotProvisionTenantDatabase(
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: bodyDedicated}
 
-	if err := c.handleDelivery(context.Background(), d); err != nil {
+	if err := workspaceInitiatedConsumer.handleDelivery(context.Background(), d); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if provisionedCalled {
@@ -446,15 +446,15 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("success_shared_plan", func(t *testing.T) {
 		var publishedEvt domain.InfrastructureProvisionedEvent
-		pub := &mockInfrastructureEventPublisher{
+		infrastructurePublisher := &mockInfrastructureEventPublisher{
 			publishInfrastructureProvisionedFunc: func(ctx context.Context, evt domain.InfrastructureProvisionedEvent) error {
 				publishedEvt = evt
 				return nil
 			},
 		}
 
-		c := &WorkspaceInitiatedConsumer{
-			infrastructureEventPublisher: pub,
+		workspaceInitiatedConsumer := &WorkspaceInitiatedConsumer{
+			infrastructureEventPublisher: infrastructurePublisher,
 			sharedDBHost:                 "postgres-shared-host",
 		}
 
@@ -464,7 +464,7 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 			Body:         bodyShared,
 		}
 
-		err := c.handleDelivery(context.Background(), d)
+		err := workspaceInitiatedConsumer.handleDelivery(context.Background(), d)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -479,7 +479,7 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("success_dedicated_plan", func(t *testing.T) {
 		var capturedTenantID string
-		prov := &mockProvisioner{
+		provisioner := &mockProvisioner{
 			provisionDedicatedContainerFunc: func(ctx context.Context, tenantID, infraMasterSecret string, domainSecrets map[string]string) (string, int, string, string, error) {
 				capturedTenantID = tenantID
 				return "172.20.0.22", 5432, "tenant_enterprise_inc_db", "order_user", nil
@@ -487,16 +487,16 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 		}
 
 		var publishedEvt domain.InfrastructureProvisionedEvent
-		pub := &mockInfrastructureEventPublisher{
+		infrastructurePublisher := &mockInfrastructureEventPublisher{
 			publishInfrastructureProvisionedFunc: func(ctx context.Context, evt domain.InfrastructureProvisionedEvent) error {
 				publishedEvt = evt
 				return nil
 			},
 		}
 
-		c := &WorkspaceInitiatedConsumer{
-			infrastructureEventPublisher: pub,
-			provisioner:                  prov,
+		workspaceInitiatedConsumer := &WorkspaceInitiatedConsumer{
+			infrastructureEventPublisher: infrastructurePublisher,
+			provisioner:                  provisioner,
 			infraMasterSecret:            "master_secret",
 			domainSecrets:                map[string]string{"order_db": "secret_key"},
 		}
@@ -507,7 +507,7 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 			Body:         bodyDedicated,
 		}
 
-		err := c.handleDelivery(context.Background(), d)
+		err := workspaceInitiatedConsumer.handleDelivery(context.Background(), d)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -531,7 +531,7 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 		}
 		bodyUnknown, _ := json.Marshal(evtUnknown)
 
-		c := &WorkspaceInitiatedConsumer{
+		workspaceInitiatedConsumer := &WorkspaceInitiatedConsumer{
 			infrastructureEventPublisher: &mockInfrastructureEventPublisher{},
 		}
 
@@ -541,7 +541,7 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 			Body:         bodyUnknown,
 		}
 
-		err := c.handleDelivery(context.Background(), d)
+		err := workspaceInitiatedConsumer.handleDelivery(context.Background(), d)
 		if err == nil {
 			t.Error("expected unknown plan error")
 		}
@@ -555,15 +555,15 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("provisioner_error_nacks_with_requeue", func(t *testing.T) {
 		provErr := errors.New("docker daemon socket error")
-		prov := &mockProvisioner{
+		provisioner := &mockProvisioner{
 			provisionDedicatedContainerFunc: func(ctx context.Context, tenantID, infraMasterSecret string, domainSecrets map[string]string) (string, int, string, string, error) {
 				return "", 0, "", "", provErr
 			},
 		}
 
-		c := &WorkspaceInitiatedConsumer{
+		workspaceInitiatedConsumer := &WorkspaceInitiatedConsumer{
 			infrastructureEventPublisher: &mockInfrastructureEventPublisher{},
-			provisioner:                  prov,
+			provisioner:                  provisioner,
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -572,7 +572,7 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 			Body:         bodyDedicated,
 		}
 
-		err := c.handleDelivery(context.Background(), d)
+		err := workspaceInitiatedConsumer.handleDelivery(context.Background(), d)
 		if err == nil {
 			t.Error("expected provisioner error")
 		}
@@ -586,14 +586,14 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("publisher_error_nacks_with_requeue", func(t *testing.T) {
 		pubErr := errors.New("failed to publish to RabbitMQ")
-		pub := &mockInfrastructureEventPublisher{
+		infrastructurePublisher := &mockInfrastructureEventPublisher{
 			publishInfrastructureProvisionedFunc: func(ctx context.Context, evt domain.InfrastructureProvisionedEvent) error {
 				return pubErr
 			},
 		}
 
-		c := &WorkspaceInitiatedConsumer{
-			infrastructureEventPublisher: pub,
+		workspaceInitiatedConsumer := &WorkspaceInitiatedConsumer{
+			infrastructureEventPublisher: infrastructurePublisher,
 			sharedDBHost:                 "postgres-shared-host",
 		}
 
@@ -603,7 +603,7 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 			Body:         bodyShared,
 		}
 
-		err := c.handleDelivery(context.Background(), d)
+		err := workspaceInitiatedConsumer.handleDelivery(context.Background(), d)
 		if err == nil {
 			t.Error("expected publisher error")
 		}
@@ -616,14 +616,14 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 	})
 
 	t.Run("invalid_json_nacks_without_requeue", func(t *testing.T) {
-		c := &WorkspaceInitiatedConsumer{}
+		workspaceInitiatedConsumer := &WorkspaceInitiatedConsumer{}
 		mockAck := &mockAcknowledger{}
 		d := rabbitmq.Delivery{
 			Acknowledger: mockAck,
 			Body:         []byte("invalid-json"),
 		}
 
-		err := c.handleDelivery(context.Background(), d)
+		err := workspaceInitiatedConsumer.handleDelivery(context.Background(), d)
 		if err == nil {
 			t.Error("expected json unmarshal error")
 		}
@@ -636,7 +636,7 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 	})
 
 	t.Run("max_delivery_count_nacks_without_requeue_for_dlq", func(t *testing.T) {
-		c := &WorkspaceInitiatedConsumer{
+		workspaceInitiatedConsumer := &WorkspaceInitiatedConsumer{
 			infrastructureEventPublisher: &mockInfrastructureEventPublisher{},
 			provisioner:                  &mockProvisioner{},
 			migrator:                     &mockMigrator{},
@@ -652,7 +652,7 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 			},
 		}
 
-		if err := c.handleDelivery(context.Background(), d); err == nil {
+		if err := workspaceInitiatedConsumer.handleDelivery(context.Background(), d); err == nil {
 			t.Error("expected max delivery count error")
 		}
 		if !mockAck.nackCalled {
@@ -665,7 +665,7 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 }
 
 func TestNewWorkspaceInitiatedConsumer(t *testing.T) {
-	c := NewWorkspaceInitiatedConsumer(WorkspaceInitiatedConsumerParams{
+	workspaceInitiatedConsumer := NewWorkspaceInitiatedConsumer(WorkspaceInitiatedConsumerParams{
 		Client:                     &mockAMQPInterfaceClient{},
 		InfrastructureEventHandler: &mockInfrastructureEventPublisher{},
 		Provisioner:                &mockProvisioner{},
@@ -674,7 +674,7 @@ func TestNewWorkspaceInitiatedConsumer(t *testing.T) {
 		SharedDBPass:               "postgres",
 		IsolationMode:              "container",
 	})
-	if c == nil {
+	if workspaceInitiatedConsumer == nil {
 		t.Fatal("expected non-nil consumer")
 	}
 }

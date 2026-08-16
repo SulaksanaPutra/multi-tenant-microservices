@@ -16,8 +16,8 @@ import (
 
 func TestTokenRepository_Constructor(t *testing.T) {
 	client := &postgres.Client{}
-	repo := NewTokenRepository(client)
-	if repo == nil {
+	tokenRepository := NewTokenRepository(client)
+	if tokenRepository == nil {
 		t.Fatal("expected NewTokenRepository to return non-nil struct pointer")
 	}
 }
@@ -35,7 +35,7 @@ func TestTokenRepository_CreateRefreshToken(t *testing.T) {
 			},
 		}
 
-		repo := NewTokenRepository(&postgres.Client{})
+		tokenRepository := NewTokenRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
 		input := CreateRefreshTokenInput{
@@ -45,7 +45,7 @@ func TestTokenRepository_CreateRefreshToken(t *testing.T) {
 			ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
 		}
 
-		err := repo.CreateRefreshToken(ctxWithExec, input)
+		err := tokenRepository.CreateRefreshToken(ctxWithExec, input)
 		if err != nil {
 			t.Fatalf("expected nil error, got %v", err)
 		}
@@ -66,11 +66,11 @@ func TestTokenRepository_CreateRefreshToken(t *testing.T) {
 			},
 		}
 
-		repo := NewTokenRepository(&postgres.Client{})
+		tokenRepository := NewTokenRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
 		input := CreateRefreshTokenInput{TokenHash: "err_hash"}
-		err := repo.CreateRefreshToken(ctxWithExec, input)
+		err := tokenRepository.CreateRefreshToken(ctxWithExec, input)
 		if err == nil || !errors.Is(err, dbErr) {
 			t.Errorf("expected wrapped db error, got %v", err)
 		}
@@ -89,10 +89,10 @@ func TestTokenRepository_FindByTokenHash(t *testing.T) {
 		},
 	}
 
-	repo := NewTokenRepository(&postgres.Client{})
+	tokenRepository := NewTokenRepository(&postgres.Client{})
 	ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-	token, err := repo.FindByTokenHash(ctxWithExec, "hash_abc")
+	token, err := tokenRepository.FindByTokenHash(ctxWithExec, "hash_abc")
 	if token != nil {
 		t.Errorf("expected nil token on dummy scan, got %+v", token)
 	}
@@ -117,10 +117,10 @@ func TestTokenRepository_RevokeRefreshToken(t *testing.T) {
 			},
 		}
 
-		repo := NewTokenRepository(&postgres.Client{})
+		tokenRepository := NewTokenRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-		err := repo.RevokeRefreshToken(ctxWithExec, RevokeRefreshTokenInput{TokenHash: "hash_1"})
+		err := tokenRepository.RevokeRefreshToken(ctxWithExec, RevokeRefreshTokenInput{TokenHash: "hash_1"})
 		if err != nil {
 			t.Fatalf("expected nil error, got %v", err)
 		}
@@ -133,10 +133,10 @@ func TestTokenRepository_RevokeRefreshToken(t *testing.T) {
 			},
 		}
 
-		repo := NewTokenRepository(&postgres.Client{})
+		tokenRepository := NewTokenRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-		err := repo.RevokeRefreshToken(ctxWithExec, RevokeRefreshTokenInput{TokenHash: "hash_0"})
+		err := tokenRepository.RevokeRefreshToken(ctxWithExec, RevokeRefreshTokenInput{TokenHash: "hash_0"})
 		if !errors.Is(err, domain.ErrTokenNotFound) {
 			t.Errorf("expected ErrTokenNotFound when rows affected = 0, got %v", err)
 		}
@@ -151,10 +151,10 @@ func TestTokenRepository_DeleteRefreshToken(t *testing.T) {
 			},
 		}
 
-		repo := NewTokenRepository(&postgres.Client{})
+		tokenRepository := NewTokenRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-		err := repo.DeleteRefreshToken(ctxWithExec, DeleteRefreshTokenInput{TokenHash: "del_hash"})
+		err := tokenRepository.DeleteRefreshToken(ctxWithExec, DeleteRefreshTokenInput{TokenHash: "del_hash"})
 		if err != nil {
 			t.Fatalf("expected nil error, got %v", err)
 		}

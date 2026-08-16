@@ -27,8 +27,8 @@ func NewNotificationRepository(dbClient *postgres.Client) *NotificationRepositor
 	return &NotificationRepository{dbClient: dbClient}
 }
 
-func (r *NotificationRepository) CreateNotificationLog(ctx context.Context, input CreateNotificationLogInput) (string, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (notificationRepository *NotificationRepository) CreateNotificationLog(ctx context.Context, input CreateNotificationLogInput) (string, error) {
+	exec := txcontext.GetExecutor(ctx, notificationRepository.dbClient)
 	id := domain.GenerateNotificationID()
 	query := `
 		INSERT INTO public.notifications (id, user_id, tenant_id, description, body, status)
@@ -43,8 +43,8 @@ func (r *NotificationRepository) CreateNotificationLog(ctx context.Context, inpu
 	return insertedID, nil
 }
 
-func (r *NotificationRepository) UpdateNotificationStatus(ctx context.Context, id string, status string) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (notificationRepository *NotificationRepository) UpdateNotificationStatus(ctx context.Context, id string, status string) error {
+	exec := txcontext.GetExecutor(ctx, notificationRepository.dbClient)
 	const query = `
 		UPDATE public.notifications
 		SET status = $1, updated_at = NOW()
@@ -64,8 +64,8 @@ func (r *NotificationRepository) UpdateNotificationStatus(ctx context.Context, i
 	return nil
 }
 
-func (r *NotificationRepository) HasSentNotification(ctx context.Context, tenantID string) (bool, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (notificationRepository *NotificationRepository) HasSentNotification(ctx context.Context, tenantID string) (bool, error) {
+	exec := txcontext.GetExecutor(ctx, notificationRepository.dbClient)
 	const query = `
 		SELECT COUNT(1)
 		FROM public.notifications
@@ -78,8 +78,8 @@ func (r *NotificationRepository) HasSentNotification(ctx context.Context, tenant
 	return count > 0, nil
 }
 
-func (r *NotificationRepository) GetPendingNotification(ctx context.Context, tenantID string) (*domain.NotificationLog, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (notificationRepository *NotificationRepository) GetPendingNotification(ctx context.Context, tenantID string) (*domain.NotificationLog, error) {
+	exec := txcontext.GetExecutor(ctx, notificationRepository.dbClient)
 	const query = `
 		SELECT id, user_id, tenant_id, description, body, status, created_at, updated_at
 		FROM public.notifications
@@ -98,8 +98,8 @@ func (r *NotificationRepository) GetPendingNotification(ctx context.Context, ten
 	return &l, nil
 }
 
-func (r *NotificationRepository) ListNotifications(ctx context.Context, tenantID string) ([]domain.NotificationLog, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (notificationRepository *NotificationRepository) ListNotifications(ctx context.Context, tenantID string) ([]domain.NotificationLog, error) {
+	exec := txcontext.GetExecutor(ctx, notificationRepository.dbClient)
 	var query string
 	var args []interface{}
 

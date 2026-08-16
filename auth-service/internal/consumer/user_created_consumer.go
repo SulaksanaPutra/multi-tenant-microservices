@@ -48,16 +48,16 @@ func NewUserCreatedConsumer(params UserCreatedConsumerParams) *UserCreatedConsum
 // setupTopology declares the broker-native DLX topology: the main queue is
 // bound to company.events on user.created and dead-letters to
 // company.events.dlx → auth_service_user_created_membership_dlq.
-func (c *UserCreatedConsumer) setupTopology() error {
-	if err := c.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
+func (userCreatedConsumer *UserCreatedConsumer) setupTopology() error {
+	if err := userCreatedConsumer.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return fmt.Errorf("failed to declare exchange: %w", err)
 	}
 
-	if err := c.client.DeclareExchange(domain.ExchangeCompanyEventsDLX, "topic"); err != nil {
+	if err := userCreatedConsumer.client.DeclareExchange(domain.ExchangeCompanyEventsDLX, "topic"); err != nil {
 		return fmt.Errorf("failed to declare DLX exchange: %w", err)
 	}
 
-	if err := c.client.DeclareAndBindQueue(
+	if err := userCreatedConsumer.client.DeclareAndBindQueue(
 		domain.QueueAuthUserCreated,
 		domain.ExchangeCompanyEvents,
 		domain.RoutingKeyUserCreated,
@@ -69,7 +69,7 @@ func (c *UserCreatedConsumer) setupTopology() error {
 		return fmt.Errorf("failed to bind queue: %w", err)
 	}
 
-	if err := c.client.DeclareAndBindQueue(
+	if err := userCreatedConsumer.client.DeclareAndBindQueue(
 		domain.QueueAuthUserCreatedDLQ,
 		domain.ExchangeCompanyEventsDLX,
 		domain.QueueAuthUserCreatedDLQ,
@@ -81,12 +81,12 @@ func (c *UserCreatedConsumer) setupTopology() error {
 	return nil
 }
 
-func (c *UserCreatedConsumer) Start(ctx context.Context) error {
+func (userCreatedConsumer *UserCreatedConsumer) Start(ctx context.Context) error {
 	go func() {
 		for {
-			connCtx := c.client.ConnContext()
+			connCtx := userCreatedConsumer.client.ConnContext()
 
-			err := c.runConsumerLoop(ctx, connCtx)
+			err := userCreatedConsumer.runConsumerLoop(ctx, connCtx)
 
 			if ctx.Err() != nil {
 				return
@@ -94,7 +94,7 @@ func (c *UserCreatedConsumer) Start(ctx context.Context) error {
 
 			log.Printf("UserCreatedConsumer: connection context cancelled (%v); waiting for RabbitMQ reconnection...", err)
 
-			if err := c.client.WaitUntilReady(ctx); err != nil {
+			if err := userCreatedConsumer.client.WaitUntilReady(ctx); err != nil {
 				return
 			}
 
@@ -105,12 +105,12 @@ func (c *UserCreatedConsumer) Start(ctx context.Context) error {
 	return nil
 }
 
-func (c *UserCreatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
-	if err := c.setupTopology(); err != nil {
+func (userCreatedConsumer *UserCreatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
+	if err := userCreatedConsumer.setupTopology(); err != nil {
 		return err
 	}
 
-	msgs, err := c.client.Consume(
+	msgs, err := userCreatedConsumer.client.Consume(
 		domain.QueueAuthUserCreated,
 		"auth-user-created-consumer",
 	)
@@ -134,12 +134,12 @@ func (c *UserCreatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) e
 				return errors.New("delivery channel closed")
 			}
 
-			_ = c.handleDelivery(appCtx, d)
+			_ = userCreatedConsumer.handleDelivery(appCtx, d)
 		}
 	}
 }
 
-func (c *UserCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
+func (userCreatedConsumer *UserCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
 	// Routing-key guard: drain misrouted messages without processing them.
 	if d.RoutingKey != domain.RoutingKeyUserCreated && d.RoutingKey != "" {
 		log.Printf("[WARN] UserCreatedConsumer: Received misrouted message with routing_key='%s' (expected '%s'). Discarding. Check AMQP queue topology for ghost bindings.", d.RoutingKey, domain.RoutingKeyUserCreated)
@@ -156,16 +156,16 @@ func (c *UserCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Del
 
 	// Delivery-count cap: DLQ persistent failures instead of infinite requeues.
 	deliveryCount := getDeliveryCount(d.Headers)
-	if deliveryCount >= c.maxDeliveries {
+	if deliveryCount >= userCreatedConsumer.maxDeliveries {
 		log.Printf("[DLQ] UserCreatedConsumer: Max deliveries (%d) reached for event_id='%s' user_id='%s' (delivery_count=%d). Routing to DLQ.",
-			c.maxDeliveries, evt.EventID, evt.UserID, deliveryCount)
+			userCreatedConsumer.maxDeliveries, evt.EventID, evt.UserID, deliveryCount)
 		_ = d.Nack(false, false)
 		return errors.New("max delivery count reached")
 	}
 
 	log.Printf("UserCreatedConsumer processing event_id='%s' for user_id='%s' tenant_id='%s'", evt.EventID, evt.UserID, evt.TenantID)
 
-	err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+	err := userCreatedConsumer.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 		inboxInput := service.ClaimInboxInput{
 			EventID:   evt.EventID,
 			TenantID:  evt.TenantID,
@@ -174,7 +174,7 @@ func (c *UserCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Del
 		}
 
 		// Step 1: transactional inbox guard — deduplicates the event.
-		isDup, err := c.inboxService.ClaimEvent(txCtx, inboxInput)
+		isDup, err := userCreatedConsumer.inboxService.ClaimEvent(txCtx, inboxInput)
 		if err != nil {
 			return fmt.Errorf("inbox guard failed: %w", err)
 		}
@@ -184,7 +184,7 @@ func (c *UserCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Del
 		}
 
 		// Step 2: upsert the local user_tenant_memberships copy.
-		if err := c.membershipService.AddMembership(txCtx, evt.UserID, evt.TenantID); err != nil {
+		if err := userCreatedConsumer.membershipService.AddMembership(txCtx, evt.UserID, evt.TenantID); err != nil {
 			return fmt.Errorf("failed to upsert membership copy: %w", err)
 		}
 

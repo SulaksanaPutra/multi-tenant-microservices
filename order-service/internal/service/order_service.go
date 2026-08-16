@@ -55,8 +55,8 @@ func NewOrderService(orderRepository OrderRepository) *OrderService {
 	}
 }
 
-func (s *OrderService) ListOrders(ctx context.Context) ([]OrderOutput, error) {
-	orders, err := s.orderRepository.ListOrders(ctx)
+func (orderService *OrderService) ListOrders(ctx context.Context) ([]OrderOutput, error) {
+	orders, err := orderService.orderRepository.ListOrders(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +67,7 @@ func (s *OrderService) ListOrders(ctx context.Context) ([]OrderOutput, error) {
 	return outputs, nil
 }
 
-func (s *OrderService) CreateOrder(ctx context.Context, input CreateOrderInput) (*OrderOutput, error) {
+func (orderService *OrderService) CreateOrder(ctx context.Context, input CreateOrderInput) (*OrderOutput, error) {
 	tenantID := input.TenantID
 	if tenantID == "" {
 		if tID, ok := ctx.Value("tenantID").(string); ok && tID != "" {
@@ -108,7 +108,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, input CreateOrderInput) 
 		Amount:     order.Amount,
 	}
 
-	if err := s.orderRepository.CreateOrder(ctx, repoInput); err != nil {
+	if err := orderService.orderRepository.CreateOrder(ctx, repoInput); err != nil {
 		return nil, fmt.Errorf("order service: failed to create order: %w", err)
 	}
 

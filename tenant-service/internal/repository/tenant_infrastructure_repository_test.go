@@ -14,8 +14,8 @@ import (
 
 func TestTenantInfrastructureRepository_Constructor(t *testing.T) {
 	client := &postgres.Client{}
-	repo := NewTenantInfrastructureRepository(client)
-	if repo == nil {
+	tenantInfrastructureRepository := NewTenantInfrastructureRepository(client)
+	if tenantInfrastructureRepository == nil {
 		t.Fatal("expected NewTenantInfrastructureRepository to return a non-nil struct pointer")
 	}
 }
@@ -32,7 +32,7 @@ func TestTenantInfrastructureRepository_UpsertServiceInfrastructure_Success(t *t
 		},
 	}
 
-	repo := NewTenantInfrastructureRepository(&postgres.Client{})
+	tenantInfrastructureRepository := NewTenantInfrastructureRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	input := UpsertServiceInfrastructureInput{
@@ -45,7 +45,7 @@ func TestTenantInfrastructureRepository_UpsertServiceInfrastructure_Success(t *t
 		SchemaName:  "tenant_100",
 	}
 
-	err := repo.UpsertServiceInfrastructure(ctx, input)
+	err := tenantInfrastructureRepository.UpsertServiceInfrastructure(ctx, input)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -77,7 +77,7 @@ func TestTenantInfrastructureRepository_UpsertServiceInfrastructure_DefaultValue
 		},
 	}
 
-	repo := NewTenantInfrastructureRepository(&postgres.Client{})
+	tenantInfrastructureRepository := NewTenantInfrastructureRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	input := UpsertServiceInfrastructureInput{
@@ -90,7 +90,7 @@ func TestTenantInfrastructureRepository_UpsertServiceInfrastructure_DefaultValue
 		SchemaName:  "public",
 	}
 
-	err := repo.UpsertServiceInfrastructure(ctx, input)
+	err := tenantInfrastructureRepository.UpsertServiceInfrastructure(ctx, input)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -115,7 +115,7 @@ func TestTenantInfrastructureRepository_UpsertServiceInfrastructure_ExecError(t 
 		},
 	}
 
-	repo := NewTenantInfrastructureRepository(&postgres.Client{})
+	tenantInfrastructureRepository := NewTenantInfrastructureRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	input := UpsertServiceInfrastructureInput{
@@ -123,7 +123,7 @@ func TestTenantInfrastructureRepository_UpsertServiceInfrastructure_ExecError(t 
 		ServiceName: "order-service",
 	}
 
-	err := repo.UpsertServiceInfrastructure(ctx, input)
+	err := tenantInfrastructureRepository.UpsertServiceInfrastructure(ctx, input)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -136,9 +136,9 @@ func TestTenantInfrastructureRepository_UpsertServiceInfrastructure_ExecError(t 
 }
 
 func TestTenantInfrastructureRepository_GetPendingServiceCount_EmptyRequiredServices(t *testing.T) {
-	repo := NewTenantInfrastructureRepository(&postgres.Client{})
+	tenantInfrastructureRepository := NewTenantInfrastructureRepository(&postgres.Client{})
 
-	count, err := repo.GetPendingServiceCount(context.Background(), "tenant-100", nil)
+	count, err := tenantInfrastructureRepository.GetPendingServiceCount(context.Background(), "tenant-100", nil)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -146,7 +146,7 @@ func TestTenantInfrastructureRepository_GetPendingServiceCount_EmptyRequiredServ
 		t.Errorf("expected count 0 for empty required services, got %d", count)
 	}
 
-	count, err = repo.GetPendingServiceCount(context.Background(), "tenant-100", []string{})
+	count, err = tenantInfrastructureRepository.GetPendingServiceCount(context.Background(), "tenant-100", []string{})
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -167,11 +167,11 @@ func TestTenantInfrastructureRepository_GetPendingServiceCount_SuccessAndQueryBu
 		},
 	}
 
-	repo := NewTenantInfrastructureRepository(&postgres.Client{})
+	tenantInfrastructureRepository := NewTenantInfrastructureRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	required := []string{"order-service", "user-service"}
-	_, err := repo.GetPendingServiceCount(ctx, "tenant-100", required)
+	_, err := tenantInfrastructureRepository.GetPendingServiceCount(ctx, "tenant-100", required)
 	// We expect Scan on dummy row to error, but capturedQuery and capturedArgs must be validated
 	if err == nil {
 		t.Fatal("expected error from scanning dummy row, got nil")
@@ -199,10 +199,10 @@ func TestTenantInfrastructureRepository_GetPendingServiceCount_QueryError(t *tes
 		},
 	}
 
-	repo := NewTenantInfrastructureRepository(&postgres.Client{})
+	tenantInfrastructureRepository := NewTenantInfrastructureRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	_, err := repo.GetPendingServiceCount(ctx, "tenant-err", []string{"order-service"})
+	_, err := tenantInfrastructureRepository.GetPendingServiceCount(ctx, "tenant-err", []string{"order-service"})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -223,10 +223,10 @@ func TestTenantInfrastructureRepository_GetServiceInfrastructure_Query(t *testin
 		},
 	}
 
-	repo := NewTenantInfrastructureRepository(&postgres.Client{})
+	tenantInfrastructureRepository := NewTenantInfrastructureRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	_, err := repo.GetServiceInfrastructure(ctx, "tenant-100", "order-service")
+	_, err := tenantInfrastructureRepository.GetServiceInfrastructure(ctx, "tenant-100", "order-service")
 	if err == nil {
 		t.Fatal("expected scan error on dummy row, got nil")
 	}

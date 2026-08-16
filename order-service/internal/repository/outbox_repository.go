@@ -60,20 +60,20 @@ func NewOutboxRepository(config tenantdb.Config) *OutboxRepository {
 	return &OutboxRepository{config: config}
 }
 
-func (r *OutboxRepository) schemaName() string {
-	if r.config.SchemaName == "" {
+func (outboxRepository *OutboxRepository) schemaName() string {
+	if outboxRepository.config.SchemaName == "" {
 		return "public"
 	}
-	return r.config.SchemaName
+	return outboxRepository.config.SchemaName
 }
 
-func (r *OutboxRepository) CreateOutboxMessage(ctx context.Context, input CreateOutboxMessageInput) error {
-	exec := txcontext.GetExecutor(ctx, r.config.DB)
+func (outboxRepository *OutboxRepository) CreateOutboxMessage(ctx context.Context, input CreateOutboxMessageInput) error {
+	exec := txcontext.GetExecutor(ctx, outboxRepository.config.DB)
 	query := fmt.Sprintf(`
 		INSERT INTO %s.outbox (
 			id, tenant_id, aggregate_type, aggregate_id, event_type, payload, status, retry_count
 		) VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', 0);
-	`, pq.QuoteIdentifier(r.schemaName()))
+	`, pq.QuoteIdentifier(outboxRepository.schemaName()))
 
 	if _, err := exec.ExecContext(ctx, query,
 		input.ID, input.TenantID, input.AggregateType, input.AggregateID, input.EventType, string(input.Payload),
@@ -83,9 +83,9 @@ func (r *OutboxRepository) CreateOutboxMessage(ctx context.Context, input Create
 	return nil
 }
 
-func (r *OutboxRepository) FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
-	exec := txcontext.GetExecutor(ctx, r.config.DB)
-	schema := pq.QuoteIdentifier(r.schemaName())
+func (outboxRepository *OutboxRepository) FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
+	exec := txcontext.GetExecutor(ctx, outboxRepository.config.DB)
+	schema := pq.QuoteIdentifier(outboxRepository.schemaName())
 	query := fmt.Sprintf(`
 		WITH claimed AS (
 			UPDATE %s.outbox
@@ -140,8 +140,8 @@ func (r *OutboxRepository) FetchAndClaimBatch(ctx context.Context, eventType str
 	return list, rows.Err()
 }
 
-func (r *OutboxRepository) RecoverStuckClaims(ctx context.Context, eventType string) error {
-	exec := txcontext.GetExecutor(ctx, r.config.DB)
+func (outboxRepository *OutboxRepository) RecoverStuckClaims(ctx context.Context, eventType string) error {
+	exec := txcontext.GetExecutor(ctx, outboxRepository.config.DB)
 	query := fmt.Sprintf(`
 		UPDATE %s.outbox
 		SET status     = 'PENDING',
@@ -149,7 +149,7 @@ func (r *OutboxRepository) RecoverStuckClaims(ctx context.Context, eventType str
 		WHERE status     = 'PROCESSING'
 		  AND event_type = $1
 		  AND claimed_at < NOW() - $2::interval;
-	`, pq.QuoteIdentifier(r.schemaName()))
+	`, pq.QuoteIdentifier(outboxRepository.schemaName()))
 
 	_, err := exec.ExecContext(ctx, query, eventType, fmt.Sprintf("%d seconds", int(stuckClaimTimeout.Seconds())))
 	if err != nil {
@@ -158,15 +158,15 @@ func (r *OutboxRepository) RecoverStuckClaims(ctx context.Context, eventType str
 	return nil
 }
 
-func (r *OutboxRepository) MarkPublished(ctx context.Context, id string) error {
-	exec := txcontext.GetExecutor(ctx, r.config.DB)
+func (outboxRepository *OutboxRepository) MarkPublished(ctx context.Context, id string) error {
+	exec := txcontext.GetExecutor(ctx, outboxRepository.config.DB)
 	query := fmt.Sprintf(`
 		UPDATE %s.outbox
 		SET status       = 'PUBLISHED',
 		    claimed_at   = NULL,
 		    processed_at = NOW()
 		WHERE id = $1;
-	`, pq.QuoteIdentifier(r.schemaName()))
+	`, pq.QuoteIdentifier(outboxRepository.schemaName()))
 
 	if _, err := exec.ExecContext(ctx, query, id); err != nil {
 		return fmt.Errorf("outbox repository: failed to mark as published: %w", err)
@@ -174,8 +174,8 @@ func (r *OutboxRepository) MarkPublished(ctx context.Context, id string) error {
 	return nil
 }
 
-func (r *OutboxRepository) MarkFailed(ctx context.Context, id string, err error) error {
-	exec := txcontext.GetExecutor(ctx, r.config.DB)
+func (outboxRepository *OutboxRepository) MarkFailed(ctx context.Context, id string, err error) error {
+	exec := txcontext.GetExecutor(ctx, outboxRepository.config.DB)
 	safeErr := sanitizeError(err)
 	query := fmt.Sprintf(`
 		UPDATE %s.outbox
@@ -191,7 +191,7 @@ func (r *OutboxRepository) MarkFailed(ctx context.Context, id string, err error)
 		        ELSE 'PENDING'
 		    END
 		WHERE id = $1;
-	`, pq.QuoteIdentifier(r.schemaName()))
+	`, pq.QuoteIdentifier(outboxRepository.schemaName()))
 
 	if _, dbErr := exec.ExecContext(ctx, query, id, safeErr, maxRetries); dbErr != nil {
 		return fmt.Errorf("outbox repository: failed to mark as failed: %w", dbErr)

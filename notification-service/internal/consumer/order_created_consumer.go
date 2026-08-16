@@ -35,24 +35,24 @@ func NewOrderCreatedConsumer(params OrderCreatedConsumerParams) *OrderCreatedCon
 	}
 }
 
-func (c *OrderCreatedConsumer) setupTopology() error {
-	if err := c.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
+func (orderCreatedConsumer *OrderCreatedConsumer) setupTopology() error {
+	if err := orderCreatedConsumer.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return fmt.Errorf("failed to declare exchange: %w", err)
 	}
 
-	if err := c.client.DeclareAndBindQueue(domain.QueueNotificationOrderCreated, domain.ExchangeCompanyEvents, domain.RoutingKeyOrderCreated); err != nil {
+	if err := orderCreatedConsumer.client.DeclareAndBindQueue(domain.QueueNotificationOrderCreated, domain.ExchangeCompanyEvents, domain.RoutingKeyOrderCreated); err != nil {
 		return fmt.Errorf("failed to bind queue: %w", err)
 	}
 
 	return nil
 }
 
-func (c *OrderCreatedConsumer) Start(ctx context.Context) error {
+func (orderCreatedConsumer *OrderCreatedConsumer) Start(ctx context.Context) error {
 	go func() {
 		for {
-			connCtx := c.client.ConnContext()
+			connCtx := orderCreatedConsumer.client.ConnContext()
 
-			err := c.runConsumerLoop(ctx, connCtx)
+			err := orderCreatedConsumer.runConsumerLoop(ctx, connCtx)
 
 			if ctx.Err() != nil {
 				return
@@ -60,7 +60,7 @@ func (c *OrderCreatedConsumer) Start(ctx context.Context) error {
 
 			log.Printf("OrderCreatedConsumer: connection context cancelled (%v); waiting for RabbitMQ reconnection...", err)
 
-			if err := c.client.WaitUntilReady(ctx); err != nil {
+			if err := orderCreatedConsumer.client.WaitUntilReady(ctx); err != nil {
 				return
 			}
 
@@ -71,12 +71,12 @@ func (c *OrderCreatedConsumer) Start(ctx context.Context) error {
 	return nil
 }
 
-func (c *OrderCreatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
-	if err := c.setupTopology(); err != nil {
+func (orderCreatedConsumer *OrderCreatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
+	if err := orderCreatedConsumer.setupTopology(); err != nil {
 		return err
 	}
 
-	msgs, err := c.client.Consume(
+	msgs, err := orderCreatedConsumer.client.Consume(
 		domain.QueueNotificationOrderCreated,
 		"notification-order-created-consumer",
 	)
@@ -100,12 +100,12 @@ func (c *OrderCreatedConsumer) runConsumerLoop(appCtx, connCtx context.Context) 
 				return errors.New("delivery channel closed")
 			}
 
-			_ = c.handleDelivery(appCtx, d)
+			_ = orderCreatedConsumer.handleDelivery(appCtx, d)
 		}
 	}
 }
 
-func (c *OrderCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
+func (orderCreatedConsumer *OrderCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
 	if d.RoutingKey != domain.RoutingKeyOrderCreated && d.RoutingKey != "" {
 		log.Printf("[WARN] OrderCreatedConsumer: Received misrouted message with routing_key='%s' (expected '%s'). Discarding.", d.RoutingKey, domain.RoutingKeyOrderCreated)
 		_ = d.Ack(false)
@@ -129,7 +129,7 @@ func (c *OrderCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.De
 
 	log.Printf("OrderCreatedConsumer processing event_id='%s' for order_id='%s' tenant_id='%s'", evt.EventID, evt.OrderID, evt.TenantID)
 
-	err := c.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+	err := orderCreatedConsumer.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 		inboxInput := service.ClaimInboxInput{
 			EventID:   evt.EventID,
 			TenantID:  evt.TenantID,
@@ -137,7 +137,7 @@ func (c *OrderCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.De
 			Payload:   d.Body,
 		}
 
-		isDup, err := c.inboxService.ClaimEvent(txCtx, inboxInput)
+		isDup, err := orderCreatedConsumer.inboxService.ClaimEvent(txCtx, inboxInput)
 		if err != nil {
 			return fmt.Errorf("inbox guard failed: %w", err)
 		}
@@ -149,7 +149,7 @@ func (c *OrderCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.De
 		log.Printf("OrderCreatedConsumer: Processed order created event_id='%s' order_id='%s' amount=%.2f status='%s'",
 			evt.EventID, evt.OrderID, evt.Amount, evt.Status)
 
-		if err := c.notificationService.CreateOrderNotification(txCtx, evt); err != nil {
+		if err := orderCreatedConsumer.notificationService.CreateOrderNotification(txCtx, evt); err != nil {
 			return fmt.Errorf("failed to persist order notification: %w", err)
 		}
 		log.Printf("OrderCreatedConsumer: Recorded notification for order_id='%s' tenant_id='%s'", evt.OrderID, evt.TenantID)

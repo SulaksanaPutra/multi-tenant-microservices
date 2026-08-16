@@ -7,29 +7,29 @@ import (
 )
 
 func TestPaymentRepository_Constructor(t *testing.T) {
-	repo := NewPaymentRepository(&postgres.Client{})
-	if repo == nil {
+	paymentRepository := NewPaymentRepository(&postgres.Client{})
+	if paymentRepository == nil {
 		t.Fatal("expected NewPaymentRepository to return non-nil struct pointer")
 	}
 }
 
 func TestOutboxRepository_Constructor(t *testing.T) {
-	repo := NewOutboxRepository(&postgres.Client{})
-	if repo == nil {
+	outboxRepository := NewOutboxRepository(&postgres.Client{})
+	if outboxRepository == nil {
 		t.Fatal("expected NewOutboxRepository to return non-nil struct pointer")
 	}
 }
 
 func TestInboxRepository_Constructor(t *testing.T) {
-	repo := NewInboxRepository(&postgres.Client{})
-	if repo == nil {
+	inboxRepository := NewInboxRepository(&postgres.Client{})
+	if inboxRepository == nil {
 		t.Fatal("expected NewInboxRepository to return non-nil struct pointer")
 	}
 }
 
 func TestPSPConfigRepository_Constructor(t *testing.T) {
-	repo := NewPSPConfigRepository(&postgres.Client{})
-	if repo == nil {
+	pspConfigRepository := NewPSPConfigRepository(&postgres.Client{})
+	if pspConfigRepository == nil {
 		t.Fatal("expected NewPSPConfigRepository to return non-nil struct pointer")
 	}
 }

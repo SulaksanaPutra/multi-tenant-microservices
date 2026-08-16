@@ -39,10 +39,10 @@ func TestInternalPermissionHandler_RegisterPermissions(t *testing.T) {
 
 	t.Run("validation failure (missing service)", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		_, r := gin.CreateTestContext(w)
+		_, router := gin.CreateTestContext(w)
 
-		h := NewInternalPermissionHandler(&mockInternalPermissionService{})
-		r.POST("/internal/permissions/register", h.RegisterPermissions)
+		internalPermissionHandler := NewInternalPermissionHandler(&mockInternalPermissionService{})
+		router.POST("/internal/permissions/register", internalPermissionHandler.RegisterPermissions)
 
 		reqBody := map[string]any{
 			"service": "",
@@ -54,7 +54,7 @@ func TestInternalPermissionHandler_RegisterPermissions(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/internal/permissions/register", bytes.NewBuffer(jsonBytes))
 		req.Header.Set("Content-Type", "application/json")
 
-		r.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected status 400, got %d", w.Code)
 		}
@@ -62,15 +62,15 @@ func TestInternalPermissionHandler_RegisterPermissions(t *testing.T) {
 
 	t.Run("service failure -> 500", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		_, r := gin.CreateTestContext(w)
+		_, router := gin.CreateTestContext(w)
 
-		mockSvc := &mockInternalPermissionService{
+		mockInternalPermissionService := &mockInternalPermissionService{
 			RegisterPermissionsFn: func(_ context.Context, _ service.InternalRegisterPermissionsInput) error {
 				return errors.New("db error")
 			},
 		}
-		h := NewInternalPermissionHandler(mockSvc)
-		r.POST("/internal/permissions/register", h.RegisterPermissions)
+		internalPermissionHandler := NewInternalPermissionHandler(mockInternalPermissionService)
+		router.POST("/internal/permissions/register", internalPermissionHandler.RegisterPermissions)
 
 		reqBody := InternalRegisterPermissionsRequest{
 			Service: "order-service",
@@ -82,7 +82,7 @@ func TestInternalPermissionHandler_RegisterPermissions(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/internal/permissions/register", bytes.NewBuffer(jsonBytes))
 		req.Header.Set("Content-Type", "application/json")
 
-		r.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 		if w.Code != http.StatusInternalServerError {
 			t.Fatalf("expected status 500, got %d", w.Code)
 		}
@@ -90,9 +90,9 @@ func TestInternalPermissionHandler_RegisterPermissions(t *testing.T) {
 
 	t.Run("success -> 200 OK", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		_, r := gin.CreateTestContext(w)
+		_, router := gin.CreateTestContext(w)
 
-		mockSvc := &mockInternalPermissionService{
+		mockInternalPermissionService := &mockInternalPermissionService{
 			RegisterPermissionsFn: func(_ context.Context, input service.InternalRegisterPermissionsInput) error {
 				if input.Service != "order-service" || len(input.Permissions) != 1 {
 					return errors.New("invalid input received")
@@ -100,8 +100,8 @@ func TestInternalPermissionHandler_RegisterPermissions(t *testing.T) {
 				return nil
 			},
 		}
-		h := NewInternalPermissionHandler(mockSvc)
-		r.POST("/internal/permissions/register", h.RegisterPermissions)
+		internalPermissionHandler := NewInternalPermissionHandler(mockInternalPermissionService)
+		router.POST("/internal/permissions/register", internalPermissionHandler.RegisterPermissions)
 
 		reqBody := InternalRegisterPermissionsRequest{
 			Service: "order-service",
@@ -113,7 +113,7 @@ func TestInternalPermissionHandler_RegisterPermissions(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/internal/permissions/register", bytes.NewBuffer(jsonBytes))
 		req.Header.Set("Content-Type", "application/json")
 
-		r.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected status 200, got %d", w.Code)
 		}
@@ -125,13 +125,13 @@ func TestInternalPermissionHandler_GetUserPermissionVersion(t *testing.T) {
 
 	t.Run("missing tenant_id -> 400 Bad Request", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		_, r := gin.CreateTestContext(w)
+		_, router := gin.CreateTestContext(w)
 
-		h := NewInternalPermissionHandler(&mockInternalPermissionService{})
-		r.GET("/internal/permissions/users/:user_id/version", h.GetUserPermissionVersion)
+		internalPermissionHandler := NewInternalPermissionHandler(&mockInternalPermissionService{})
+		router.GET("/internal/permissions/users/:user_id/version", internalPermissionHandler.GetUserPermissionVersion)
 
 		req := httptest.NewRequest(http.MethodGet, "/internal/permissions/users/usr_123/version", nil)
-		r.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected status 400, got %d", w.Code)
 		}
@@ -139,9 +139,9 @@ func TestInternalPermissionHandler_GetUserPermissionVersion(t *testing.T) {
 
 	t.Run("success -> returns permission version", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		_, r := gin.CreateTestContext(w)
+		_, router := gin.CreateTestContext(w)
 
-		mockSvc := &mockInternalPermissionService{
+		mockInternalPermissionService := &mockInternalPermissionService{
 			GetUserPermissionVersionFn: func(_ context.Context, userID, tenantID string) (int64, error) {
 				if userID == "usr_123" && tenantID == "tnt_001" {
 					return 5, nil
@@ -149,11 +149,11 @@ func TestInternalPermissionHandler_GetUserPermissionVersion(t *testing.T) {
 				return 1, nil
 			},
 		}
-		h := NewInternalPermissionHandler(mockSvc)
-		r.GET("/internal/permissions/users/:user_id/version", h.GetUserPermissionVersion)
+		internalPermissionHandler := NewInternalPermissionHandler(mockInternalPermissionService)
+		router.GET("/internal/permissions/users/:user_id/version", internalPermissionHandler.GetUserPermissionVersion)
 
 		req := httptest.NewRequest(http.MethodGet, "/internal/permissions/users/usr_123/version?tenant_id=tnt_001", nil)
-		r.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected status 200, got %d", w.Code)
 		}

@@ -85,7 +85,7 @@ func (m *mockOutboxWorker) Poke() {
 }
 
 func TestWorkspaceService_RegisterWorkspace_Validation(t *testing.T) {
-	svc := NewWorkspaceService(WorkspaceServiceParams{
+	workspaceService := NewWorkspaceService(WorkspaceServiceParams{
 		TenantRepository: &mockTenantRepository{},
 		OutboxRepository: &mockOutboxRepository{},
 		OutboxWorker:     &mockOutboxWorker{},
@@ -127,7 +127,7 @@ func TestWorkspaceService_RegisterWorkspace_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			output, err := svc.RegisterWorkspace(context.Background(), tt.input)
+			output, err := workspaceService.RegisterWorkspace(context.Background(), tt.input)
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("expected error %v, got %v", tt.wantErr, err)
 			}
@@ -142,25 +142,25 @@ func TestWorkspaceService_RegisterWorkspace_Success(t *testing.T) {
 	var capturedTenant repository.CreateTenantInput
 	var capturedOutbox repository.CreateOutboxMessageInput
 
-	tenantRepo := &mockTenantRepository{
+	tenantRepository := &mockTenantRepository{
 		createTenantFunc: func(ctx context.Context, input repository.CreateTenantInput) error {
 			capturedTenant = input
 			return nil
 		},
 	}
 
-	outboxRepo := &mockOutboxRepository{
+	outboxRepository := &mockOutboxRepository{
 		createOutboxMessageFunc: func(ctx context.Context, input repository.CreateOutboxMessageInput) error {
 			capturedOutbox = input
 			return nil
 		},
 	}
 
-	worker := &mockOutboxWorker{}
-	svc := NewWorkspaceService(WorkspaceServiceParams{
-		TenantRepository: tenantRepo,
-		OutboxRepository: outboxRepo,
-		OutboxWorker:     worker,
+	outboxWorker := &mockOutboxWorker{}
+	workspaceService := NewWorkspaceService(WorkspaceServiceParams{
+		TenantRepository: tenantRepository,
+		OutboxRepository: outboxRepository,
+		OutboxWorker:     outboxWorker,
 	})
 
 	input := RegisterWorkspaceInput{
@@ -170,7 +170,7 @@ func TestWorkspaceService_RegisterWorkspace_Success(t *testing.T) {
 		Plan:       "DEDICATED",
 	}
 
-	out, err := svc.RegisterWorkspace(context.Background(), input)
+	out, err := workspaceService.RegisterWorkspace(context.Background(), input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestWorkspaceService_RegisterWorkspace_Success(t *testing.T) {
 	if capturedOutbox.EventType != "workspace.initiated" || capturedOutbox.AggregateID != out.TenantID {
 		t.Errorf("unexpected outbox message: %+v", capturedOutbox)
 	}
-	if !worker.poked {
+	if !outboxWorker.poked {
 		t.Error("expected outbox worker to be poked after registration")
 	}
 }
@@ -192,7 +192,7 @@ func TestWorkspaceService_RegisterWorkspace_Success(t *testing.T) {
 func TestWorkspaceService_ActivateWorkspace_EmitsTenantInfo(t *testing.T) {
 	var capturedOutbox []repository.CreateOutboxMessageInput
 
-	tenantRepo := &mockTenantRepository{
+	tenantRepository := &mockTenantRepository{
 		getTenantByIDFunc: func(ctx context.Context, tenantID string) (*domain.Tenant, error) {
 			return &domain.Tenant{
 				ID:         tenantID,
@@ -209,20 +209,20 @@ func TestWorkspaceService_ActivateWorkspace_EmitsTenantInfo(t *testing.T) {
 		},
 	}
 
-	outboxRepo := &mockOutboxRepository{
+	outboxRepository := &mockOutboxRepository{
 		createOutboxMessageFunc: func(ctx context.Context, input repository.CreateOutboxMessageInput) error {
 			capturedOutbox = append(capturedOutbox, input)
 			return nil
 		},
 	}
 
-	svc := NewWorkspaceService(WorkspaceServiceParams{
-		TenantRepository: tenantRepo,
-		OutboxRepository: outboxRepo,
+	workspaceService := NewWorkspaceService(WorkspaceServiceParams{
+		TenantRepository: tenantRepository,
+		OutboxRepository: outboxRepository,
 		OutboxWorker:     &mockOutboxWorker{},
 	})
 
-	if err := svc.ActivateWorkspace(context.Background(), "tnt_acme"); err != nil {
+	if err := workspaceService.ActivateWorkspace(context.Background(), "tnt_acme"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -260,8 +260,8 @@ func TestWorkspaceService_ActivateWorkspace_EmitsTenantInfo(t *testing.T) {
 
 func TestWorkspaceService_UpdateTenant(t *testing.T) {
 	t.Run("validation error", func(t *testing.T) {
-		svc := NewWorkspaceService(WorkspaceServiceParams{TenantRepository: &mockTenantRepository{}})
-		err := svc.UpdateTenant(context.Background(), UpdateTenantServiceInput{TenantID: "", Name: "New Name"})
+		workspaceService := NewWorkspaceService(WorkspaceServiceParams{TenantRepository: &mockTenantRepository{}})
+		err := workspaceService.UpdateTenant(context.Background(), UpdateTenantServiceInput{TenantID: "", Name: "New Name"})
 		if !errors.Is(err, domain.ErrTenantIDRequired) {
 			t.Errorf("expected ErrTenantIDRequired, got %v", err)
 		}
@@ -270,7 +270,7 @@ func TestWorkspaceService_UpdateTenant(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		updated := false
 		var capturedInput repository.UpdateTenantInput
-		mockRepo := &mockTenantRepository{
+		mockTenantRepository := &mockTenantRepository{
 			updateTenantFunc: func(ctx context.Context, input repository.UpdateTenantInput) error {
 				capturedInput = input
 				if input.ID == "t_100" && input.Name == "New Acme" {
@@ -279,9 +279,9 @@ func TestWorkspaceService_UpdateTenant(t *testing.T) {
 				return nil
 			},
 		}
-		svc := NewWorkspaceService(WorkspaceServiceParams{TenantRepository: mockRepo})
+		workspaceService := NewWorkspaceService(WorkspaceServiceParams{TenantRepository: mockTenantRepository})
 		ownerEmail := "owner@acme.com"
-		err := svc.UpdateTenant(context.Background(), UpdateTenantServiceInput{
+		err := workspaceService.UpdateTenant(context.Background(), UpdateTenantServiceInput{
 			TenantID:   "t_100",
 			Name:       "New Acme",
 			OwnerEmail: &ownerEmail,
@@ -302,14 +302,14 @@ func TestWorkspaceService_UpdateTenant(t *testing.T) {
 
 	t.Run("owner fields omitted leaves repository input nil", func(t *testing.T) {
 		var capturedInput repository.UpdateTenantInput
-		mockRepo := &mockTenantRepository{
+		mockTenantRepository := &mockTenantRepository{
 			updateTenantFunc: func(ctx context.Context, input repository.UpdateTenantInput) error {
 				capturedInput = input
 				return nil
 			},
 		}
-		svc := NewWorkspaceService(WorkspaceServiceParams{TenantRepository: mockRepo})
-		err := svc.UpdateTenant(context.Background(), UpdateTenantServiceInput{
+		workspaceService := NewWorkspaceService(WorkspaceServiceParams{TenantRepository: mockTenantRepository})
+		err := workspaceService.UpdateTenant(context.Background(), UpdateTenantServiceInput{
 			TenantID: "t_100",
 			Name:     "New Acme",
 		})
@@ -324,8 +324,8 @@ func TestWorkspaceService_UpdateTenant(t *testing.T) {
 
 func TestWorkspaceService_ChangeTenantPlan(t *testing.T) {
 	t.Run("invalid plan", func(t *testing.T) {
-		svc := NewWorkspaceService(WorkspaceServiceParams{TenantRepository: &mockTenantRepository{}})
-		err := svc.ChangeTenantPlan(context.Background(), ChangeTenantPlanInput{TenantID: "t_100", Plan: "invalid"})
+		workspaceService := NewWorkspaceService(WorkspaceServiceParams{TenantRepository: &mockTenantRepository{}})
+		err := workspaceService.ChangeTenantPlan(context.Background(), ChangeTenantPlanInput{TenantID: "t_100", Plan: "invalid"})
 		if !errors.Is(err, domain.ErrInvalidPlan) {
 			t.Errorf("expected ErrInvalidPlan, got %v", err)
 		}
@@ -333,7 +333,7 @@ func TestWorkspaceService_ChangeTenantPlan(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		changed := false
-		mockRepo := &mockTenantRepository{
+		mockTenantRepository := &mockTenantRepository{
 			getTenantByIDFunc: func(ctx context.Context, tenantID string) (*domain.Tenant, error) {
 				return &domain.Tenant{ID: tenantID, OwnerEmail: "owner@test.com"}, nil
 			},
@@ -344,12 +344,12 @@ func TestWorkspaceService_ChangeTenantPlan(t *testing.T) {
 				return nil
 			},
 		}
-		svc := NewWorkspaceService(WorkspaceServiceParams{
-			TenantRepository: mockRepo,
+		workspaceService := NewWorkspaceService(WorkspaceServiceParams{
+			TenantRepository: mockTenantRepository,
 			OutboxRepository: &mockOutboxRepository{},
 			OutboxWorker:     &mockOutboxWorker{},
 		})
-		err := svc.ChangeTenantPlan(context.Background(), ChangeTenantPlanInput{TenantID: "t_100", Plan: "dedicated"})
+		err := workspaceService.ChangeTenantPlan(context.Background(), ChangeTenantPlanInput{TenantID: "t_100", Plan: "dedicated"})
 		if err != nil {
 			t.Fatalf("expected nil error, got %v", err)
 		}

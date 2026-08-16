@@ -10,18 +10,18 @@ import (
 
 func TestOrderDBReadyPublisher_Constructor_NilChannel(t *testing.T) {
 	client := &rabbitmq.Client{}
-	pub, err := NewOrderDBReadyPublisher(client)
+	orderDBReadyPublisher, err := NewOrderDBReadyPublisher(client)
 	if err == nil {
 		t.Fatalf("expected error when declaring exchange on uninitialized channel, got nil")
 	}
-	if pub != nil {
-		t.Fatalf("expected OrderDBReadyPublisher pointer to be nil on constructor failure, got %v", pub)
+	if orderDBReadyPublisher != nil {
+		t.Fatalf("expected OrderDBReadyPublisher pointer to be nil on constructor failure, got %v", orderDBReadyPublisher)
 	}
 }
 
 func TestOrderDBReadyPublisher_PublishTenantOrderDBReady_NilChannel(t *testing.T) {
 	client := &rabbitmq.Client{}
-	pub := &OrderDBReadyPublisher{client: client}
+	orderDBReadyPublisher := &OrderDBReadyPublisher{client: client}
 
 	evt := domain.TenantOrderDBReadyEvent{
 		EventID:     "evt-301",
@@ -34,7 +34,7 @@ func TestOrderDBReadyPublisher_PublishTenantOrderDBReady_NilChannel(t *testing.T
 		SchemaName:  "tenant_301",
 	}
 
-	err := pub.PublishTenantOrderDBReady(context.Background(), evt)
+	err := orderDBReadyPublisher.PublishTenantOrderDBReady(context.Background(), evt)
 	if err == nil {
 		t.Fatalf("expected error publishing TenantOrderDBReady event with uninitialized channel, got nil")
 	}
@@ -42,7 +42,7 @@ func TestOrderDBReadyPublisher_PublishTenantOrderDBReady_NilChannel(t *testing.T
 
 func TestOrderDBReadyPublisher_PublishTenantOrderDBReady_ContextCancelled(t *testing.T) {
 	client := &rabbitmq.Client{}
-	pub := &OrderDBReadyPublisher{client: client}
+	orderDBReadyPublisher := &OrderDBReadyPublisher{client: client}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -52,7 +52,7 @@ func TestOrderDBReadyPublisher_PublishTenantOrderDBReady_ContextCancelled(t *tes
 		TenantID: "tenant-302",
 	}
 
-	err := pub.PublishTenantOrderDBReady(ctx, evt)
+	err := orderDBReadyPublisher.PublishTenantOrderDBReady(ctx, evt)
 	if err == nil {
 		t.Fatalf("expected error when context is cancelled, got nil")
 	}
@@ -60,8 +60,8 @@ func TestOrderDBReadyPublisher_PublishTenantOrderDBReady_ContextCancelled(t *tes
 
 func TestOrderDBReadyPublisher_StructInitialization(t *testing.T) {
 	client := &rabbitmq.Client{}
-	pub := &OrderDBReadyPublisher{client: client}
-	if pub.client != client {
+	orderDBReadyPublisher := &OrderDBReadyPublisher{client: client}
+	if orderDBReadyPublisher.client != client {
 		t.Fatalf("expected client reference to match")
 	}
 }

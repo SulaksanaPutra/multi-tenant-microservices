@@ -28,8 +28,8 @@ func NewSetupTokenRepository(dbClient *postgres.Client) *SetupTokenRepository {
 	return &SetupTokenRepository{dbClient: dbClient}
 }
 
-func (r *SetupTokenRepository) CreateSetupToken(ctx context.Context, input CreateSetupTokenInput) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (setupTokenRepository *SetupTokenRepository) CreateSetupToken(ctx context.Context, input CreateSetupTokenInput) error {
+	exec := txcontext.GetExecutor(ctx, setupTokenRepository.dbClient)
 	query := `
 		INSERT INTO public.password_setup_tokens (user_id, tenant_id, email, token_hash, expires_at)
 		VALUES ($1, $2, $3, $4, $5);
@@ -40,8 +40,8 @@ func (r *SetupTokenRepository) CreateSetupToken(ctx context.Context, input Creat
 	return nil
 }
 
-func (r *SetupTokenRepository) FindByTokenHash(ctx context.Context, tokenHash string) (*domain.PasswordSetupToken, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (setupTokenRepository *SetupTokenRepository) FindByTokenHash(ctx context.Context, tokenHash string) (*domain.PasswordSetupToken, error) {
+	exec := txcontext.GetExecutor(ctx, setupTokenRepository.dbClient)
 	query := `
 		SELECT id, user_id, tenant_id, email, token_hash, expires_at, used_at, created_at
 		FROM public.password_setup_tokens
@@ -63,8 +63,8 @@ func (r *SetupTokenRepository) FindByTokenHash(ctx context.Context, tokenHash st
 	return &t, nil
 }
 
-func (r *SetupTokenRepository) MarkTokenUsed(ctx context.Context, tokenHash string) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (setupTokenRepository *SetupTokenRepository) MarkTokenUsed(ctx context.Context, tokenHash string) error {
+	exec := txcontext.GetExecutor(ctx, setupTokenRepository.dbClient)
 	query := `
 		UPDATE public.password_setup_tokens
 		SET used_at = NOW()

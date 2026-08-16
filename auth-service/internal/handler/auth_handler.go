@@ -6,12 +6,11 @@ import (
 
 	"auth-service/internal/crypto"
 	"auth-service/internal/domain"
-	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 	"auth-service/internal/service"
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 
 	"github.com/gin-gonic/gin"
 )
-
 
 type SetupPasswordRequest struct {
 	Token    string `json:"token"    binding:"required"`
@@ -70,14 +69,14 @@ func NewAuthHandler(authService AuthService, jwtManager *crypto.JWTManager) *Aut
 	}
 }
 
-func (h *AuthHandler) SetupPassword(c *gin.Context) {
+func (authHandler *AuthHandler) SetupPassword(c *gin.Context) {
 	var req SetupPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httputil.WriteValidationError(c, err)
 		return
 	}
 
-	pair, err := h.authService.SetupPassword(c.Request.Context(), service.SetupPasswordInput{
+	pair, err := authHandler.authService.SetupPassword(c.Request.Context(), service.SetupPasswordInput{
 		Token:    req.Token,
 		Password: req.Password,
 	})
@@ -99,14 +98,14 @@ func (h *AuthHandler) SetupPassword(c *gin.Context) {
 	})
 }
 
-func (h *AuthHandler) Login(c *gin.Context) {
+func (authHandler *AuthHandler) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httputil.WriteValidationError(c, err)
 		return
 	}
 
-	res, err := h.authService.Login(c.Request.Context(), service.LoginInput{
+	res, err := authHandler.authService.Login(c.Request.Context(), service.LoginInput{
 		Email:    req.Email,
 		Password: req.Password,
 	})
@@ -136,14 +135,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	})
 }
 
-func (h *AuthHandler) SelectTenant(c *gin.Context) {
+func (authHandler *AuthHandler) SelectTenant(c *gin.Context) {
 	var req SelectTenantRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httputil.WriteValidationError(c, err)
 		return
 	}
 
-	pair, err := h.authService.SelectWorkspace(c.Request.Context(), service.SelectWorkspaceInput{
+	pair, err := authHandler.authService.SelectWorkspace(c.Request.Context(), service.SelectWorkspaceInput{
 		ExchangeToken: req.ExchangeToken,
 		TenantID:      req.TenantID,
 	})
@@ -167,14 +166,14 @@ func (h *AuthHandler) SelectTenant(c *gin.Context) {
 	})
 }
 
-func (h *AuthHandler) Refresh(c *gin.Context) {
+func (authHandler *AuthHandler) Refresh(c *gin.Context) {
 	var req RefreshTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httputil.WriteValidationError(c, err)
 		return
 	}
 
-	pair, err := h.authService.RefreshToken(c.Request.Context(), service.RefreshTokenInput{
+	pair, err := authHandler.authService.RefreshToken(c.Request.Context(), service.RefreshTokenInput{
 		RefreshToken: req.RefreshToken,
 	})
 	if err != nil {
@@ -195,14 +194,14 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 	})
 }
 
-func (h *AuthHandler) Logout(c *gin.Context) {
+func (authHandler *AuthHandler) Logout(c *gin.Context) {
 	var req LogoutRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httputil.WriteValidationError(c, err)
 		return
 	}
 
-	if err := h.authService.Logout(c.Request.Context(), service.LogoutInput{
+	if err := authHandler.authService.Logout(c.Request.Context(), service.LogoutInput{
 		RefreshToken: req.RefreshToken,
 	}); err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
@@ -212,8 +211,8 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	httputil.WriteSuccess[any](c, http.StatusOK, "Logged out successfully", nil)
 }
 
-func (h *AuthHandler) JWKS(c *gin.Context) {
-	jwksBytes, err := h.jwtManager.BuildJWKS()
+func (authHandler *AuthHandler) JWKS(c *gin.Context) {
+	jwksBytes, err := authHandler.jwtManager.BuildJWKS()
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, "failed to build JWKS")
 		return

@@ -9,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-
 type InternalCreateSetupTokenRequest struct {
 	UserID   string `json:"user_id"   binding:"required"`
 	TenantID string `json:"tenant_id" binding:"required"`
@@ -28,14 +27,14 @@ func NewInternalAuthHandler(internalAuthAppService InternalAuthAppService) *Inte
 	return &InternalAuthHandler{internalAuthAppService: internalAuthAppService}
 }
 
-func (h *InternalAuthHandler) CreateSetupToken(c *gin.Context) {
+func (internalAuthHandler *InternalAuthHandler) CreateSetupToken(c *gin.Context) {
 	var req InternalCreateSetupTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httputil.WriteValidationError(c, err)
 		return
 	}
 
-	token, err := h.internalAuthAppService.CreatePasswordSetupToken(c.Request.Context(), service.InternalCreateSetupTokenInput{
+	token, err := internalAuthHandler.internalAuthAppService.CreatePasswordSetupToken(c.Request.Context(), service.InternalCreateSetupTokenInput{
 		UserID:   req.UserID,
 		TenantID: req.TenantID,
 		Email:    req.Email,

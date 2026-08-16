@@ -14,8 +14,8 @@ import (
 
 func TestNotificationRepository_Constructor(t *testing.T) {
 	client := &postgres.Client{}
-	repo := NewNotificationRepository(client)
-	if repo == nil {
+	notificationRepository := NewNotificationRepository(client)
+	if notificationRepository == nil {
 		t.Fatal("expected NewNotificationRepository to return a non-nil struct pointer")
 	}
 }
@@ -23,7 +23,7 @@ func TestNotificationRepository_Constructor(t *testing.T) {
 func TestNotificationRepository_CreateNotificationLog_Error(t *testing.T) {
 	mockExec := &testutil.MockDBExecutor{}
 
-	repo := NewNotificationRepository(&postgres.Client{})
+	notificationRepository := NewNotificationRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	input := CreateNotificationLogInput{
@@ -34,7 +34,7 @@ func TestNotificationRepository_CreateNotificationLog_Error(t *testing.T) {
 		Status:      "sent",
 	}
 
-	id, err := repo.CreateNotificationLog(ctx, input)
+	id, err := notificationRepository.CreateNotificationLog(ctx, input)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -49,10 +49,10 @@ func TestNotificationRepository_CreateNotificationLog_Error(t *testing.T) {
 func TestNotificationRepository_HasSentNotification_Error(t *testing.T) {
 	mockExec := &testutil.MockDBExecutor{}
 
-	repo := NewNotificationRepository(&postgres.Client{})
+	notificationRepository := NewNotificationRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	hasSent, err := repo.HasSentNotification(ctx, "tenant-1")
+	hasSent, err := notificationRepository.HasSentNotification(ctx, "tenant-1")
 	if err == nil {
 		t.Fatal("expected error from QueryRowContext Scan on nil Row, got nil")
 	}
@@ -78,10 +78,10 @@ func TestNotificationRepository_ListNotifications_WithTenant_QueryError(t *testi
 		},
 	}
 
-	repo := NewNotificationRepository(&postgres.Client{})
+	notificationRepository := NewNotificationRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	logs, err := repo.ListNotifications(ctx, "tenant-1")
+	logs, err := notificationRepository.ListNotifications(ctx, "tenant-1")
 	if err == nil {
 		t.Fatal("expected error when QueryContext fails, got nil")
 	}
@@ -104,10 +104,10 @@ func TestNotificationRepository_ListNotifications_All_QueryError(t *testing.T) {
 		},
 	}
 
-	repo := NewNotificationRepository(&postgres.Client{})
+	notificationRepository := NewNotificationRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	logs, err := repo.ListNotifications(ctx, "")
+	logs, err := notificationRepository.ListNotifications(ctx, "")
 	if err == nil {
 		t.Fatal("expected error when QueryContext fails, got nil")
 	}
@@ -132,10 +132,10 @@ func TestNotificationRepository_UpdateNotificationStatus_Success(t *testing.T) {
 		},
 	}
 
-	repo := NewNotificationRepository(&postgres.Client{})
+	notificationRepository := NewNotificationRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.UpdateNotificationStatus(ctx, "ntf_42", "sent")
+	err := notificationRepository.UpdateNotificationStatus(ctx, "ntf_42", "sent")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -149,10 +149,10 @@ func TestNotificationRepository_UpdateNotificationStatus_ExecError(t *testing.T)
 		},
 	}
 
-	repo := NewNotificationRepository(&postgres.Client{})
+	notificationRepository := NewNotificationRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.UpdateNotificationStatus(ctx, "ntf_42", "sent")
+	err := notificationRepository.UpdateNotificationStatus(ctx, "ntf_42", "sent")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -172,10 +172,10 @@ func TestNotificationRepository_UpdateNotificationStatus_RowsAffectedError(t *te
 		},
 	}
 
-	repo := NewNotificationRepository(&postgres.Client{})
+	notificationRepository := NewNotificationRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.UpdateNotificationStatus(ctx, "ntf_42", "sent")
+	err := notificationRepository.UpdateNotificationStatus(ctx, "ntf_42", "sent")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -190,10 +190,10 @@ func TestNotificationRepository_UpdateNotificationStatus_RowsAffectedError(t *te
 func TestNotificationRepository_GetPendingNotification_Error(t *testing.T) {
 	mockExec := &testutil.MockDBExecutor{}
 
-	repo := NewNotificationRepository(&postgres.Client{})
+	notificationRepository := NewNotificationRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	pendingLog, err := repo.GetPendingNotification(ctx, "tenant-1")
+	pendingLog, err := notificationRepository.GetPendingNotification(ctx, "tenant-1")
 	if err == nil {
 		t.Fatal("expected error from QueryRowContext Scan on nil Row, got nil")
 	}
@@ -212,10 +212,10 @@ func TestNotificationRepository_UpdateNotificationStatus_NotFound(t *testing.T) 
 		},
 	}
 
-	repo := NewNotificationRepository(&postgres.Client{})
+	notificationRepository := NewNotificationRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.UpdateNotificationStatus(ctx, "ntf_999", "sent")
+	err := notificationRepository.UpdateNotificationStatus(ctx, "ntf_999", "sent")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

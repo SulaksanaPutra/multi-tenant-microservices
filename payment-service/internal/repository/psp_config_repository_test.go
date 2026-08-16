@@ -16,8 +16,8 @@ import (
 
 func TestPSPConfigRepository_SaveAndGetConfig(t *testing.T) {
 	client := &postgres.Client{}
-	repo := NewPSPConfigRepository(client)
-	if repo == nil || repo.dbClient != client {
+	pspConfigRepository := NewPSPConfigRepository(client)
+	if pspConfigRepository == nil || pspConfigRepository.dbClient != client {
 		t.Fatal("expected NewPSPConfigRepository to return non-nil pointer with dbClient")
 	}
 }
@@ -34,7 +34,7 @@ func TestPSPConfigRepository_SaveConfig_Success(t *testing.T) {
 		},
 	}
 
-	repo := NewPSPConfigRepository(&postgres.Client{})
+	pspConfigRepository := NewPSPConfigRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	masterKey := []byte("12345678901234567890123456789012") // 32 bytes
@@ -44,7 +44,7 @@ func TestPSPConfigRepository_SaveConfig_Success(t *testing.T) {
 		ProviderConfigs: map[domain.ProviderType]domain.ProviderCredentials{},
 	}
 
-	err := repo.SaveConfig(ctx, input, masterKey)
+	err := pspConfigRepository.SaveConfig(ctx, input, masterKey)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -62,14 +62,14 @@ func TestPSPConfigRepository_SaveConfig_Success(t *testing.T) {
 }
 
 func TestPSPConfigRepository_SaveConfig_EmptyMasterKey(t *testing.T) {
-	repo := NewPSPConfigRepository(&postgres.Client{})
+	pspConfigRepository := NewPSPConfigRepository(&postgres.Client{})
 	ctx := context.Background()
 
 	input := SaveConfigInput{
 		TenantID: "tenant-psp-2",
 	}
 
-	err := repo.SaveConfig(ctx, input, nil)
+	err := pspConfigRepository.SaveConfig(ctx, input, nil)
 	if err == nil {
 		t.Fatal("expected encryption error for empty master key, got nil")
 	}
@@ -86,13 +86,13 @@ func TestPSPConfigRepository_SaveConfig_DBError(t *testing.T) {
 		},
 	}
 
-	repo := NewPSPConfigRepository(&postgres.Client{})
+	pspConfigRepository := NewPSPConfigRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	masterKey := []byte("12345678901234567890123456789012")
 	input := SaveConfigInput{TenantID: "tenant-psp-3"}
 
-	err := repo.SaveConfig(ctx, input, masterKey)
+	err := pspConfigRepository.SaveConfig(ctx, input, masterKey)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -108,11 +108,11 @@ func TestPSPConfigRepository_GetConfig_DBError(t *testing.T) {
 		},
 	}
 
-	repo := NewPSPConfigRepository(&postgres.Client{})
+	pspConfigRepository := NewPSPConfigRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	masterKey := []byte("12345678901234567890123456789012")
-	_, err := repo.GetConfig(ctx, "tenant-err", masterKey)
+	_, err := pspConfigRepository.GetConfig(ctx, "tenant-err", masterKey)
 	if err == nil {
 		t.Fatal("expected error on row scan failure, got nil")
 	}

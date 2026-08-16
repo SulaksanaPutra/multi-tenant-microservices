@@ -16,8 +16,8 @@ import (
 
 func TestRoleRepository_Constructor(t *testing.T) {
 	client := &postgres.Client{}
-	repo := NewRoleRepository(client)
-	if repo == nil {
+	roleRepository := NewRoleRepository(client)
+	if roleRepository == nil {
 		t.Fatal("expected NewRoleRepository to return non-nil struct pointer")
 	}
 }
@@ -33,7 +33,7 @@ func TestRoleRepository_CreateRole(t *testing.T) {
 
 		// Mocking error return via QueryRowContext scanner isn't possible directly with GetDummyRow,
 		// so we verify standard db error wrapping flow or mock error scan via custom Exec/Row behavior.
-		repo := NewRoleRepository(&postgres.Client{})
+		roleRepository := NewRoleRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
 		tenantID := "tnt_123"
@@ -44,7 +44,7 @@ func TestRoleRepository_CreateRole(t *testing.T) {
 			IsSystem:    false,
 		}
 
-		created, err := repo.CreateRole(ctxWithExec, input)
+		created, err := roleRepository.CreateRole(ctxWithExec, input)
 		if created != nil {
 			t.Errorf("expected nil role on scan error, got %+v", created)
 		}
@@ -66,11 +66,11 @@ func TestRoleRepository_CreateRole(t *testing.T) {
 			},
 		}
 
-		repo := NewRoleRepository(&postgres.Client{})
+		roleRepository := NewRoleRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
 		input := CreateRoleInput{Name: "CustomRole"}
-		_, err := repo.CreateRole(ctxWithExec, input)
+		_, err := roleRepository.CreateRole(ctxWithExec, input)
 		if err == nil {
 			t.Fatal("expected scan error, got nil")
 		}
@@ -92,10 +92,10 @@ func TestRoleRepository_FindRoleByID(t *testing.T) {
 		},
 	}
 
-	repo := NewRoleRepository(&postgres.Client{})
+	roleRepository := NewRoleRepository(&postgres.Client{})
 	ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-	role, err := repo.FindRoleByID(ctxWithExec, "role_123")
+	role, err := roleRepository.FindRoleByID(ctxWithExec, "role_123")
 	if role != nil {
 		t.Errorf("expected nil role on dummy scan error, got %+v", role)
 	}
@@ -124,10 +124,10 @@ func TestRoleRepository_FindRoleByName(t *testing.T) {
 			},
 		}
 
-		repo := NewRoleRepository(&postgres.Client{})
+		roleRepository := NewRoleRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-		_, err := repo.FindRoleByName(ctxWithExec, nil, "SuperAdmin")
+		_, err := roleRepository.FindRoleByName(ctxWithExec, nil, "SuperAdmin")
 		if err == nil {
 			t.Fatal("expected scan error, got nil")
 		}
@@ -152,11 +152,11 @@ func TestRoleRepository_FindRoleByName(t *testing.T) {
 			},
 		}
 
-		repo := NewRoleRepository(&postgres.Client{})
+		roleRepository := NewRoleRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
 		tenantID := "tnt_123"
-		_, err := repo.FindRoleByName(ctxWithExec, &tenantID, "TenantAdmin")
+		_, err := roleRepository.FindRoleByName(ctxWithExec, &tenantID, "TenantAdmin")
 		if err == nil {
 			t.Fatal("expected scan error, got nil")
 		}
@@ -182,10 +182,10 @@ func TestRoleRepository_FindRolesByTenantID(t *testing.T) {
 		},
 	}
 
-	repo := NewRoleRepository(&postgres.Client{})
+	roleRepository := NewRoleRepository(&postgres.Client{})
 	ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-	roles, err := repo.FindRolesByTenantID(ctxWithExec, "tnt_123")
+	roles, err := roleRepository.FindRolesByTenantID(ctxWithExec, "tnt_123")
 	if roles != nil {
 		t.Errorf("expected nil roles on query error, got %v", roles)
 	}
@@ -218,10 +218,10 @@ func TestRoleRepository_ListPermissionsForRole(t *testing.T) {
 		},
 	}
 
-	repo := NewRoleRepository(&postgres.Client{})
+	roleRepository := NewRoleRepository(&postgres.Client{})
 	ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-	perms, err := repo.ListPermissionsForRole(ctxWithExec, "role_123")
+	perms, err := roleRepository.ListPermissionsForRole(ctxWithExec, "role_123")
 	if perms != nil {
 		t.Errorf("expected nil perms on query error, got %v", perms)
 	}
@@ -241,10 +241,10 @@ func TestRoleRepository_UpdateRolePermissions(t *testing.T) {
 			},
 		}
 
-		repo := NewRoleRepository(&postgres.Client{})
+		roleRepository := NewRoleRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-		err := repo.UpdateRolePermissions(ctxWithExec, "role_123", []string{})
+		err := roleRepository.UpdateRolePermissions(ctxWithExec, "role_123", []string{})
 		if err != nil {
 			t.Fatalf("expected nil error, got %v", err)
 		}
@@ -264,10 +264,10 @@ func TestRoleRepository_UpdateRolePermissions(t *testing.T) {
 			},
 		}
 
-		repo := NewRoleRepository(&postgres.Client{})
+		roleRepository := NewRoleRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-		err := repo.UpdateRolePermissions(ctxWithExec, "role_123", []string{"perm_1", "perm_2"})
+		err := roleRepository.UpdateRolePermissions(ctxWithExec, "role_123", []string{"perm_1", "perm_2"})
 		if err != nil {
 			t.Fatalf("expected nil error, got %v", err)
 		}
@@ -287,10 +287,10 @@ func TestRoleRepository_DeleteRole(t *testing.T) {
 			},
 		}
 
-		repo := NewRoleRepository(&postgres.Client{})
+		roleRepository := NewRoleRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-		err := repo.DeleteRole(ctxWithExec, "sys_role")
+		err := roleRepository.DeleteRole(ctxWithExec, "sys_role")
 		if err == nil {
 			t.Fatal("expected error on dummy scan, got nil")
 		}
@@ -307,11 +307,11 @@ func TestRoleRepository_AssignUserRole(t *testing.T) {
 		},
 	}
 
-	repo := NewRoleRepository(&postgres.Client{})
+	roleRepository := NewRoleRepository(&postgres.Client{})
 	ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
 	assignedBy := "admin_1"
-	err := repo.AssignUserRole(ctxWithExec, "usr_100", "tnt_123", "role_admin", &assignedBy)
+	err := roleRepository.AssignUserRole(ctxWithExec, "usr_100", "tnt_123", "role_admin", &assignedBy)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -336,12 +336,12 @@ func TestRoleRepository_FindUserRole(t *testing.T) {
 		},
 	}
 
-	repo := NewRoleRepository(&postgres.Client{})
+	roleRepository := NewRoleRepository(&postgres.Client{})
 	ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-	ur, err := repo.FindUserRole(ctxWithExec, "usr_100", "tnt_123")
-	if ur != nil {
-		t.Errorf("expected nil ur on scan error, got %+v", ur)
+	userRole, err := roleRepository.FindUserRole(ctxWithExec, "usr_100", "tnt_123")
+	if userRole != nil {
+		t.Errorf("expected nil userRole on scan error, got %+v", userRole)
 	}
 	if err == nil {
 		t.Fatal("expected scan error, got nil")
@@ -360,10 +360,10 @@ func TestRoleRepository_FindUserPermissions(t *testing.T) {
 		},
 	}
 
-	repo := NewRoleRepository(&postgres.Client{})
+	roleRepository := NewRoleRepository(&postgres.Client{})
 	ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-	perms, version, err := repo.FindUserPermissions(ctxWithExec, "usr_100", "tnt_123")
+	perms, version, err := roleRepository.FindUserPermissions(ctxWithExec, "usr_100", "tnt_123")
 	if perms != nil {
 		t.Errorf("expected nil perms on query error, got %v", perms)
 	}
@@ -385,10 +385,10 @@ func TestRoleRepository_GetUserPermissionVersion(t *testing.T) {
 		},
 	}
 
-	repo := NewRoleRepository(&postgres.Client{})
+	roleRepository := NewRoleRepository(&postgres.Client{})
 	ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-	version, err := repo.GetUserPermissionVersion(ctxWithExec, "usr_100", "tnt_123")
+	version, err := roleRepository.GetUserPermissionVersion(ctxWithExec, "usr_100", "tnt_123")
 	if version != 1 {
 		t.Errorf("expected fallback version 1 on scan error, got %d", version)
 	}
@@ -413,10 +413,10 @@ func TestRoleRepository_BumpUserPermissionVersionsForRole(t *testing.T) {
 		},
 	}
 
-	repo := NewRoleRepository(&postgres.Client{})
+	roleRepository := NewRoleRepository(&postgres.Client{})
 	ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-	err := repo.BumpUserPermissionVersionsForRole(ctxWithExec, "role_admin")
+	err := roleRepository.BumpUserPermissionVersionsForRole(ctxWithExec, "role_admin")
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}

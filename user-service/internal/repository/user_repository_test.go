@@ -14,8 +14,8 @@ import (
 
 func TestUserRepository_Constructor(t *testing.T) {
 	client := &postgres.Client{}
-	repo := NewUserRepository(client)
-	if repo == nil {
+	userRepository := NewUserRepository(client)
+	if userRepository == nil {
 		t.Fatal("expected NewUserRepository to return a non-nil struct pointer")
 	}
 }
@@ -32,7 +32,7 @@ func TestUserRepository_CreateUser_Success(t *testing.T) {
 		},
 	}
 
-	repo := NewUserRepository(&postgres.Client{})
+	userRepository := NewUserRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	userInput := CreateUserInput{
@@ -41,7 +41,7 @@ func TestUserRepository_CreateUser_Success(t *testing.T) {
 		Name:  "Test User",
 	}
 
-	err := repo.CreateUser(ctx, userInput)
+	err := userRepository.CreateUser(ctx, userInput)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -68,7 +68,7 @@ func TestUserRepository_CreateUser_Error(t *testing.T) {
 		},
 	}
 
-	repo := NewUserRepository(&postgres.Client{})
+	userRepository := NewUserRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	userInput := CreateUserInput{
@@ -77,7 +77,7 @@ func TestUserRepository_CreateUser_Error(t *testing.T) {
 		Name:  "Fail User",
 	}
 
-	err := repo.CreateUser(ctx, userInput)
+	err := userRepository.CreateUser(ctx, userInput)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

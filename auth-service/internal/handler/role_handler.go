@@ -7,13 +7,12 @@ import (
 	"time"
 
 	"auth-service/internal/domain"
+	"auth-service/internal/service"
 	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
-	"auth-service/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
-
 
 type CreateRoleRequest struct {
 	TenantID      string   `json:"tenant_id"`
@@ -85,18 +84,18 @@ func toRoleResponse(role service.RoleOutput) RoleResponse {
 	}
 }
 
-func toUserRoleResponse(ur service.UserRoleOutput) UserRoleResponse {
+func toUserRoleResponse(userRoleOutput service.UserRoleOutput) UserRoleResponse {
 	var role *RoleResponse
-	if ur.Role != nil {
-		roleResponse := toRoleResponse(*ur.Role)
+	if userRoleOutput.Role != nil {
+		roleResponse := toRoleResponse(*userRoleOutput.Role)
 		role = &roleResponse
 	}
 	return UserRoleResponse{
-		UserID:     ur.UserID,
-		TenantID:   ur.TenantID,
-		RoleID:     ur.RoleID,
-		AssignedAt: ur.AssignedAt,
-		AssignedBy: ur.AssignedBy,
+		UserID:     userRoleOutput.UserID,
+		TenantID:   userRoleOutput.TenantID,
+		RoleID:     userRoleOutput.RoleID,
+		AssignedAt: userRoleOutput.AssignedAt,
+		AssignedBy: userRoleOutput.AssignedBy,
 		Role:       role,
 	}
 }
@@ -109,7 +108,7 @@ func toUserRoleAssignmentResponse(assignment service.UserRoleAssignmentOutput) U
 	}
 }
 
-func (h *RoleHandler) CreateRole(c *gin.Context) {
+func (roleHandler *RoleHandler) CreateRole(c *gin.Context) {
 	var req CreateRoleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httputil.WriteValidationError(c, err)
@@ -125,7 +124,7 @@ func (h *RoleHandler) CreateRole(c *gin.Context) {
 		return
 	}
 
-	role, err := h.roleService.CreateRole(c.Request.Context(), service.CreateRoleInput{
+	role, err := roleHandler.roleService.CreateRole(c.Request.Context(), service.CreateRoleInput{
 		TenantID:    tenantID,
 		Name:        req.Name,
 		Description: req.Description,
@@ -144,14 +143,14 @@ func (h *RoleHandler) CreateRole(c *gin.Context) {
 		perms = req.Permissions
 	}
 	if len(perms) > 0 {
-		if err := h.roleService.UpdateRolePermissions(c.Request.Context(), service.UpdateRolePermissionsInput{
+		if err := roleHandler.roleService.UpdateRolePermissions(c.Request.Context(), service.UpdateRolePermissionsInput{
 			RoleID:        role.ID,
 			PermissionIDs: perms,
 		}); err != nil {
 			httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if reloadedRole, err := h.roleService.GetRole(c.Request.Context(), role.ID); err == nil {
+		if reloadedRole, err := roleHandler.roleService.GetRole(c.Request.Context(), role.ID); err == nil {
 			role = reloadedRole
 		}
 	}
@@ -159,14 +158,14 @@ func (h *RoleHandler) CreateRole(c *gin.Context) {
 	httputil.WriteSuccess(c, http.StatusCreated, "Role created successfully", toRoleResponse(*role))
 }
 
-func (h *RoleHandler) GetRole(c *gin.Context) {
+func (roleHandler *RoleHandler) GetRole(c *gin.Context) {
 	roleID := c.Param("id")
 	if roleID == "" {
 		httputil.WriteError(c, http.StatusBadRequest, "role id parameter is required")
 		return
 	}
 
-	role, err := h.roleService.GetRole(c.Request.Context(), roleID)
+	role, err := roleHandler.roleService.GetRole(c.Request.Context(), roleID)
 	if err != nil {
 		if errors.Is(err, domain.ErrRoleNotFound) {
 			httputil.WriteError(c, http.StatusNotFound, err.Error())
@@ -179,7 +178,7 @@ func (h *RoleHandler) GetRole(c *gin.Context) {
 	httputil.WriteSuccess(c, http.StatusOK, "Role retrieved successfully", toRoleResponse(*role))
 }
 
-func (h *RoleHandler) ListRoles(c *gin.Context) {
+func (roleHandler *RoleHandler) ListRoles(c *gin.Context) {
 	tenantID := c.GetString(middleware.ContextKeyTenantID)
 	if tenantID == "" {
 		tenantID = c.Query("tenant_id")
@@ -189,7 +188,7 @@ func (h *RoleHandler) ListRoles(c *gin.Context) {
 		return
 	}
 
-	roles, err := h.roleService.ListRolesForTenant(c.Request.Context(), tenantID)
+	roles, err := roleHandler.roleService.ListRolesForTenant(c.Request.Context(), tenantID)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return
@@ -203,7 +202,7 @@ func (h *RoleHandler) ListRoles(c *gin.Context) {
 	httputil.WriteSuccess(c, http.StatusOK, "Roles retrieved successfully", roleResponses)
 }
 
-func (h *RoleHandler) UpdateRolePermissions(c *gin.Context) {
+func (roleHandler *RoleHandler) UpdateRolePermissions(c *gin.Context) {
 	roleID := c.Param("id")
 	if roleID == "" {
 		httputil.WriteError(c, http.StatusBadRequest, "role id parameter is required")
@@ -221,7 +220,7 @@ func (h *RoleHandler) UpdateRolePermissions(c *gin.Context) {
 		permIDs = req.Permissions
 	}
 
-	if err := h.roleService.UpdateRolePermissions(c.Request.Context(), service.UpdateRolePermissionsInput{
+	if err := roleHandler.roleService.UpdateRolePermissions(c.Request.Context(), service.UpdateRolePermissionsInput{
 		RoleID:        roleID,
 		PermissionIDs: permIDs,
 	}); err != nil {
@@ -239,7 +238,7 @@ func (h *RoleHandler) UpdateRolePermissions(c *gin.Context) {
 
 	// Return the full, updated role so clients can reset local role state from
 	// the authoritative record.
-	updatedRole, err := h.roleService.GetRole(c.Request.Context(), roleID)
+	updatedRole, err := roleHandler.roleService.GetRole(c.Request.Context(), roleID)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return
@@ -248,14 +247,14 @@ func (h *RoleHandler) UpdateRolePermissions(c *gin.Context) {
 	httputil.WriteSuccess(c, http.StatusOK, "Role permissions updated successfully", toRoleResponse(*updatedRole))
 }
 
-func (h *RoleHandler) DeleteRole(c *gin.Context) {
+func (roleHandler *RoleHandler) DeleteRole(c *gin.Context) {
 	roleID := c.Param("id")
 	if roleID == "" {
 		httputil.WriteError(c, http.StatusBadRequest, "role id parameter is required")
 		return
 	}
 
-	if err := h.roleService.DeleteRole(c.Request.Context(), roleID); err != nil {
+	if err := roleHandler.roleService.DeleteRole(c.Request.Context(), roleID); err != nil {
 		if errors.Is(err, domain.ErrSystemRoleProtected) {
 			httputil.WriteError(c, http.StatusForbidden, err.Error())
 			return
@@ -271,7 +270,7 @@ func (h *RoleHandler) DeleteRole(c *gin.Context) {
 	httputil.WriteSuccess[any](c, http.StatusOK, "Role deleted successfully", nil)
 }
 
-func (h *RoleHandler) AssignUserRole(c *gin.Context) {
+func (roleHandler *RoleHandler) AssignUserRole(c *gin.Context) {
 	userID := c.Param("user_id")
 	if userID == "" {
 		httputil.WriteError(c, http.StatusBadRequest, "user_id path parameter is required")
@@ -293,7 +292,7 @@ func (h *RoleHandler) AssignUserRole(c *gin.Context) {
 		return
 	}
 
-	if err := h.roleService.AssignUserRole(c.Request.Context(), service.AssignUserRoleInput{
+	if err := roleHandler.roleService.AssignUserRole(c.Request.Context(), service.AssignUserRoleInput{
 		UserID:   userID,
 		TenantID: tenantID,
 		RoleID:   req.RoleID,
@@ -309,7 +308,7 @@ func (h *RoleHandler) AssignUserRole(c *gin.Context) {
 	httputil.WriteSuccess[any](c, http.StatusOK, "User role assigned successfully", nil)
 }
 
-func (h *RoleHandler) GetUserRole(c *gin.Context) {
+func (roleHandler *RoleHandler) GetUserRole(c *gin.Context) {
 	userID := c.Param("user_id")
 	tenantID := c.GetString(middleware.ContextKeyTenantID)
 	if tenantID == "" {
@@ -320,7 +319,7 @@ func (h *RoleHandler) GetUserRole(c *gin.Context) {
 		return
 	}
 
-	ur, err := h.roleService.GetUserRole(c.Request.Context(), userID, tenantID)
+	userRoleOutput, err := roleHandler.roleService.GetUserRole(c.Request.Context(), userID, tenantID)
 	if err != nil {
 		if errors.Is(err, domain.ErrRoleNotFound) {
 			httputil.WriteError(c, http.StatusNotFound, err.Error())
@@ -330,14 +329,14 @@ func (h *RoleHandler) GetUserRole(c *gin.Context) {
 		return
 	}
 
-	httputil.WriteSuccess(c, http.StatusOK, "User role retrieved successfully", toUserRoleResponse(*ur))
+	httputil.WriteSuccess(c, http.StatusOK, "User role retrieved successfully", toUserRoleResponse(*userRoleOutput))
 }
 
 // ListUserRoles returns role assignments for a set of user IDs within the
 // caller's tenant. Supports a comma-separated (?user_ids=a,b,c) or repeated
 // (?user_ids=a&user_ids=b) query parameter so the frontend can compose a
 // "users + roles" table in a single round-trip.
-func (h *RoleHandler) ListUserRoles(c *gin.Context) {
+func (roleHandler *RoleHandler) ListUserRoles(c *gin.Context) {
 	tenantID := c.GetString(middleware.ContextKeyTenantID)
 	if tenantID == "" {
 		httputil.WriteError(c, http.StatusBadRequest, "tenant_id JWT token claim is required")
@@ -359,7 +358,7 @@ func (h *RoleHandler) ListUserRoles(c *gin.Context) {
 		return
 	}
 
-	assignments, err := h.roleService.ListUserRolesForTenant(c.Request.Context(), tenantID, userIDs)
+	assignments, err := roleHandler.roleService.ListUserRolesForTenant(c.Request.Context(), tenantID, userIDs)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return

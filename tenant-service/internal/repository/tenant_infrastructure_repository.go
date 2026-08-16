@@ -30,8 +30,8 @@ func NewTenantInfrastructureRepository(dbClient *postgres.Client) *TenantInfrast
 	return &TenantInfrastructureRepository{dbClient: dbClient}
 }
 
-func (r *TenantInfrastructureRepository) UpsertServiceInfrastructure(ctx context.Context, input UpsertServiceInfrastructureInput) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (tenantInfrastructureRepository *TenantInfrastructureRepository) UpsertServiceInfrastructure(ctx context.Context, input UpsertServiceInfrastructureInput) error {
+	exec := txcontext.GetExecutor(ctx, tenantInfrastructureRepository.dbClient)
 	const query = `
 		INSERT INTO public.tenant_infrastructures (tenant_id, service_name, db_host, db_port, db_name, db_user, schema_name, checked_in_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
@@ -59,12 +59,12 @@ func (r *TenantInfrastructureRepository) UpsertServiceInfrastructure(ctx context
 	return nil
 }
 
-func (r *TenantInfrastructureRepository) GetPendingServiceCount(ctx context.Context, tenantID string, requiredServices []string) (int, error) {
+func (tenantInfrastructureRepository *TenantInfrastructureRepository) GetPendingServiceCount(ctx context.Context, tenantID string, requiredServices []string) (int, error) {
 	if len(requiredServices) == 0 {
 		return 0, nil
 	}
 
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+	exec := txcontext.GetExecutor(ctx, tenantInfrastructureRepository.dbClient)
 
 	placeholders := make([]string, len(requiredServices))
 	args := make([]interface{}, len(requiredServices)+1)
@@ -92,8 +92,8 @@ func (r *TenantInfrastructureRepository) GetPendingServiceCount(ctx context.Cont
 	return count, nil
 }
 
-func (r *TenantInfrastructureRepository) GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*domain.TenantInfra, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (tenantInfrastructureRepository *TenantInfrastructureRepository) GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*domain.TenantInfra, error) {
+	exec := txcontext.GetExecutor(ctx, tenantInfrastructureRepository.dbClient)
 	const query = `
 		SELECT db_host, db_port, db_name, db_user, COALESCE(schema_name, '')
 		FROM public.tenant_infrastructures

@@ -11,18 +11,18 @@ import (
 	"auth-service/internal/service"
 )
 
-type mockInternalSetupTokenRepo struct {
+type mockInternalSetupTokenRepository struct {
 	tokens map[string]*domain.PasswordSetupToken
 	err    error
 }
 
-func newMockSetupTokenRepo() *mockInternalSetupTokenRepo {
-	return &mockInternalSetupTokenRepo{
+func newMockSetupTokenRepository() *mockInternalSetupTokenRepository {
+	return &mockInternalSetupTokenRepository{
 		tokens: make(map[string]*domain.PasswordSetupToken),
 	}
 }
 
-func (m *mockInternalSetupTokenRepo) CreateSetupToken(_ context.Context, input repository.CreateSetupTokenInput) error {
+func (m *mockInternalSetupTokenRepository) CreateSetupToken(_ context.Context, input repository.CreateSetupTokenInput) error {
 	if m.err != nil {
 		return m.err
 	}
@@ -37,14 +37,14 @@ func (m *mockInternalSetupTokenRepo) CreateSetupToken(_ context.Context, input r
 	return nil
 }
 
-func (m *mockInternalSetupTokenRepo) FindByTokenHash(_ context.Context, tokenHash string) (*domain.PasswordSetupToken, error) {
+func (m *mockInternalSetupTokenRepository) FindByTokenHash(_ context.Context, tokenHash string) (*domain.PasswordSetupToken, error) {
 	if t, ok := m.tokens[tokenHash]; ok {
 		return t, nil
 	}
 	return nil, errors.New("setup token not found")
 }
 
-func (m *mockInternalSetupTokenRepo) MarkTokenUsed(_ context.Context, tokenHash string) error {
+func (m *mockInternalSetupTokenRepository) MarkTokenUsed(_ context.Context, tokenHash string) error {
 	if t, ok := m.tokens[tokenHash]; ok {
 		now := time.Now().UTC()
 		t.UsedAt = &now
@@ -74,10 +74,10 @@ func (m *mockRoleSeeder) SeedDefaultRolesForTenant(_ context.Context, tenantID s
 
 func TestInternalAuthService_CreatePasswordSetupToken(t *testing.T) {
 	t.Run("missing user id -> returns ErrUserIDRequired", func(t *testing.T) {
-		repo := newMockSetupTokenRepo()
-		svc := service.NewInternalAuthService(repo, nil)
+		setupTokenRepository := newMockSetupTokenRepository()
+		internalAuthService := service.NewInternalAuthService(setupTokenRepository, nil)
 
-		_, err := svc.CreatePasswordSetupToken(context.Background(), service.InternalCreateSetupTokenInput{
+		_, err := internalAuthService.CreatePasswordSetupToken(context.Background(), service.InternalCreateSetupTokenInput{
 			UserID:   "",
 			TenantID: "tnt_001",
 			Email:    "test@example.com",
@@ -88,10 +88,10 @@ func TestInternalAuthService_CreatePasswordSetupToken(t *testing.T) {
 	})
 
 	t.Run("missing email -> returns ErrEmailRequired", func(t *testing.T) {
-		repo := newMockSetupTokenRepo()
-		svc := service.NewInternalAuthService(repo, nil)
+		setupTokenRepository := newMockSetupTokenRepository()
+		internalAuthService := service.NewInternalAuthService(setupTokenRepository, nil)
 
-		_, err := svc.CreatePasswordSetupToken(context.Background(), service.InternalCreateSetupTokenInput{
+		_, err := internalAuthService.CreatePasswordSetupToken(context.Background(), service.InternalCreateSetupTokenInput{
 			UserID:   "usr_001",
 			TenantID: "tnt_001",
 			Email:    "",
@@ -102,11 +102,11 @@ func TestInternalAuthService_CreatePasswordSetupToken(t *testing.T) {
 	})
 
 	t.Run("repository error -> returns error", func(t *testing.T) {
-		repo := newMockSetupTokenRepo()
-		repo.err = errors.New("db insert failed")
-		svc := service.NewInternalAuthService(repo, nil)
+		setupTokenRepository := newMockSetupTokenRepository()
+		setupTokenRepository.err = errors.New("db insert failed")
+		internalAuthService := service.NewInternalAuthService(setupTokenRepository, nil)
 
-		_, err := svc.CreatePasswordSetupToken(context.Background(), service.InternalCreateSetupTokenInput{
+		_, err := internalAuthService.CreatePasswordSetupToken(context.Background(), service.InternalCreateSetupTokenInput{
 			UserID:   "usr_001",
 			TenantID: "tnt_001",
 			Email:    "test@example.com",
@@ -117,11 +117,11 @@ func TestInternalAuthService_CreatePasswordSetupToken(t *testing.T) {
 	})
 
 	t.Run("success with role seeder -> generates token and seeds roles", func(t *testing.T) {
-		repo := newMockSetupTokenRepo()
-		seeder := newMockRoleSeeder()
-		svc := service.NewInternalAuthService(repo, nil, seeder)
+		setupTokenRepository := newMockSetupTokenRepository()
+		roleSeeder := newMockRoleSeeder()
+		internalAuthService := service.NewInternalAuthService(setupTokenRepository, nil, roleSeeder)
 
-		token, err := svc.CreatePasswordSetupToken(context.Background(), service.InternalCreateSetupTokenInput{
+		token, err := internalAuthService.CreatePasswordSetupToken(context.Background(), service.InternalCreateSetupTokenInput{
 			UserID:   "usr_001",
 			TenantID: "tnt_001",
 			Email:    "test@example.com",
@@ -133,20 +133,20 @@ func TestInternalAuthService_CreatePasswordSetupToken(t *testing.T) {
 			t.Fatal("expected non-empty token string")
 		}
 
-		if len(repo.tokens) != 1 {
-			t.Errorf("expected 1 token in repo, got %d", len(repo.tokens))
+		if len(setupTokenRepository.tokens) != 1 {
+			t.Errorf("expected 1 token in repo, got %d", len(setupTokenRepository.tokens))
 		}
-		if seeder.seededTenants["tnt_001"] != "usr_001" {
-			t.Errorf("expected role seeder to seed tenant 'tnt_001' with user 'usr_001', got '%s'", seeder.seededTenants["tnt_001"])
+		if roleSeeder.seededTenants["tnt_001"] != "usr_001" {
+			t.Errorf("expected role seeder to seed tenant 'tnt_001' with user 'usr_001', got '%s'", roleSeeder.seededTenants["tnt_001"])
 		}
 	})
 
 	t.Run("success without tenantID -> generates token without calling seeder", func(t *testing.T) {
-		repo := newMockSetupTokenRepo()
-		seeder := newMockRoleSeeder()
-		svc := service.NewInternalAuthService(repo, nil, seeder)
+		setupTokenRepository := newMockSetupTokenRepository()
+		roleSeeder := newMockRoleSeeder()
+		internalAuthService := service.NewInternalAuthService(setupTokenRepository, nil, roleSeeder)
 
-		token, err := svc.CreatePasswordSetupToken(context.Background(), service.InternalCreateSetupTokenInput{
+		token, err := internalAuthService.CreatePasswordSetupToken(context.Background(), service.InternalCreateSetupTokenInput{
 			UserID:   "usr_system",
 			TenantID: "",
 			Email:    "system@example.com",
@@ -158,8 +158,8 @@ func TestInternalAuthService_CreatePasswordSetupToken(t *testing.T) {
 			t.Fatal("expected non-empty token string")
 		}
 
-		if len(seeder.seededTenants) != 0 {
-			t.Errorf("expected no tenants seeded when tenantID is empty, got %d", len(seeder.seededTenants))
+		if len(roleSeeder.seededTenants) != 0 {
+			t.Errorf("expected no tenants seeded when tenantID is empty, got %d", len(roleSeeder.seededTenants))
 		}
 	})
 }

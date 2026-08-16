@@ -79,24 +79,24 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("success_new_event", func(t *testing.T) {
 		txManager := &mockTxManager{}
-		inboxSvc := &mockInboxService{
+		inboxService := &mockInboxService{
 			claimEventFunc: func(txCtx context.Context, eventID string) (bool, error) {
 				return false, nil // not duplicate
 			},
 		}
 
 		var capturedInput service.CreateUserFromWorkspaceInput
-		userSvc := &mockUserService{
+		userService := &mockUserService{
 			createUserFromWorkspaceFunc: func(ctx context.Context, input service.CreateUserFromWorkspaceInput) error {
 				capturedInput = input
 				return nil
 			},
 		}
 
-		c := &WorkspaceInitiatedConsumer{
+		workspaceInitiatedConsumer := &WorkspaceInitiatedConsumer{
 			txManager:    txManager,
-			inboxService: inboxSvc,
-			userService:  userSvc,
+			inboxService: inboxService,
+			userService:  userService,
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -105,7 +105,7 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 			Body:         validBody,
 		}
 
-		err := c.handleDelivery(context.Background(), d)
+		err := workspaceInitiatedConsumer.handleDelivery(context.Background(), d)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -119,24 +119,24 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("duplicate_event_skips_service", func(t *testing.T) {
 		txManager := &mockTxManager{}
-		inboxSvc := &mockInboxService{
+		inboxService := &mockInboxService{
 			claimEventFunc: func(txCtx context.Context, eventID string) (bool, error) {
 				return true, nil // duplicate
 			},
 		}
 
 		serviceCalled := false
-		userSvc := &mockUserService{
+		userService := &mockUserService{
 			createUserFromWorkspaceFunc: func(ctx context.Context, input service.CreateUserFromWorkspaceInput) error {
 				serviceCalled = true
 				return nil
 			},
 		}
 
-		c := &WorkspaceInitiatedConsumer{
+		workspaceInitiatedConsumer := &WorkspaceInitiatedConsumer{
 			txManager:    txManager,
-			inboxService: inboxSvc,
-			userService:  userSvc,
+			inboxService: inboxService,
+			userService:  userService,
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -145,7 +145,7 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 			Body:         validBody,
 		}
 
-		err := c.handleDelivery(context.Background(), d)
+		err := workspaceInitiatedConsumer.handleDelivery(context.Background(), d)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -158,14 +158,14 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 	})
 
 	t.Run("invalid_json_nacks_without_requeue", func(t *testing.T) {
-		c := &WorkspaceInitiatedConsumer{}
+		workspaceInitiatedConsumer := &WorkspaceInitiatedConsumer{}
 		mockAck := &mockAcknowledger{}
 		d := rabbitmq.Delivery{
 			Acknowledger: mockAck,
 			Body:         []byte("invalid-json-{"),
 		}
 
-		err := c.handleDelivery(context.Background(), d)
+		err := workspaceInitiatedConsumer.handleDelivery(context.Background(), d)
 		if err == nil {
 			t.Error("expected json unmarshal error")
 		}
@@ -180,15 +180,15 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 	t.Run("inbox_error_nacks_with_requeue", func(t *testing.T) {
 		txManager := &mockTxManager{}
 		inboxErr := errors.New("db connection timeout")
-		inboxSvc := &mockInboxService{
+		inboxService := &mockInboxService{
 			claimEventFunc: func(txCtx context.Context, eventID string) (bool, error) {
 				return false, inboxErr
 			},
 		}
 
-		c := &WorkspaceInitiatedConsumer{
+		workspaceInitiatedConsumer := &WorkspaceInitiatedConsumer{
 			txManager:    txManager,
-			inboxService: inboxSvc,
+			inboxService: inboxService,
 			userService:  &mockUserService{},
 		}
 
@@ -198,7 +198,7 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 			Body:         validBody,
 		}
 
-		err := c.handleDelivery(context.Background(), d)
+		err := workspaceInitiatedConsumer.handleDelivery(context.Background(), d)
 		if err == nil {
 			t.Error("expected error when inbox guard fails")
 		}
@@ -212,23 +212,23 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("service_error_nacks_with_requeue", func(t *testing.T) {
 		txManager := &mockTxManager{}
-		inboxSvc := &mockInboxService{
+		inboxService := &mockInboxService{
 			claimEventFunc: func(txCtx context.Context, eventID string) (bool, error) {
 				return false, nil
 			},
 		}
 
 		svcErr := errors.New("failed to create user profile")
-		userSvc := &mockUserService{
+		userService := &mockUserService{
 			createUserFromWorkspaceFunc: func(ctx context.Context, input service.CreateUserFromWorkspaceInput) error {
 				return svcErr
 			},
 		}
 
-		c := &WorkspaceInitiatedConsumer{
+		workspaceInitiatedConsumer := &WorkspaceInitiatedConsumer{
 			txManager:    txManager,
-			inboxService: inboxSvc,
-			userService:  userSvc,
+			inboxService: inboxService,
+			userService:  userService,
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -237,7 +237,7 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 			Body:         validBody,
 		}
 
-		err := c.handleDelivery(context.Background(), d)
+		err := workspaceInitiatedConsumer.handleDelivery(context.Background(), d)
 		if err == nil {
 			t.Error("expected error when user service fails")
 		}
@@ -261,7 +261,7 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 		})
 
 		inboxCalled := false
-		inboxSvc := &mockInboxService{
+		inboxService := &mockInboxService{
 			claimEventFunc: func(txCtx context.Context, eventID string) (bool, error) {
 				inboxCalled = true
 				return false, nil
@@ -269,17 +269,17 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 		}
 
 		userSvcCalled := false
-		userSvc := &mockUserService{
+		userService := &mockUserService{
 			createUserFromWorkspaceFunc: func(ctx context.Context, input service.CreateUserFromWorkspaceInput) error {
 				userSvcCalled = true
 				return nil
 			},
 		}
 
-		c := &WorkspaceInitiatedConsumer{
+		workspaceInitiatedConsumer := &WorkspaceInitiatedConsumer{
 			txManager:    &mockTxManager{},
-			inboxService: inboxSvc,
-			userService:  userSvc,
+			inboxService: inboxService,
+			userService:  userService,
 		}
 
 		mockAck := &mockAcknowledger{}
@@ -289,7 +289,7 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 			RoutingKey:   domain.RoutingKeyUserCreated, // misrouted!
 		}
 
-		err := c.handleDelivery(context.Background(), d)
+		err := workspaceInitiatedConsumer.handleDelivery(context.Background(), d)
 		if err != nil {
 			t.Fatalf("expected no error for misrouted message, got %v", err)
 		}
@@ -308,7 +308,7 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 	})
 
 	t.Run("max_delivery_count_nacks_without_requeue_for_dlq", func(t *testing.T) {
-		c := &WorkspaceInitiatedConsumer{
+		workspaceInitiatedConsumer := &WorkspaceInitiatedConsumer{
 			txManager:    &mockTxManager{},
 			inboxService: &mockInboxService{},
 			userService:  &mockUserService{},
@@ -323,7 +323,7 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 			},
 		}
 
-		if err := c.handleDelivery(context.Background(), d); err == nil {
+		if err := workspaceInitiatedConsumer.handleDelivery(context.Background(), d); err == nil {
 			t.Error("expected max delivery count error")
 		}
 		if !mockAck.nackCalled {
@@ -336,14 +336,13 @@ func TestWorkspaceInitiatedConsumer_HandleDelivery(t *testing.T) {
 }
 
 func TestNewWorkspaceInitiatedConsumer(t *testing.T) {
-	c := NewWorkspaceInitiatedConsumer(WorkspaceInitiatedConsumerParams{
+	workspaceInitiatedConsumer := NewWorkspaceInitiatedConsumer(WorkspaceInitiatedConsumerParams{
 		TxManager:    &mockTxManager{},
 		Client:       &mockAMQPInterfaceClient{},
 		InboxService: &mockInboxService{},
 		UserService:  &mockUserService{},
 	})
-	if c == nil {
+	if workspaceInitiatedConsumer == nil {
 		t.Fatal("expected non-nil consumer")
 	}
 }
-

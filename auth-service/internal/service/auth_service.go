@@ -93,7 +93,7 @@ type AuthService struct {
 	tokenRepository      TokenRepository
 	setupTokenRepository SetupTokenRepository
 	jwtManager           *crypto.JWTManager
-	permProvider         UserPermissionProvider
+	permissionProvider   UserPermissionProvider
 	roleSeeder           RoleSeeder
 }
 
@@ -102,7 +102,7 @@ func NewAuthService(
 	tokenRepository TokenRepository,
 	setupTokenRepository SetupTokenRepository,
 	jwtManager *crypto.JWTManager,
-	permProvider UserPermissionProvider,
+	permissionProvider UserPermissionProvider,
 	roleSeeder ...RoleSeeder,
 ) *AuthService {
 	var seeder RoleSeeder
@@ -114,12 +114,12 @@ func NewAuthService(
 		tokenRepository:      tokenRepository,
 		setupTokenRepository: setupTokenRepository,
 		jwtManager:           jwtManager,
-		permProvider:         permProvider,
+		permissionProvider:   permissionProvider,
 		roleSeeder:           seeder,
 	}
 }
 
-func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginOutput, error) {
+func (authService *AuthService) Login(ctx context.Context, input LoginInput) (*LoginOutput, error) {
 	if input.Email == "" {
 		return nil, domain.ErrEmailRequired
 	}
@@ -127,7 +127,7 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginOutput
 		return nil, domain.ErrPasswordRequired
 	}
 
-	cred, err := s.credentialRepository.FindByEmail(ctx, input.Email)
+	cred, err := authService.credentialRepository.FindByEmail(ctx, input.Email)
 	if err != nil {
 		if errors.Is(err, domain.ErrCredentialNotFound) {
 			return nil, domain.ErrInvalidCredentials
@@ -139,7 +139,7 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginOutput
 		return nil, domain.ErrInvalidCredentials
 	}
 
-	memberships, err := s.credentialRepository.ListUserMemberships(ctx, cred.UserID)
+	memberships, err := authService.credentialRepository.ListUserMemberships(ctx, cred.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("auth service: failed to fetch user memberships: %w", err)
 	}
@@ -154,7 +154,7 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginOutput
 	}
 
 	expiresAt := time.Now().UTC().Add(10 * time.Minute)
-	if err := s.setupTokenRepository.CreateSetupToken(ctx, repository.CreateSetupTokenInput{
+	if err := authService.setupTokenRepository.CreateSetupToken(ctx, repository.CreateSetupTokenInput{
 		UserID:    cred.UserID,
 		TenantID:  "",
 		Email:     cred.Email,
@@ -176,7 +176,7 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginOutput
 	}, nil
 }
 
-func (s *AuthService) SelectWorkspace(ctx context.Context, input SelectWorkspaceInput) (*TokenPair, error) {
+func (authService *AuthService) SelectWorkspace(ctx context.Context, input SelectWorkspaceInput) (*TokenPair, error) {
 	if input.ExchangeToken == "" {
 		return nil, domain.ErrTokenNotFound
 	}
@@ -185,19 +185,19 @@ func (s *AuthService) SelectWorkspace(ctx context.Context, input SelectWorkspace
 	}
 
 	tokenHash := crypto.HashRefreshToken(input.ExchangeToken)
-	st, err := s.setupTokenRepository.FindByTokenHash(ctx, tokenHash)
+	setupToken, err := authService.setupTokenRepository.FindByTokenHash(ctx, tokenHash)
 	if err != nil {
 		return nil, err
 	}
 
-	if st.UsedAt != nil {
+	if setupToken.UsedAt != nil {
 		return nil, domain.ErrTokenAlreadyUsed
 	}
-	if time.Now().UTC().After(st.ExpiresAt) {
+	if time.Now().UTC().After(setupToken.ExpiresAt) {
 		return nil, domain.ErrTokenExpired
 	}
 
-	memberships, err := s.credentialRepository.ListUserMemberships(ctx, st.UserID)
+	memberships, err := authService.credentialRepository.ListUserMemberships(ctx, setupToken.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("auth service: failed to fetch user memberships for exchange: %w", err)
 	}
@@ -213,51 +213,51 @@ func (s *AuthService) SelectWorkspace(ctx context.Context, input SelectWorkspace
 		return nil, domain.ErrTenantMembershipNotFound
 	}
 
-	if err := s.setupTokenRepository.MarkTokenUsed(ctx, tokenHash); err != nil {
+	if err := authService.setupTokenRepository.MarkTokenUsed(ctx, tokenHash); err != nil {
 		return nil, fmt.Errorf("auth service: failed to mark exchange token as used: %w", err)
 	}
 
-	return s.issuePair(ctx, st.UserID, input.TenantID, st.Email)
+	return authService.issuePair(ctx, setupToken.UserID, input.TenantID, setupToken.Email)
 }
 
-func (s *AuthService) RefreshToken(ctx context.Context, input RefreshTokenInput) (*TokenPair, error) {
+func (authService *AuthService) RefreshToken(ctx context.Context, input RefreshTokenInput) (*TokenPair, error) {
 	if input.RefreshToken == "" {
 		return nil, domain.ErrTokenNotFound
 	}
 	tokenHash := crypto.HashRefreshToken(input.RefreshToken)
 
-	rt, err := s.tokenRepository.FindByTokenHash(ctx, tokenHash)
+	refreshToken, err := authService.tokenRepository.FindByTokenHash(ctx, tokenHash)
 	if err != nil {
 		return nil, err
 	}
 
-	if rt.RevokedAt != nil {
+	if refreshToken.RevokedAt != nil {
 		return nil, domain.ErrTokenRevoked
 	}
-	if time.Now().UTC().After(rt.ExpiresAt) {
+	if time.Now().UTC().After(refreshToken.ExpiresAt) {
 		return nil, domain.ErrTokenExpired
 	}
 
-	if err := s.tokenRepository.DeleteRefreshToken(ctx, repository.DeleteRefreshTokenInput{TokenHash: tokenHash}); err != nil {
+	if err := authService.tokenRepository.DeleteRefreshToken(ctx, repository.DeleteRefreshTokenInput{TokenHash: tokenHash}); err != nil {
 		return nil, fmt.Errorf("auth service: failed to rotate refresh token: %w", err)
 	}
 
-	cred, err := s.credentialRepository.FindByUserID(ctx, rt.UserID)
+	cred, err := authService.credentialRepository.FindByUserID(ctx, refreshToken.UserID)
 	if err != nil {
-		return nil, fmt.Errorf("auth service: failed to retrieve credential for user_id='%s': %w", rt.UserID, err)
+		return nil, fmt.Errorf("auth service: failed to retrieve credential for user_id='%s': %w", refreshToken.UserID, err)
 	}
 
 	// Preserve the workspace that was active when the refresh token was issued
 	// so rotation does not silently drop the tenant context.
-	return s.issuePair(ctx, rt.UserID, rt.TenantID, cred.Email)
+	return authService.issuePair(ctx, refreshToken.UserID, refreshToken.TenantID, cred.Email)
 }
 
-func (s *AuthService) Logout(ctx context.Context, input LogoutInput) error {
+func (authService *AuthService) Logout(ctx context.Context, input LogoutInput) error {
 	if input.RefreshToken == "" {
 		return nil
 	}
 	tokenHash := crypto.HashRefreshToken(input.RefreshToken)
-	if err := s.tokenRepository.RevokeRefreshToken(ctx, repository.RevokeRefreshTokenInput{TokenHash: tokenHash}); err != nil {
+	if err := authService.tokenRepository.RevokeRefreshToken(ctx, repository.RevokeRefreshTokenInput{TokenHash: tokenHash}); err != nil {
 		if errors.Is(err, domain.ErrTokenNotFound) {
 			return nil
 		}
@@ -266,7 +266,7 @@ func (s *AuthService) Logout(ctx context.Context, input LogoutInput) error {
 	return nil
 }
 
-func (s *AuthService) SetupPassword(ctx context.Context, input SetupPasswordInput) (*TokenPair, error) {
+func (authService *AuthService) SetupPassword(ctx context.Context, input SetupPasswordInput) (*TokenPair, error) {
 	if input.Token == "" {
 		return nil, domain.ErrTokenNotFound
 	}
@@ -275,15 +275,15 @@ func (s *AuthService) SetupPassword(ctx context.Context, input SetupPasswordInpu
 	}
 
 	tokenHash := crypto.HashRefreshToken(input.Token)
-	st, err := s.setupTokenRepository.FindByTokenHash(ctx, tokenHash)
+	setupToken, err := authService.setupTokenRepository.FindByTokenHash(ctx, tokenHash)
 	if err != nil {
 		return nil, err
 	}
 
-	if st.UsedAt != nil {
+	if setupToken.UsedAt != nil {
 		return nil, domain.ErrTokenAlreadyUsed
 	}
-	if time.Now().UTC().After(st.ExpiresAt) {
+	if time.Now().UTC().After(setupToken.ExpiresAt) {
 		return nil, domain.ErrTokenExpired
 	}
 
@@ -292,30 +292,30 @@ func (s *AuthService) SetupPassword(ctx context.Context, input SetupPasswordInpu
 		return nil, fmt.Errorf("auth service: failed to hash password: %w", err)
 	}
 
-	if err := s.credentialRepository.UpsertCredential(ctx, repository.UpsertCredentialInput{
-		UserID:       st.UserID,
-		TenantID:     st.TenantID,
-		Email:        st.Email,
+	if err := authService.credentialRepository.UpsertCredential(ctx, repository.UpsertCredentialInput{
+		UserID:       setupToken.UserID,
+		TenantID:     setupToken.TenantID,
+		Email:        setupToken.Email,
 		PasswordHash: string(hash),
 	}); err != nil {
 		return nil, fmt.Errorf("auth service: failed to store credential: %w", err)
 	}
 
-	if err := s.setupTokenRepository.MarkTokenUsed(ctx, tokenHash); err != nil {
+	if err := authService.setupTokenRepository.MarkTokenUsed(ctx, tokenHash); err != nil {
 		return nil, fmt.Errorf("auth service: failed to mark setup token used: %w", err)
 	}
 
-	log.Printf("AuthService: Successfully set password via setup token for user_id='%s'", st.UserID)
+	log.Printf("AuthService: Successfully set password via setup token for user_id='%s'", setupToken.UserID)
 
-	return s.issuePair(ctx, st.UserID, st.TenantID, st.Email)
+	return authService.issuePair(ctx, setupToken.UserID, setupToken.TenantID, setupToken.Email)
 }
 
-func (s *AuthService) issuePair(ctx context.Context, userID, tenantID, email string) (*TokenPair, error) {
+func (authService *AuthService) issuePair(ctx context.Context, userID, tenantID, email string) (*TokenPair, error) {
 	var permissions []string
 	var permVersion int64 = 1
 
-	if s.permProvider != nil && userID != "" && tenantID != "" {
-		perms, ver, err := s.permProvider.FindUserPermissions(ctx, userID, tenantID)
+	if authService.permissionProvider != nil && userID != "" && tenantID != "" {
+		perms, ver, err := authService.permissionProvider.FindUserPermissions(ctx, userID, tenantID)
 		if err == nil {
 			permissions = perms
 			permVersion = ver
@@ -325,7 +325,7 @@ func (s *AuthService) issuePair(ctx context.Context, userID, tenantID, email str
 	}
 
 	jti := uuid.New().String()
-	accessToken, err := s.jwtManager.SignAccessToken(userID, tenantID, email, jti, permissions, permVersion)
+	accessToken, err := authService.jwtManager.SignAccessToken(userID, tenantID, email, jti, permissions, permVersion)
 	if err != nil {
 		return nil, fmt.Errorf("auth service: failed to sign access token: %w", err)
 	}
@@ -336,7 +336,7 @@ func (s *AuthService) issuePair(ctx context.Context, userID, tenantID, email str
 	}
 
 	expiresAt := time.Now().UTC().Add(crypto.RefreshTokenTTL)
-	if err := s.tokenRepository.CreateRefreshToken(ctx, repository.CreateRefreshTokenInput{
+	if err := authService.tokenRepository.CreateRefreshToken(ctx, repository.CreateRefreshTokenInput{
 		UserID:    userID,
 		TenantID:  tenantID,
 		TokenHash: refreshHash,

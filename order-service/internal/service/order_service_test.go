@@ -205,7 +205,7 @@ func TestOrderService_ListOrders(t *testing.T) {
 			{ID: "ord-1", TenantID: "t-1", Amount: 100},
 			{ID: "ord-2", TenantID: "t-1", Amount: 200},
 		}
-		repo := &mockOrderRepository{
+		orderRepository := &mockOrderRepository{
 			listOrdersFunc: func(ctx context.Context) ([]domain.Order, error) {
 				return []domain.Order{
 					{ID: "ord-1", TenantID: "t-1", Amount: 100},
@@ -213,9 +213,9 @@ func TestOrderService_ListOrders(t *testing.T) {
 				}, nil
 			},
 		}
-		svc := NewOrderService(repo)
+		orderService := NewOrderService(orderRepository)
 
-		orders, err := svc.ListOrders(context.Background())
+		orders, err := orderService.ListOrders(context.Background())
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -226,14 +226,14 @@ func TestOrderService_ListOrders(t *testing.T) {
 
 	t.Run("returns repository error", func(t *testing.T) {
 		expectedErr := errors.New("list error")
-		repo := &mockOrderRepository{
+		orderRepository := &mockOrderRepository{
 			listOrdersFunc: func(ctx context.Context) ([]domain.Order, error) {
 				return nil, expectedErr
 			},
 		}
-		svc := NewOrderService(repo)
+		orderService := NewOrderService(orderRepository)
 
-		_, err := svc.ListOrders(context.Background())
+		_, err := orderService.ListOrders(context.Background())
 		if !errors.Is(err, expectedErr) {
 			t.Errorf("expected error %v, got %v", expectedErr, err)
 		}

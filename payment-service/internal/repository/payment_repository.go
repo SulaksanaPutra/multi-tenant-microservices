@@ -74,8 +74,8 @@ type UpdateAttemptInput struct {
 	UpdatedAt         time.Time
 }
 
-func (r *PaymentRepository) Create(ctx context.Context, input CreatePaymentInput) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (paymentRepository *PaymentRepository) Create(ctx context.Context, input CreatePaymentInput) error {
+	exec := txcontext.GetExecutor(ctx, paymentRepository.dbClient)
 
 	instructionsJSON, err := json.Marshal(input.Instructions)
 	if err != nil {
@@ -114,8 +114,8 @@ func (r *PaymentRepository) Create(ctx context.Context, input CreatePaymentInput
 	return nil
 }
 
-func (r *PaymentRepository) Update(ctx context.Context, input UpdatePaymentInput) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (paymentRepository *PaymentRepository) Update(ctx context.Context, input UpdatePaymentInput) error {
+	exec := txcontext.GetExecutor(ctx, paymentRepository.dbClient)
 
 	instructionsJSON, err := json.Marshal(input.Instructions)
 	if err != nil {
@@ -159,31 +159,31 @@ func (r *PaymentRepository) Update(ctx context.Context, input UpdatePaymentInput
 	return nil
 }
 
-func (r *PaymentRepository) FindByID(ctx context.Context, id string) (*domain.Payment, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (paymentRepository *PaymentRepository) FindByID(ctx context.Context, id string) (*domain.Payment, error) {
+	exec := txcontext.GetExecutor(ctx, paymentRepository.dbClient)
 	query := `
 		SELECT id, tenant_id, order_id, amount, currency, status,
 		       provider, external_id, payment_instructions, raw_webhook_payload,
 		       created_at, updated_at
 		FROM payments WHERE id = $1
 	`
-	return r.scanPayment(exec.QueryRowContext(ctx, query, id))
+	return paymentRepository.scanPayment(exec.QueryRowContext(ctx, query, id))
 }
 
 // FindByIDForUpdate locks the payment row for pessimistic concurrency control during webhook processing.
-func (r *PaymentRepository) FindByIDForUpdate(ctx context.Context, id string) (*domain.Payment, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (paymentRepository *PaymentRepository) FindByIDForUpdate(ctx context.Context, id string) (*domain.Payment, error) {
+	exec := txcontext.GetExecutor(ctx, paymentRepository.dbClient)
 	query := `
 		SELECT id, tenant_id, order_id, amount, currency, status,
 		       provider, external_id, payment_instructions, raw_webhook_payload,
 		       created_at, updated_at
 		FROM payments WHERE id = $1 FOR UPDATE
 	`
-	return r.scanPayment(exec.QueryRowContext(ctx, query, id))
+	return paymentRepository.scanPayment(exec.QueryRowContext(ctx, query, id))
 }
 
-func (r *PaymentRepository) FindByOrderID(ctx context.Context, tenantID, orderID string) (*domain.Payment, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (paymentRepository *PaymentRepository) FindByOrderID(ctx context.Context, tenantID, orderID string) (*domain.Payment, error) {
+	exec := txcontext.GetExecutor(ctx, paymentRepository.dbClient)
 	query := `
 		SELECT id, tenant_id, order_id, amount, currency, status,
 		       provider, external_id, payment_instructions, raw_webhook_payload,
@@ -191,11 +191,11 @@ func (r *PaymentRepository) FindByOrderID(ctx context.Context, tenantID, orderID
 		FROM payments WHERE tenant_id = $1 AND order_id = $2
 		ORDER BY created_at DESC LIMIT 1
 	`
-	return r.scanPayment(exec.QueryRowContext(ctx, query, tenantID, orderID))
+	return paymentRepository.scanPayment(exec.QueryRowContext(ctx, query, tenantID, orderID))
 }
 
-func (r *PaymentRepository) FindExpiredPayments(ctx context.Context, ttlDuration time.Duration, limit int) ([]*domain.Payment, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (paymentRepository *PaymentRepository) FindExpiredPayments(ctx context.Context, ttlDuration time.Duration, limit int) ([]*domain.Payment, error) {
+	exec := txcontext.GetExecutor(ctx, paymentRepository.dbClient)
 	cutoff := time.Now().Add(-ttlDuration)
 
 	query := `
@@ -215,7 +215,7 @@ func (r *PaymentRepository) FindExpiredPayments(ctx context.Context, ttlDuration
 
 	var payments []*domain.Payment
 	for rows.Next() {
-		p, err := r.scanPaymentRow(rows)
+		p, err := paymentRepository.scanPaymentRow(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -225,8 +225,8 @@ func (r *PaymentRepository) FindExpiredPayments(ctx context.Context, ttlDuration
 	return payments, nil
 }
 
-func (r *PaymentRepository) CreateAttempt(ctx context.Context, input CreateAttemptInput) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (paymentRepository *PaymentRepository) CreateAttempt(ctx context.Context, input CreateAttemptInput) error {
+	exec := txcontext.GetExecutor(ctx, paymentRepository.dbClient)
 	query := `
 		INSERT INTO payment_attempts (
 			id, payment_id, tenant_id, provider, external_session_id,
@@ -253,8 +253,8 @@ func (r *PaymentRepository) CreateAttempt(ctx context.Context, input CreateAttem
 	return nil
 }
 
-func (r *PaymentRepository) UpdateAttempt(ctx context.Context, input UpdateAttemptInput) error {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (paymentRepository *PaymentRepository) UpdateAttempt(ctx context.Context, input UpdateAttemptInput) error {
+	exec := txcontext.GetExecutor(ctx, paymentRepository.dbClient)
 	updatedAt := time.Now()
 
 	query := `
@@ -277,8 +277,8 @@ func (r *PaymentRepository) UpdateAttempt(ctx context.Context, input UpdateAttem
 	return nil
 }
 
-func (r *PaymentRepository) FindAttemptsByPaymentID(ctx context.Context, paymentID string) ([]*domain.PaymentAttempt, error) {
-	exec := txcontext.GetExecutor(ctx, r.dbClient)
+func (paymentRepository *PaymentRepository) FindAttemptsByPaymentID(ctx context.Context, paymentID string) ([]*domain.PaymentAttempt, error) {
+	exec := txcontext.GetExecutor(ctx, paymentRepository.dbClient)
 	query := `
 		SELECT id, payment_id, tenant_id, provider, external_session_id,
 		       status, error_message, created_at, updated_at
@@ -312,7 +312,7 @@ func (r *PaymentRepository) FindAttemptsByPaymentID(ctx context.Context, payment
 	return attempts, nil
 }
 
-func (r *PaymentRepository) scanPayment(row *sql.Row) (*domain.Payment, error) {
+func (paymentRepository *PaymentRepository) scanPayment(row *sql.Row) (*domain.Payment, error) {
 	var p domain.Payment
 	var statusStr, provStr string
 	var instructionsBytes, payloadBytes []byte
@@ -342,7 +342,7 @@ func (r *PaymentRepository) scanPayment(row *sql.Row) (*domain.Payment, error) {
 	return &p, nil
 }
 
-func (r *PaymentRepository) scanPaymentRow(rows *sql.Rows) (*domain.Payment, error) {
+func (paymentRepository *PaymentRepository) scanPaymentRow(rows *sql.Rows) (*domain.Payment, error) {
 	var p domain.Payment
 	var statusStr, provStr string
 	var instructionsBytes, payloadBytes []byte

@@ -15,7 +15,6 @@ const (
 	defaultBatchSize     = 50
 )
 
-
 type OutboxWorker struct {
 	outboxRepository   OutboxRepository
 	userEventPublisher UserEventPublisher
@@ -40,17 +39,17 @@ func NewOutboxWorker(
 }
 
 // Poke sends a non-blocking wake-up signal to the worker loop.
-func (w *OutboxWorker) Poke() {
+func (outboxWorker *OutboxWorker) Poke() {
 	select {
-	case w.wakeUpChan <- struct{}{}:
+	case outboxWorker.wakeUpChan <- struct{}{}:
 	default:
 	}
 }
 
-func (w *OutboxWorker) Start(ctx context.Context) {
-	log.Printf("OutboxWorker: Started (debounce=%v, batch=%d, poll=%v)", w.debounceDelay, w.batchSize, w.pollInterval)
+func (outboxWorker *OutboxWorker) Start(ctx context.Context) {
+	log.Printf("OutboxWorker: Started (debounce=%v, batch=%d, poll=%v)", outboxWorker.debounceDelay, outboxWorker.batchSize, outboxWorker.pollInterval)
 
-	ticker := time.NewTicker(w.pollInterval)
+	ticker := time.NewTicker(outboxWorker.pollInterval)
 	defer ticker.Stop()
 
 	for {
@@ -58,16 +57,16 @@ func (w *OutboxWorker) Start(ctx context.Context) {
 		case <-ctx.Done():
 			log.Printf("OutboxWorker: Shutting down.")
 			return
-		case <-w.wakeUpChan:
-			w.debounceAndProcess(ctx)
+		case <-outboxWorker.wakeUpChan:
+			outboxWorker.debounceAndProcess(ctx)
 		case <-ticker.C:
-			w.recoverAndProcess(ctx)
+			outboxWorker.recoverAndProcess(ctx)
 		}
 	}
 }
 
-func (w *OutboxWorker) debounceAndProcess(ctx context.Context) {
-	timer := time.NewTimer(w.debounceDelay)
+func (outboxWorker *OutboxWorker) debounceAndProcess(ctx context.Context) {
+	timer := time.NewTimer(outboxWorker.debounceDelay)
 	defer timer.Stop()
 
 drainLoop:
@@ -75,26 +74,26 @@ drainLoop:
 		select {
 		case <-ctx.Done():
 			return
-		case <-w.wakeUpChan:
+		case <-outboxWorker.wakeUpChan:
 		case <-timer.C:
 			break drainLoop
 		}
 	}
 
-	w.processBatch(ctx, domain.RoutingKeyUserCreated)
+	outboxWorker.processBatch(ctx, domain.RoutingKeyUserCreated)
 }
 
-func (w *OutboxWorker) recoverAndProcess(ctx context.Context) {
+func (outboxWorker *OutboxWorker) recoverAndProcess(ctx context.Context) {
 	for _, eventType := range []string{domain.RoutingKeyUserCreated} {
-		if err := w.outboxRepository.RecoverStuckClaims(ctx, eventType); err != nil {
+		if err := outboxWorker.outboxRepository.RecoverStuckClaims(ctx, eventType); err != nil {
 			log.Printf("OutboxWorker Warning: Stuck-claim recovery failed for '%s': %v", eventType, err)
 		}
-		w.processBatch(ctx, eventType)
+		outboxWorker.processBatch(ctx, eventType)
 	}
 }
 
-func (w *OutboxWorker) processBatch(ctx context.Context, eventType string) {
-	messages, err := w.outboxRepository.FetchAndClaimBatch(ctx, eventType, w.batchSize)
+func (outboxWorker *OutboxWorker) processBatch(ctx context.Context, eventType string) {
+	messages, err := outboxWorker.outboxRepository.FetchAndClaimBatch(ctx, eventType, outboxWorker.batchSize)
 	if err != nil {
 		log.Printf("OutboxWorker Error: Failed to claim outbox batch for '%s': %v", eventType, err)
 		return
@@ -113,10 +112,10 @@ func (w *OutboxWorker) processBatch(ctx context.Context, eventType string) {
 			var evt domain.UserCreatedEvent
 			if err := json.Unmarshal(msg.Payload, &evt); err != nil {
 				log.Printf("OutboxWorker Error: Bad payload for id='%s': %v", msg.ID, err)
-				_ = w.outboxRepository.MarkFailed(ctx, msg.ID, err)
+				_ = outboxWorker.outboxRepository.MarkFailed(ctx, msg.ID, err)
 				continue
 			}
-			pubErr = w.userEventPublisher.PublishUserCreated(ctx, evt)
+			pubErr = outboxWorker.userEventPublisher.PublishUserCreated(ctx, evt)
 
 		default:
 			log.Printf("OutboxWorker Warning: Unknown event_type='%s' for id='%s'. Skipping.", eventType, msg.ID)
@@ -125,17 +124,17 @@ func (w *OutboxWorker) processBatch(ctx context.Context, eventType string) {
 
 		if pubErr != nil {
 			log.Printf("OutboxWorker Warning: Publish failed for id='%s': %v", msg.ID, pubErr)
-			_ = w.outboxRepository.MarkFailed(ctx, msg.ID, pubErr)
+			_ = outboxWorker.outboxRepository.MarkFailed(ctx, msg.ID, pubErr)
 		} else {
-			if markErr := w.outboxRepository.MarkPublished(ctx, msg.ID); markErr != nil {
+			if markErr := outboxWorker.outboxRepository.MarkPublished(ctx, msg.ID); markErr != nil {
 				log.Printf("OutboxWorker Error: MarkPublished failed for id='%s': %v", msg.ID, markErr)
 			}
 		}
 	}
 
 	// If we filled the entire batch, chain immediately to catch remaining rows.
-	if len(messages) == w.batchSize {
+	if len(messages) == outboxWorker.batchSize {
 		log.Printf("OutboxWorker: Full batch for '%s' — re-poking for more.", eventType)
-		w.Poke()
+		outboxWorker.Poke()
 	}
 }

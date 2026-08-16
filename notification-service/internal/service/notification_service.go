@@ -77,17 +77,17 @@ func NewNotificationService(
 	}
 }
 
-func (s *NotificationService) HasSentNotification(ctx context.Context, tenantID string) (bool, error) {
+func (notificationService *NotificationService) HasSentNotification(ctx context.Context, tenantID string) (bool, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return false, domain.ErrTenantIDRequired
 	}
-	return s.notificationRepository.HasSentNotification(ctx, tenantID)
+	return notificationService.notificationRepository.HasSentNotification(ctx, tenantID)
 }
 
 // CreateOrderNotification persists a notification audit log for an order.created
 // event. No email is dispatched for this case; the log is recorded directly as
 // "sent" to surface it in the notifications list.
-func (s *NotificationService) CreateOrderNotification(ctx context.Context, evt domain.OrderCreatedEvent) error {
+func (notificationService *NotificationService) CreateOrderNotification(ctx context.Context, evt domain.OrderCreatedEvent) error {
 	if strings.TrimSpace(evt.TenantID) == "" {
 		return domain.ErrTenantIDRequired
 	}
@@ -104,7 +104,7 @@ func (s *NotificationService) CreateOrderNotification(ctx context.Context, evt d
 
 	body := buildOrderBody(evt)
 
-	_, err := s.notificationRepository.CreateNotificationLog(ctx, repository.CreateNotificationLogInput{
+	_, err := notificationService.notificationRepository.CreateNotificationLog(ctx, repository.CreateNotificationLogInput{
 		UserID:      userID,
 		TenantID:    evt.TenantID,
 		Description: description,
@@ -135,21 +135,21 @@ func buildOrderBody(evt domain.OrderCreatedEvent) string {
 	return body
 }
 
-func (s *NotificationService) UpdateNotificationStatus(ctx context.Context, logID string, status string) error {
+func (notificationService *NotificationService) UpdateNotificationStatus(ctx context.Context, logID string, status string) error {
 	if strings.TrimSpace(logID) == "" {
 		return fmt.Errorf("invalid notification log id: %s", logID)
 	}
 	if strings.TrimSpace(status) == "" {
 		return errors.New("status cannot be empty")
 	}
-	return s.notificationRepository.UpdateNotificationStatus(ctx, logID, status)
+	return notificationService.notificationRepository.UpdateNotificationStatus(ctx, logID, status)
 }
 
-func (s *NotificationService) ListNotifications(ctx context.Context, tenantID string) ([]NotificationLogOutput, error) {
+func (notificationService *NotificationService) ListNotifications(ctx context.Context, tenantID string) ([]NotificationLogOutput, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return nil, domain.ErrTenantIDRequired
 	}
-	logs, err := s.notificationRepository.ListNotifications(ctx, tenantID)
+	logs, err := notificationService.notificationRepository.ListNotifications(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +160,7 @@ func (s *NotificationService) ListNotifications(ctx context.Context, tenantID st
 	return outputs, nil
 }
 
-func (s *NotificationService) ProcessEventAndTrySendWelcome(
+func (notificationService *NotificationService) ProcessEventAndTrySendWelcome(
 	ctx context.Context,
 	input ProcessEventInput,
 	events []domain.InboxMessage,
@@ -227,7 +227,7 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(
 		return nil, nil
 	}
 
-	alreadySent, err := s.notificationRepository.HasSentNotification(ctx, input.TenantID)
+	alreadySent, err := notificationService.notificationRepository.HasSentNotification(ctx, input.TenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed checking welcome email sent status for tenant_id='%s': %w", input.TenantID, err)
 	}
@@ -237,7 +237,7 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(
 	}
 
 	// Check if a pending notification log was already recorded on an earlier attempt (e.g. before retry).
-	existingPending, err := s.notificationRepository.GetPendingNotification(ctx, input.TenantID)
+	existingPending, err := notificationService.notificationRepository.GetPendingNotification(ctx, input.TenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed checking pending notification for tenant_id='%s': %w", input.TenantID, err)
 	}
@@ -270,7 +270,7 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(
 			Body:        bodyText,
 			Status:      "pending",
 		}
-		newID, dbErr := s.notificationRepository.CreateNotificationLog(ctx, auditLogInput)
+		newID, dbErr := notificationService.notificationRepository.CreateNotificationLog(ctx, auditLogInput)
 		if dbErr != nil {
 			return nil, fmt.Errorf("failed to persist notification audit log: %w", dbErr)
 		}

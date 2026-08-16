@@ -20,7 +20,7 @@ func registerConsumers(
 	txManager *txcontext.SQLTxManager,
 	rmqClient *rabbitmq.Client,
 	inboxService *service.InboxService,
-	notifService *service.NotificationService,
+	notificationService *service.NotificationService,
 	authClient consumer.AuthClient,
 	mailer consumer.Mailer,
 ) (*consumerRunner, error) {
@@ -28,7 +28,7 @@ func registerConsumers(
 		TxManager:           txManager,
 		Client:              rmqClient,
 		InboxService:        inboxService,
-		NotificationService: notifService,
+		NotificationService: notificationService,
 		AuthClient:          authClient,
 		Mailer:              mailer,
 	})
@@ -37,7 +37,7 @@ func registerConsumers(
 		TxManager:           txManager,
 		Client:              rmqClient,
 		InboxService:        inboxService,
-		NotificationService: notifService,
+		NotificationService: notificationService,
 		AuthClient:          authClient,
 		Mailer:              mailer,
 	})
@@ -46,7 +46,7 @@ func registerConsumers(
 		TxManager:           txManager,
 		Client:              rmqClient,
 		InboxService:        inboxService,
-		NotificationService: notifService,
+		NotificationService: notificationService,
 	})
 
 	return &consumerRunner{
@@ -56,14 +56,14 @@ func registerConsumers(
 	}, nil
 }
 
-func (cr *consumerRunner) start(ctx context.Context) error {
-	if err := cr.workspaceReadyConsumer.Start(ctx); err != nil {
+func (consumerRunner *consumerRunner) start(ctx context.Context) error {
+	if err := consumerRunner.workspaceReadyConsumer.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start WorkspaceReadyConsumer: %w", err)
 	}
-	if err := cr.userCreatedConsumer.Start(ctx); err != nil {
+	if err := consumerRunner.userCreatedConsumer.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start UserCreatedConsumer: %w", err)
 	}
-	if err := cr.orderCreatedConsumer.Start(ctx); err != nil {
+	if err := consumerRunner.orderCreatedConsumer.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start OrderCreatedConsumer: %w", err)
 	}
 	return nil

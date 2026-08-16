@@ -6,7 +6,6 @@ import (
 	"time"
 )
 
-
 type OutboxWorker struct {
 	outboxRepository OutboxRepository
 	publisher        EventPublisher
@@ -42,34 +41,34 @@ func NewOutboxWorker(
 	}
 }
 
-func (w *OutboxWorker) Start(ctx context.Context) {
-	ticker := time.NewTicker(w.pollInterval)
+func (outboxWorker *OutboxWorker) Start(ctx context.Context) {
+	ticker := time.NewTicker(outboxWorker.pollInterval)
 	defer ticker.Stop()
 
-	w.logger.Info("starting payment outbox worker", "poll_interval", w.pollInterval, "batch_size", w.batchSize)
+	outboxWorker.logger.Info("starting payment outbox worker", "poll_interval", outboxWorker.pollInterval, "batch_size", outboxWorker.batchSize)
 
 	for {
 		select {
 		case <-ctx.Done():
-			w.logger.Info("stopping payment outbox worker")
+			outboxWorker.logger.Info("stopping payment outbox worker")
 			return
-		case <-w.stopChan:
-			w.logger.Info("payment outbox worker stopped")
+		case <-outboxWorker.stopChan:
+			outboxWorker.logger.Info("payment outbox worker stopped")
 			return
 		case <-ticker.C:
-			w.processOutboxBatch(ctx)
+			outboxWorker.processOutboxBatch(ctx)
 		}
 	}
 }
 
-func (w *OutboxWorker) Stop() {
-	close(w.stopChan)
+func (outboxWorker *OutboxWorker) Stop() {
+	close(outboxWorker.stopChan)
 }
 
-func (w *OutboxWorker) processOutboxBatch(ctx context.Context) {
-	messages, err := w.outboxRepository.FetchPending(ctx, w.batchSize)
+func (outboxWorker *OutboxWorker) processOutboxBatch(ctx context.Context) {
+	messages, err := outboxWorker.outboxRepository.FetchPending(ctx, outboxWorker.batchSize)
 	if err != nil {
-		w.logger.Error("failed to fetch outbox pending events", "err", err)
+		outboxWorker.logger.Error("failed to fetch outbox pending events", "err", err)
 		return
 	}
 
@@ -78,11 +77,11 @@ func (w *OutboxWorker) processOutboxBatch(ctx context.Context) {
 	}
 
 	for _, msg := range messages {
-		if err := w.publisher.PublishEvent(ctx, msg.RoutingKey, msg.Payload); err != nil {
-			w.logger.Error("failed to publish outbox event", "event_id", msg.EventID, "routing_key", msg.RoutingKey, "err", err)
-			_ = w.outboxRepository.MarkFailed(ctx, msg.EventID, err.Error())
+		if err := outboxWorker.publisher.PublishEvent(ctx, msg.RoutingKey, msg.Payload); err != nil {
+			outboxWorker.logger.Error("failed to publish outbox event", "event_id", msg.EventID, "routing_key", msg.RoutingKey, "err", err)
+			_ = outboxWorker.outboxRepository.MarkFailed(ctx, msg.EventID, err.Error())
 		} else {
-			_ = w.outboxRepository.MarkPublished(ctx, msg.EventID)
+			_ = outboxWorker.outboxRepository.MarkPublished(ctx, msg.EventID)
 		}
 	}
 }

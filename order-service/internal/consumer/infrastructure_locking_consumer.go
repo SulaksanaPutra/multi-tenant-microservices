@@ -35,21 +35,21 @@ func NewInfrastructureLockingConsumer(params InfrastructureLockingConsumerParams
 	}
 }
 
-func (c *InfrastructureLockingConsumer) setupTopology() (string, error) {
-	if err := c.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
+func (infrastructureLockingConsumer *InfrastructureLockingConsumer) setupTopology() (string, error) {
+	if err := infrastructureLockingConsumer.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return "", fmt.Errorf("failed to declare exchange: %w", err)
 	}
 
-	return c.client.DeclareAndBindExclusiveQueue(domain.ExchangeCompanyEvents, domain.RoutingKeyInfrastructureLocking)
+	return infrastructureLockingConsumer.client.DeclareAndBindExclusiveQueue(domain.ExchangeCompanyEvents, domain.RoutingKeyInfrastructureLocking)
 }
 
 // Start launches the consumer lifecycle loop in a background goroutine and returns immediately.
-func (c *InfrastructureLockingConsumer) Start(ctx context.Context) error {
+func (infrastructureLockingConsumer *InfrastructureLockingConsumer) Start(ctx context.Context) error {
 	go func() {
 		for {
-			connCtx := c.client.ConnContext()
+			connCtx := infrastructureLockingConsumer.client.ConnContext()
 
-			err := c.runConsumerLoop(ctx, connCtx)
+			err := infrastructureLockingConsumer.runConsumerLoop(ctx, connCtx)
 
 			if ctx.Err() != nil {
 				return
@@ -57,7 +57,7 @@ func (c *InfrastructureLockingConsumer) Start(ctx context.Context) error {
 
 			log.Printf("InfrastructureLockingConsumer: connection context cancelled (%v); waiting for RabbitMQ reconnection...", err)
 
-			if err := c.client.WaitUntilReady(ctx); err != nil {
+			if err := infrastructureLockingConsumer.client.WaitUntilReady(ctx); err != nil {
 				return
 			}
 
@@ -68,19 +68,19 @@ func (c *InfrastructureLockingConsumer) Start(ctx context.Context) error {
 	return nil
 }
 
-func (c *InfrastructureLockingConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
-	qName, err := c.setupTopology()
+func (infrastructureLockingConsumer *InfrastructureLockingConsumer) runConsumerLoop(appCtx, connCtx context.Context) error {
+	qName, err := infrastructureLockingConsumer.setupTopology()
 	if err != nil {
 		return fmt.Errorf("failed to setup topology: %w", err)
 	}
-	c.queueName = qName
+	infrastructureLockingConsumer.queueName = qName
 
-	msgs, err := c.client.Consume(c.queueName, "")
+	msgs, err := infrastructureLockingConsumer.client.Consume(infrastructureLockingConsumer.queueName, "")
 	if err != nil {
-		return fmt.Errorf("failed to start consume on '%s': %w", c.queueName, err)
+		return fmt.Errorf("failed to start consume on '%s': %w", infrastructureLockingConsumer.queueName, err)
 	}
 
-	log.Printf("InfrastructureLockingConsumer: listening on exclusive queue '%s'...", c.queueName)
+	log.Printf("InfrastructureLockingConsumer: listening on exclusive queue '%s'...", infrastructureLockingConsumer.queueName)
 
 	for {
 		select {
@@ -94,12 +94,12 @@ func (c *InfrastructureLockingConsumer) runConsumerLoop(appCtx, connCtx context.
 			if !ok {
 				return errors.New("delivery channel closed")
 			}
-			_ = c.handleDelivery(appCtx, d)
+			_ = infrastructureLockingConsumer.handleDelivery(appCtx, d)
 		}
 	}
 }
 
-func (c *InfrastructureLockingConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
+func (infrastructureLockingConsumer *InfrastructureLockingConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
 	var evt domain.InfrastructureLockingEvent
 	if err := json.Unmarshal(d.Body, &evt); err != nil {
 		log.Printf("InfrastructureLockingConsumer: bad payload: %v", err)
@@ -114,7 +114,7 @@ func (c *InfrastructureLockingConsumer) handleDelivery(ctx context.Context, d ra
 	}
 
 	log.Printf("InfrastructureLockingConsumer: locking tenant='%s' — setting status MIGRATING in RoutingRegistry", evt.TenantID)
-	c.routingRegistry.SetStatus(evt.TenantID, "MIGRATING")
+	infrastructureLockingConsumer.routingRegistry.SetStatus(evt.TenantID, "MIGRATING")
 	_ = d.Ack(false)
 	return nil
 }

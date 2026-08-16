@@ -26,15 +26,15 @@ func TestOrderRepository_Constructor(t *testing.T) {
 		DB:         getDummyDB(),
 		SchemaName: "tenant_1",
 	}
-	repo := NewOrderRepository(cfg)
-	if repo == nil {
+	orderRepository := NewOrderRepository(cfg)
+	if orderRepository == nil {
 		t.Fatal("expected NewOrderRepository to return a non-nil struct pointer")
 	}
 }
 
 func TestOrderRepository_ListOrders_NilDB(t *testing.T) {
-	repo := NewOrderRepository(tenantdb.Config{DB: nil})
-	_, err := repo.ListOrders(context.Background())
+	orderRepository := NewOrderRepository(tenantdb.Config{DB: nil})
+	_, err := orderRepository.ListOrders(context.Background())
 	if err == nil {
 		t.Fatal("expected error when DB handle is nil, got nil")
 	}
@@ -60,10 +60,10 @@ func TestOrderRepository_ListOrders_SchemaFormatting(t *testing.T) {
 		DB:         dummyDB,
 		SchemaName: "tenant_acme",
 	}
-	repo := NewOrderRepository(cfg)
+	orderRepository := NewOrderRepository(cfg)
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	_, err := repo.ListOrders(ctx)
+	_, err := orderRepository.ListOrders(ctx)
 	if err == nil {
 		t.Fatal("expected error from QueryContextFn, got nil")
 	}
@@ -92,10 +92,10 @@ func TestOrderRepository_ListOrders_DefaultPublicSchema(t *testing.T) {
 		DB:         dummyDB,
 		SchemaName: "",
 	}
-	repo := NewOrderRepository(cfg)
+	orderRepository := NewOrderRepository(cfg)
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	_, err := repo.ListOrders(ctx)
+	_, err := orderRepository.ListOrders(ctx)
 	if err == nil {
 		t.Fatal("expected error from QueryContextFn, got nil")
 	}
@@ -116,10 +116,10 @@ func TestOrderRepository_ListOrders_QueryError(t *testing.T) {
 	}
 
 	cfg := tenantdb.Config{DB: dummyDB, SchemaName: "tenant_fail"}
-	repo := NewOrderRepository(cfg)
+	orderRepository := NewOrderRepository(cfg)
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	_, err := repo.ListOrders(ctx)
+	_, err := orderRepository.ListOrders(ctx)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -133,7 +133,7 @@ func TestOrderRepository_ListOrders_QueryError(t *testing.T) {
 }
 
 func TestOrderRepository_CreateOrder_NilDB(t *testing.T) {
-	repo := NewOrderRepository(tenantdb.Config{DB: nil})
+	orderRepository := NewOrderRepository(tenantdb.Config{DB: nil})
 	input := CreateOrderInput{
 		ID:         "ord-101",
 		TenantID:   "tenant-1",
@@ -141,7 +141,7 @@ func TestOrderRepository_CreateOrder_NilDB(t *testing.T) {
 		Status:     "PENDING",
 		Amount:     99.99,
 	}
-	err := repo.CreateOrder(context.Background(), input)
+	err := orderRepository.CreateOrder(context.Background(), input)
 	if err == nil {
 		t.Fatal("expected error when DB handle is nil, got nil")
 	}
@@ -170,7 +170,7 @@ func TestOrderRepository_CreateOrder_Success(t *testing.T) {
 		DB:         dummyDB,
 		SchemaName: "tenant_xyz",
 	}
-	repo := NewOrderRepository(cfg)
+	orderRepository := NewOrderRepository(cfg)
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	input := CreateOrderInput{
@@ -181,7 +181,7 @@ func TestOrderRepository_CreateOrder_Success(t *testing.T) {
 		Amount:     150.75,
 	}
 
-	err := repo.CreateOrder(ctx, input)
+	err := orderRepository.CreateOrder(ctx, input)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -223,7 +223,7 @@ func TestOrderRepository_CreateOrder_DefaultPublicSchema(t *testing.T) {
 		DB:         dummyDB,
 		SchemaName: "",
 	}
-	repo := NewOrderRepository(cfg)
+	orderRepository := NewOrderRepository(cfg)
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	input := CreateOrderInput{
@@ -234,7 +234,7 @@ func TestOrderRepository_CreateOrder_DefaultPublicSchema(t *testing.T) {
 		Amount:     50.00,
 	}
 
-	err := repo.CreateOrder(ctx, input)
+	err := orderRepository.CreateOrder(ctx, input)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -263,11 +263,11 @@ func TestOrderRepository_CreateOrder_ExecError(t *testing.T) {
 	}
 
 	cfg := tenantdb.Config{DB: dummyDB, SchemaName: "tenant_err"}
-	repo := NewOrderRepository(cfg)
+	orderRepository := NewOrderRepository(cfg)
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	input := CreateOrderInput{ID: "ord-err"}
-	err := repo.CreateOrder(ctx, input)
+	err := orderRepository.CreateOrder(ctx, input)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

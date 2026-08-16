@@ -15,12 +15,12 @@ import (
 	"auth-service/internal/service"
 )
 
-type mockCredentialRepo struct {
+type mockCredentialRepository struct {
 	creds       map[string]*domain.Credential
 	memberships map[string][]string
 }
 
-func (m *mockCredentialRepo) UpsertCredential(_ context.Context, input repository.UpsertCredentialInput) error {
+func (m *mockCredentialRepository) UpsertCredential(_ context.Context, input repository.UpsertCredentialInput) error {
 	m.creds[input.Email] = &domain.Credential{
 		UserID:       input.UserID,
 		Email:        input.Email,
@@ -32,7 +32,7 @@ func (m *mockCredentialRepo) UpsertCredential(_ context.Context, input repositor
 	return nil
 }
 
-func (m *mockCredentialRepo) AddMembership(_ context.Context, userID, tenantID string) error {
+func (m *mockCredentialRepository) AddMembership(_ context.Context, userID, tenantID string) error {
 	if m.memberships == nil {
 		m.memberships = make(map[string][]string)
 	}
@@ -45,21 +45,21 @@ func (m *mockCredentialRepo) AddMembership(_ context.Context, userID, tenantID s
 	return nil
 }
 
-func (m *mockCredentialRepo) ListUserMemberships(_ context.Context, userID string) ([]string, error) {
+func (m *mockCredentialRepository) ListUserMemberships(_ context.Context, userID string) ([]string, error) {
 	if m.memberships == nil {
 		return nil, nil
 	}
 	return m.memberships[userID], nil
 }
 
-func (m *mockCredentialRepo) FindByEmail(_ context.Context, email string) (*domain.Credential, error) {
+func (m *mockCredentialRepository) FindByEmail(_ context.Context, email string) (*domain.Credential, error) {
 	if cred, ok := m.creds[email]; ok {
 		return cred, nil
 	}
 	return nil, domain.ErrCredentialNotFound
 }
 
-func (m *mockCredentialRepo) FindByUserID(_ context.Context, userID string) (*domain.Credential, error) {
+func (m *mockCredentialRepository) FindByUserID(_ context.Context, userID string) (*domain.Credential, error) {
 	for _, cred := range m.creds {
 		if cred.UserID == userID {
 			return cred, nil
@@ -68,11 +68,11 @@ func (m *mockCredentialRepo) FindByUserID(_ context.Context, userID string) (*do
 	return nil, domain.ErrCredentialNotFound
 }
 
-type mockTokenRepo struct {
+type mockTokenRepository struct {
 	tokens map[string]*domain.RefreshToken
 }
 
-func (m *mockTokenRepo) CreateRefreshToken(_ context.Context, input repository.CreateRefreshTokenInput) error {
+func (m *mockTokenRepository) CreateRefreshToken(_ context.Context, input repository.CreateRefreshTokenInput) error {
 	m.tokens[input.TokenHash] = &domain.RefreshToken{
 		ID:        "rt_id",
 		UserID:    input.UserID,
@@ -83,14 +83,14 @@ func (m *mockTokenRepo) CreateRefreshToken(_ context.Context, input repository.C
 	return nil
 }
 
-func (m *mockTokenRepo) FindByTokenHash(_ context.Context, tokenHash string) (*domain.RefreshToken, error) {
+func (m *mockTokenRepository) FindByTokenHash(_ context.Context, tokenHash string) (*domain.RefreshToken, error) {
 	if rt, ok := m.tokens[tokenHash]; ok {
 		return rt, nil
 	}
 	return nil, domain.ErrTokenNotFound
 }
 
-func (m *mockTokenRepo) RevokeRefreshToken(_ context.Context, input repository.RevokeRefreshTokenInput) error {
+func (m *mockTokenRepository) RevokeRefreshToken(_ context.Context, input repository.RevokeRefreshTokenInput) error {
 	if rt, ok := m.tokens[input.TokenHash]; ok {
 		now := time.Now()
 		rt.RevokedAt = &now
@@ -99,16 +99,16 @@ func (m *mockTokenRepo) RevokeRefreshToken(_ context.Context, input repository.R
 	return domain.ErrTokenNotFound
 }
 
-func (m *mockTokenRepo) DeleteRefreshToken(_ context.Context, input repository.DeleteRefreshTokenInput) error {
+func (m *mockTokenRepository) DeleteRefreshToken(_ context.Context, input repository.DeleteRefreshTokenInput) error {
 	delete(m.tokens, input.TokenHash)
 	return nil
 }
 
-type mockSetupTokenRepo struct {
+type mockSetupTokenRepository struct {
 	tokens map[string]*domain.PasswordSetupToken
 }
 
-func (m *mockSetupTokenRepo) CreateSetupToken(_ context.Context, input repository.CreateSetupTokenInput) error {
+func (m *mockSetupTokenRepository) CreateSetupToken(_ context.Context, input repository.CreateSetupTokenInput) error {
 	m.tokens[input.TokenHash] = &domain.PasswordSetupToken{
 		ID:        "st_id",
 		UserID:    input.UserID,
@@ -120,14 +120,14 @@ func (m *mockSetupTokenRepo) CreateSetupToken(_ context.Context, input repositor
 	return nil
 }
 
-func (m *mockSetupTokenRepo) FindByTokenHash(_ context.Context, tokenHash string) (*domain.PasswordSetupToken, error) {
+func (m *mockSetupTokenRepository) FindByTokenHash(_ context.Context, tokenHash string) (*domain.PasswordSetupToken, error) {
 	if st, ok := m.tokens[tokenHash]; ok {
 		return st, nil
 	}
 	return nil, domain.ErrTokenNotFound
 }
 
-func (m *mockSetupTokenRepo) MarkTokenUsed(_ context.Context, tokenHash string) error {
+func (m *mockSetupTokenRepository) MarkTokenUsed(_ context.Context, tokenHash string) error {
 	if st, ok := m.tokens[tokenHash]; ok {
 		if st.UsedAt != nil {
 			return domain.ErrTokenAlreadyUsed
@@ -146,28 +146,28 @@ func testRSAPrivateKey(t *testing.T) string {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: der}))
 }
 
-func setupAuthService(t *testing.T) (*service.AuthService, *service.InternalAuthService, *mockCredentialRepo, *mockTokenRepo, *mockSetupTokenRepo) {
+func setupAuthService(t *testing.T) (*service.AuthService, *service.InternalAuthService, *mockCredentialRepository, *mockTokenRepository, *mockSetupTokenRepository) {
 	t.Helper()
 	pemStr := testRSAPrivateKey(t)
 
-	jwtMgr, err := crypto.NewJWTManager(pemStr)
+	jwtManager, err := crypto.NewJWTManager(pemStr)
 	if err != nil {
 		t.Fatalf("failed to init JWTManager: %v", err)
 	}
 
-	credRepo := &mockCredentialRepo{creds: make(map[string]*domain.Credential), memberships: make(map[string][]string)}
-	tokenRepo := &mockTokenRepo{tokens: make(map[string]*domain.RefreshToken)}
-	setupRepo := &mockSetupTokenRepo{tokens: make(map[string]*domain.PasswordSetupToken)}
-	svc := service.NewAuthService(credRepo, tokenRepo, setupRepo, jwtMgr, nil)
-	internalSvc := service.NewInternalAuthService(setupRepo, credRepo)
-	return svc, internalSvc, credRepo, tokenRepo, setupRepo
+	credentialRepository := &mockCredentialRepository{creds: make(map[string]*domain.Credential), memberships: make(map[string][]string)}
+	tokenRepository := &mockTokenRepository{tokens: make(map[string]*domain.RefreshToken)}
+	setupTokenRepository := &mockSetupTokenRepository{tokens: make(map[string]*domain.PasswordSetupToken)}
+	authService := service.NewAuthService(credentialRepository, tokenRepository, setupTokenRepository, jwtManager, nil)
+	internalAuthService := service.NewInternalAuthService(setupTokenRepository, credentialRepository)
+	return authService, internalAuthService, credentialRepository, tokenRepository, setupTokenRepository
 }
 
 func TestAuthService_SetupPasswordAndLogin(t *testing.T) {
-	svc, internalSvc, _, _, _ := setupAuthService(t)
+	authService, internalAuthService, _, _, _ := setupAuthService(t)
 	ctx := context.Background()
 
-	rawToken, err := internalSvc.CreatePasswordSetupToken(ctx, service.InternalCreateSetupTokenInput{
+	rawToken, err := internalAuthService.CreatePasswordSetupToken(ctx, service.InternalCreateSetupTokenInput{
 		UserID:   "usr_100",
 		TenantID: "tnt_200",
 		Email:    "user@example.com",
@@ -176,7 +176,7 @@ func TestAuthService_SetupPasswordAndLogin(t *testing.T) {
 		t.Fatalf("CreatePasswordSetupToken failed: %v", err)
 	}
 
-	pair, err := svc.SetupPassword(ctx, service.SetupPasswordInput{
+	pair, err := authService.SetupPassword(ctx, service.SetupPasswordInput{
 		Token:    rawToken,
 		Password: "secretpassword",
 	})
@@ -185,7 +185,7 @@ func TestAuthService_SetupPasswordAndLogin(t *testing.T) {
 	}
 
 	// Test Login always resolves through workspace selection (exchange token)
-	loginRes, err := svc.Login(ctx, service.LoginInput{
+	loginRes, err := authService.Login(ctx, service.LoginInput{
 		Email:    "user@example.com",
 		Password: "secretpassword",
 	})
@@ -206,7 +206,7 @@ func TestAuthService_SetupPasswordAndLogin(t *testing.T) {
 	}
 
 	// Test Workspace Selection issues a token pair for a member workspace
-	pairFromExchange, err := svc.SelectWorkspace(ctx, service.SelectWorkspaceInput{
+	pairFromExchange, err := authService.SelectWorkspace(ctx, service.SelectWorkspaceInput{
 		ExchangeToken: loginRes.ExchangeToken,
 		TenantID:      "tnt_200",
 	})
@@ -218,7 +218,7 @@ func TestAuthService_SetupPasswordAndLogin(t *testing.T) {
 	}
 
 	// Test Workspace Selection rejects a non-member tenant
-	_, err = svc.SelectWorkspace(ctx, service.SelectWorkspaceInput{
+	_, err = authService.SelectWorkspace(ctx, service.SelectWorkspaceInput{
 		ExchangeToken: loginRes.ExchangeToken,
 		TenantID:      "tnt_evil",
 	})
@@ -227,7 +227,7 @@ func TestAuthService_SetupPasswordAndLogin(t *testing.T) {
 	}
 
 	// Test Login Failure (Wrong password)
-	_, err = svc.Login(ctx, service.LoginInput{
+	_, err = authService.Login(ctx, service.LoginInput{
 		Email:    "user@example.com",
 		Password: "wrongpassword",
 	})
@@ -236,7 +236,7 @@ func TestAuthService_SetupPasswordAndLogin(t *testing.T) {
 	}
 
 	// Test Refresh Success
-	refreshed, err := svc.RefreshToken(ctx, service.RefreshTokenInput{
+	refreshed, err := authService.RefreshToken(ctx, service.RefreshTokenInput{
 		RefreshToken: pair.RefreshToken,
 	})
 	if err != nil {
@@ -247,7 +247,7 @@ func TestAuthService_SetupPasswordAndLogin(t *testing.T) {
 	}
 
 	// Test Logout
-	err = svc.Logout(ctx, service.LogoutInput{
+	err = authService.Logout(ctx, service.LogoutInput{
 		RefreshToken: refreshed.RefreshToken,
 	})
 	if err != nil {
@@ -256,10 +256,10 @@ func TestAuthService_SetupPasswordAndLogin(t *testing.T) {
 }
 
 func TestAuthService_CreatePasswordSetupTokenAndSetupPassword(t *testing.T) {
-	svc, internalSvc, _, _, _ := setupAuthService(t)
+	authService, internalAuthService, _, _, _ := setupAuthService(t)
 	ctx := context.Background()
 
-	rawToken, err := internalSvc.CreatePasswordSetupToken(ctx, service.InternalCreateSetupTokenInput{
+	rawToken, err := internalAuthService.CreatePasswordSetupToken(ctx, service.InternalCreateSetupTokenInput{
 		UserID:   "usr_setup_100",
 		TenantID: "tnt_setup_200",
 		Email:    "setup@example.com",
@@ -272,7 +272,7 @@ func TestAuthService_CreatePasswordSetupTokenAndSetupPassword(t *testing.T) {
 	}
 
 	// Submit setup password using token
-	pair, err := svc.SetupPassword(ctx, service.SetupPasswordInput{
+	pair, err := authService.SetupPassword(ctx, service.SetupPasswordInput{
 		Token:    rawToken,
 		Password: "newpassword123",
 	})
@@ -284,7 +284,7 @@ func TestAuthService_CreatePasswordSetupTokenAndSetupPassword(t *testing.T) {
 	}
 
 	// Attempting to reuse the token should fail
-	_, err = svc.SetupPassword(ctx, service.SetupPasswordInput{
+	_, err = authService.SetupPassword(ctx, service.SetupPasswordInput{
 		Token:    rawToken,
 		Password: "newpassword123",
 	})
@@ -293,7 +293,7 @@ func TestAuthService_CreatePasswordSetupTokenAndSetupPassword(t *testing.T) {
 	}
 
 	// Login with newly setup password should resolve through workspace selection
-	loginRes, err := svc.Login(ctx, service.LoginInput{
+	loginRes, err := authService.Login(ctx, service.LoginInput{
 		Email:    "setup@example.com",
 		Password: "newpassword123",
 	})
@@ -310,7 +310,7 @@ func TestAuthService_CreatePasswordSetupTokenAndSetupPassword(t *testing.T) {
 		t.Errorf("expected single workspace tnt_setup_200, got %+v", loginRes.Workspaces)
 	}
 
-	exchangePair, err := svc.SelectWorkspace(ctx, service.SelectWorkspaceInput{
+	exchangePair, err := authService.SelectWorkspace(ctx, service.SelectWorkspaceInput{
 		ExchangeToken: loginRes.ExchangeToken,
 		TenantID:      "tnt_setup_200",
 	})
@@ -321,4 +321,3 @@ func TestAuthService_CreatePasswordSetupTokenAndSetupPassword(t *testing.T) {
 		t.Errorf("expected access token from workspace selection")
 	}
 }
-

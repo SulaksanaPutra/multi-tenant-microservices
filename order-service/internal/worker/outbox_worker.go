@@ -16,7 +16,6 @@ const (
 	defaultBatchSize     = 50
 )
 
-
 // OutboxWorker polls the per-tenant outbox tables of every tenant materialized in the
 // local RoutingRegistry and publishes order.created events to RabbitMQ.
 //
@@ -61,17 +60,17 @@ func NewOutboxWorker(
 }
 
 // Poke sends a non-blocking wake-up signal to the worker loop.
-func (w *OutboxWorker) Poke() {
+func (outboxWorker *OutboxWorker) Poke() {
 	select {
-	case w.wakeUpChan <- struct{}{}:
+	case outboxWorker.wakeUpChan <- struct{}{}:
 	default:
 	}
 }
 
-func (w *OutboxWorker) Start(ctx context.Context) {
-	log.Printf("OutboxWorker: Started (debounce=%v, batch=%d, poll=%v)", w.debounceDelay, w.batchSize, w.pollInterval)
+func (outboxWorker *OutboxWorker) Start(ctx context.Context) {
+	log.Printf("OutboxWorker: Started (debounce=%v, batch=%d, poll=%v)", outboxWorker.debounceDelay, outboxWorker.batchSize, outboxWorker.pollInterval)
 
-	ticker := time.NewTicker(w.pollInterval)
+	ticker := time.NewTicker(outboxWorker.pollInterval)
 	defer ticker.Stop()
 
 	for {
@@ -79,16 +78,16 @@ func (w *OutboxWorker) Start(ctx context.Context) {
 		case <-ctx.Done():
 			log.Printf("OutboxWorker: Shutting down.")
 			return
-		case <-w.wakeUpChan:
-			w.debounceAndProcess(ctx)
+		case <-outboxWorker.wakeUpChan:
+			outboxWorker.debounceAndProcess(ctx)
 		case <-ticker.C:
-			w.recoverAndProcess(ctx)
+			outboxWorker.recoverAndProcess(ctx)
 		}
 	}
 }
 
-func (w *OutboxWorker) debounceAndProcess(ctx context.Context) {
-	timer := time.NewTimer(w.debounceDelay)
+func (outboxWorker *OutboxWorker) debounceAndProcess(ctx context.Context) {
+	timer := time.NewTimer(outboxWorker.debounceDelay)
 	defer timer.Stop()
 
 drainLoop:
@@ -96,49 +95,49 @@ drainLoop:
 		select {
 		case <-ctx.Done():
 			return
-		case <-w.wakeUpChan:
+		case <-outboxWorker.wakeUpChan:
 		case <-timer.C:
 			break drainLoop
 		}
 	}
 
-	w.processBatch(ctx, domain.RoutingKeyOrderCreated)
+	outboxWorker.processBatch(ctx, domain.RoutingKeyOrderCreated)
 }
 
-func (w *OutboxWorker) recoverAndProcess(ctx context.Context) {
+func (outboxWorker *OutboxWorker) recoverAndProcess(ctx context.Context) {
 	for _, eventType := range []string{domain.RoutingKeyOrderCreated} {
-		w.forEachActiveTenant(ctx, func(cfg tenantdb.Config) {
-			outboxRepository := w.repoFactory(cfg)
+		outboxWorker.forEachActiveTenant(ctx, func(cfg tenantdb.Config) {
+			outboxRepository := outboxWorker.repoFactory(cfg)
 
 			if err := outboxRepository.RecoverStuckClaims(ctx, eventType); err != nil {
 				log.Printf("OutboxWorker Warning: Stuck-claim recovery failed for '%s': %v", eventType, err)
 			}
-			w.processTenantBatch(ctx, outboxRepository, eventType)
+			outboxWorker.processTenantBatch(ctx, outboxRepository, eventType)
 		})
 	}
 }
 
-func (w *OutboxWorker) processBatch(ctx context.Context, eventType string) {
-	w.forEachActiveTenant(ctx, func(cfg tenantdb.Config) {
-		w.processTenantBatch(ctx, w.repoFactory(cfg), eventType)
+func (outboxWorker *OutboxWorker) processBatch(ctx context.Context, eventType string) {
+	outboxWorker.forEachActiveTenant(ctx, func(cfg tenantdb.Config) {
+		outboxWorker.processTenantBatch(ctx, outboxWorker.repoFactory(cfg), eventType)
 	})
 }
 
 // forEachActiveTenant iterates every tenant in the RoutingRegistry, skipping any
 // tenant whose status is MIGRATING before a single outbox query is executed.
-func (w *OutboxWorker) forEachActiveTenant(ctx context.Context, fn func(cfg tenantdb.Config)) {
-	if w.resolver == nil || w.tenantLister == nil || w.repoFactory == nil {
+func (outboxWorker *OutboxWorker) forEachActiveTenant(ctx context.Context, fn func(cfg tenantdb.Config)) {
+	if outboxWorker.resolver == nil || outboxWorker.tenantLister == nil || outboxWorker.repoFactory == nil {
 		log.Printf("OutboxWorker Warning: resolver, tenant lister or repo factory is nil; polling disabled")
 		return
 	}
 
-	for _, tenantID := range w.tenantLister.TenantIDs() {
-		if w.routingStatus != nil && w.routingStatus.GetStatus(tenantID) == "MIGRATING" {
+	for _, tenantID := range outboxWorker.tenantLister.TenantIDs() {
+		if outboxWorker.routingStatus != nil && outboxWorker.routingStatus.GetStatus(tenantID) == "MIGRATING" {
 			log.Printf("OutboxWorker: Skipping tenant='%s' — tenant is MIGRATING (migration lock active).", tenantID)
 			continue
 		}
 
-		cfg, err := w.resolver.GetTenantDB(ctx, tenantID)
+		cfg, err := outboxWorker.resolver.GetTenantDB(ctx, tenantID)
 		if err != nil {
 			log.Printf("OutboxWorker Warning: Failed to resolve DB config for tenant='%s': %v", tenantID, err)
 			continue
@@ -148,8 +147,8 @@ func (w *OutboxWorker) forEachActiveTenant(ctx context.Context, fn func(cfg tena
 	}
 }
 
-func (w *OutboxWorker) processTenantBatch(ctx context.Context, outboxRepository OutboxRepository, eventType string) {
-	messages, err := outboxRepository.FetchAndClaimBatch(ctx, eventType, w.batchSize)
+func (outboxWorker *OutboxWorker) processTenantBatch(ctx context.Context, outboxRepository OutboxRepository, eventType string) {
+	messages, err := outboxRepository.FetchAndClaimBatch(ctx, eventType, outboxWorker.batchSize)
 	if err != nil {
 		log.Printf("OutboxWorker Error: Failed to claim outbox batch for '%s': %v", eventType, err)
 		return
@@ -175,13 +174,13 @@ func (w *OutboxWorker) processTenantBatch(ctx context.Context, outboxRepository 
 			// MIGRATING guard: if the tenant is currently being migrated to a dedicated
 			// container, skip publishing and leave the message in PENDING state.
 			// The message will be re-claimed on the next poll cycle after the lock clears.
-			if w.routingStatus != nil && w.routingStatus.GetStatus(evt.TenantID) == "MIGRATING" {
+			if outboxWorker.routingStatus != nil && outboxWorker.routingStatus.GetStatus(evt.TenantID) == "MIGRATING" {
 				log.Printf("OutboxWorker: Skipping event id='%s' for tenant='%s' — tenant is MIGRATING.", msg.ID, evt.TenantID)
 				_ = outboxRepository.MarkFailed(ctx, msg.ID, migratingErr(evt.TenantID))
 				continue
 			}
 
-			pubErr = w.orderEventPublisher.PublishOrderCreated(ctx, evt)
+			pubErr = outboxWorker.orderEventPublisher.PublishOrderCreated(ctx, evt)
 
 		default:
 			log.Printf("OutboxWorker Warning: Unknown event_type='%s' for id='%s'. Skipping.", eventType, msg.ID)
@@ -199,9 +198,9 @@ func (w *OutboxWorker) processTenantBatch(ctx context.Context, outboxRepository 
 	}
 
 	// If we filled the entire batch, chain immediately to catch remaining rows.
-	if len(messages) == w.batchSize {
+	if len(messages) == outboxWorker.batchSize {
 		log.Printf("OutboxWorker: Full batch for '%s' — re-poking for more.", eventType)
-		w.Poke()
+		outboxWorker.Poke()
 	}
 }
 

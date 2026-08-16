@@ -37,7 +37,7 @@ func TestCheckFile_Rule3_1_GetReturnsCollection(t *testing.T) {
 
 type OrderRepository struct{}
 
-func (r *OrderRepository) GetOrders() ([]string, error) {
+func (orderRepository *OrderRepository) GetOrders() ([]string, error) {
 	return nil, nil
 }
 `
@@ -621,6 +621,66 @@ func TestScanService_Rule1_5_MissingCmdWorker(t *testing.T) {
 		t.Errorf("Expected violation 'missing-cmd-worker', got violations: %+v", violations)
 	}
 }
+func TestCheckFile_Rule3_4_AbbrevTxmAndNotif(t *testing.T) {
+	src := `package service
+
+func process() {
+	txm := "tx_manager"
+	notifRepo := "notif_repo"
+	_ = txm
+	_ = notifRepo
+}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "service.go", src, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse Go source: %v", err)
+	}
+
+	violations := checkFile(fset, file, "auth-service", "internal/service/service.go", false, false)
+	var hasTxm, hasNotif bool
+	for _, v := range violations {
+		if v.ID == "abbrev-txm" {
+			hasTxm = true
+		}
+		if v.ID == "abbrev-notif" {
+			hasNotif = true
+		}
+	}
+	if !hasTxm {
+		t.Errorf("Expected violation 'abbrev-txm', got: %+v", violations)
+	}
+	if !hasNotif {
+		t.Errorf("Expected violation 'abbrev-notif', got: %+v", violations)
+	}
+}
+
+func TestCheckFile_Rule3_4_AbbrevReceiver(t *testing.T) {
+	src := `package repository
+
+type UserRepository struct{}
+
+func (r *UserRepository) FindUser() {}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "user_repository.go", src, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse Go source: %v", err)
+	}
+
+	violations := checkFile(fset, file, "user-service", "internal/repository/user_repository.go", false, false)
+	hasReceiverViolation := false
+	for _, v := range violations {
+		if v.ID == "abbrev-receiver" {
+			hasReceiverViolation = true
+			break
+		}
+	}
+	if !hasReceiverViolation {
+		t.Errorf("Expected violation 'abbrev-receiver', got: %+v", violations)
+	}
+}
+
 
 
 

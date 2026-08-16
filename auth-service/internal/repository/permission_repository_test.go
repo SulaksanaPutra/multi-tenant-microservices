@@ -14,16 +14,16 @@ import (
 
 func TestPermissionRepository_Constructor(t *testing.T) {
 	client := &postgres.Client{}
-	repo := NewPermissionRepository(client)
-	if repo == nil {
+	permissionRepository := NewPermissionRepository(client)
+	if permissionRepository == nil {
 		t.Fatal("expected NewPermissionRepository to return non-nil struct pointer")
 	}
 }
 
 func TestPermissionRepository_BulkUpsertPermissions(t *testing.T) {
 	t.Run("empty items slice", func(t *testing.T) {
-		repo := NewPermissionRepository(&postgres.Client{})
-		err := repo.BulkUpsertPermissions(context.Background(), "auth-service", nil)
+		permissionRepository := NewPermissionRepository(&postgres.Client{})
+		err := permissionRepository.BulkUpsertPermissions(context.Background(), "auth-service", nil)
 		if err != nil {
 			t.Errorf("expected nil error for empty items slice, got %v", err)
 		}
@@ -41,7 +41,7 @@ func TestPermissionRepository_BulkUpsertPermissions(t *testing.T) {
 			},
 		}
 
-		repo := NewPermissionRepository(&postgres.Client{})
+		permissionRepository := NewPermissionRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
 		items := []RegisterPermissionItem{
@@ -49,7 +49,7 @@ func TestPermissionRepository_BulkUpsertPermissions(t *testing.T) {
 			{Name: "auth:write", Description: "Write auth data"},
 		}
 
-		err := repo.BulkUpsertPermissions(ctxWithExec, "auth-service", items)
+		err := permissionRepository.BulkUpsertPermissions(ctxWithExec, "auth-service", items)
 		if err != nil {
 			t.Fatalf("expected nil error, got %v", err)
 		}
@@ -77,11 +77,11 @@ func TestPermissionRepository_BulkUpsertPermissions(t *testing.T) {
 			},
 		}
 
-		repo := NewPermissionRepository(&postgres.Client{})
+		permissionRepository := NewPermissionRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
 		items := []RegisterPermissionItem{{Name: "auth:read", Description: "Read auth"}}
-		err := repo.BulkUpsertPermissions(ctxWithExec, "auth-service", items)
+		err := permissionRepository.BulkUpsertPermissions(ctxWithExec, "auth-service", items)
 		if err == nil || !errors.Is(err, dbErr) {
 			t.Errorf("expected wrapped db error, got %v", err)
 		}
@@ -97,10 +97,10 @@ func TestPermissionRepository_ListAllPermissions(t *testing.T) {
 			},
 		}
 
-		repo := NewPermissionRepository(&postgres.Client{})
+		permissionRepository := NewPermissionRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-		perms, err := repo.ListAllPermissions(ctxWithExec)
+		perms, err := permissionRepository.ListAllPermissions(ctxWithExec)
 		if perms != nil {
 			t.Errorf("expected nil perms on query error, got %v", perms)
 		}
@@ -118,11 +118,11 @@ func TestPermissionRepository_ListAllPermissions(t *testing.T) {
 			},
 		}
 
-		repo := NewPermissionRepository(&postgres.Client{})
+		permissionRepository := NewPermissionRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
 		// FindByName triggers QueryRowContext
-		_, _ = repo.FindByName(ctxWithExec, "auth:read")
+		_, _ = permissionRepository.FindByName(ctxWithExec, "auth:read")
 
 		if !strings.Contains(capturedQuery, "FROM public.permissions") || !strings.Contains(capturedQuery, "WHERE name = $1") {
 			t.Errorf("unexpected query string: %s", capturedQuery)
@@ -132,8 +132,8 @@ func TestPermissionRepository_ListAllPermissions(t *testing.T) {
 
 func TestPermissionRepository_FindByIDs(t *testing.T) {
 	t.Run("empty ids slice", func(t *testing.T) {
-		repo := NewPermissionRepository(&postgres.Client{})
-		perms, err := repo.FindByIDs(context.Background(), nil)
+		permissionRepository := NewPermissionRepository(&postgres.Client{})
+		perms, err := permissionRepository.FindByIDs(context.Background(), nil)
 		if err != nil || perms != nil {
 			t.Errorf("expected nil perms and nil error for empty ids, got perms=%v err=%v", perms, err)
 		}
@@ -147,10 +147,10 @@ func TestPermissionRepository_FindByIDs(t *testing.T) {
 			},
 		}
 
-		repo := NewPermissionRepository(&postgres.Client{})
+		permissionRepository := NewPermissionRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-		perms, err := repo.FindByIDs(ctxWithExec, []string{"p1", "p2"})
+		perms, err := permissionRepository.FindByIDs(ctxWithExec, []string{"p1", "p2"})
 		if perms != nil {
 			t.Errorf("expected nil perms on query error, got %v", perms)
 		}
@@ -172,10 +172,10 @@ func TestPermissionRepository_FindByName(t *testing.T) {
 		},
 	}
 
-	repo := NewPermissionRepository(&postgres.Client{})
+	permissionRepository := NewPermissionRepository(&postgres.Client{})
 	ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-	perm, err := repo.FindByName(ctxWithExec, "auth:read")
+	perm, err := permissionRepository.FindByName(ctxWithExec, "auth:read")
 	if perm != nil {
 		t.Errorf("expected nil perm on scan error, got %+v", perm)
 	}

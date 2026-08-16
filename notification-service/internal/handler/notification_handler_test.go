@@ -26,7 +26,7 @@ func (m *mockNotificationService) ListNotifications(ctx context.Context, tenantI
 func TestNotificationHandler_ListNotifications(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	mockSvc := &mockNotificationService{
+	mockNotificationService := &mockNotificationService{
 		listNotificationsFn: func(ctx context.Context, tenantID string) ([]service.NotificationLogOutput, error) {
 			if tenantID != "ten_test123" {
 				t.Fatalf("expected tenantID 'ten_test123', got '%s'", tenantID)
@@ -45,17 +45,17 @@ func TestNotificationHandler_ListNotifications(t *testing.T) {
 		},
 	}
 
-	h := NewNotificationHandler(mockSvc)
-	r := gin.New()
-	r.Use(func(c *gin.Context) {
+	notificationHandler := NewNotificationHandler(mockNotificationService)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
 		c.Set("tenantID", "ten_test123")
 		c.Next()
 	})
-	r.GET("/api/notifications", h.ListNotifications)
+	router.GET("/api/notifications", notificationHandler.ListNotifications)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/notifications", nil)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", w.Code)
