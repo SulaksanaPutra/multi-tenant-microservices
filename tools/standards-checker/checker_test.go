@@ -548,4 +548,80 @@ type DummyService struct{}
 	}
 }
 
+func TestCheckFile_Rule2_3_InlineLayer1Interface(t *testing.T) {
+	src := `package handler
+
+import "context"
+
+type UserService interface {
+	GetUser(ctx context.Context, id string) error
+}
+
+type UserHandler struct{}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "user_handler.go", src, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse Go source: %v", err)
+	}
+
+	violations := checkFile(fset, file, "user-service", "internal/handler/user_handler.go", false, false)
+	hasViolation := false
+	for _, v := range violations {
+		if v.ID == "inline-layer1-interface" {
+			hasViolation = true
+			break
+		}
+	}
+	if !hasViolation {
+		t.Errorf("Expected violation 'inline-layer1-interface', got violations: %+v", violations)
+	}
+}
+
+func TestScanService_Rule1_4_MissingCmdConsumer(t *testing.T) {
+	tmpDir := t.TempDir()
+	consumerDir := filepath.Join(tmpDir, "internal", "consumer")
+	_ = os.MkdirAll(consumerDir, 0755)
+	_ = os.WriteFile(filepath.Join(consumerDir, "order_consumer.go"), []byte("package consumer\n"), 0644)
+	_ = os.WriteFile(filepath.Join(consumerDir, "order_consumer_test.go"), []byte("package consumer\n"), 0644)
+	_ = os.MkdirAll(filepath.Join(tmpDir, "cmd"), 0755)
+	_ = os.WriteFile(filepath.Join(tmpDir, "cmd", "main.go"), []byte("package main\n"), 0644)
+
+	violations := scanService(filepath.Dir(tmpDir), filepath.Base(tmpDir), false)
+	hasViolation := false
+	for _, v := range violations {
+		if v.ID == "missing-cmd-consumer" {
+			hasViolation = true
+			break
+		}
+	}
+	if !hasViolation {
+		t.Errorf("Expected violation 'missing-cmd-consumer', got violations: %+v", violations)
+	}
+}
+
+func TestScanService_Rule1_5_MissingCmdWorker(t *testing.T) {
+	tmpDir := t.TempDir()
+	workerDir := filepath.Join(tmpDir, "internal", "worker")
+	_ = os.MkdirAll(workerDir, 0755)
+	_ = os.WriteFile(filepath.Join(workerDir, "outbox_worker.go"), []byte("package worker\n"), 0644)
+	_ = os.WriteFile(filepath.Join(workerDir, "outbox_worker_test.go"), []byte("package worker\n"), 0644)
+	_ = os.MkdirAll(filepath.Join(tmpDir, "cmd"), 0755)
+	_ = os.WriteFile(filepath.Join(tmpDir, "cmd", "main.go"), []byte("package main\n"), 0644)
+
+	violations := scanService(filepath.Dir(tmpDir), filepath.Base(tmpDir), false)
+	hasViolation := false
+	for _, v := range violations {
+		if v.ID == "missing-cmd-worker" {
+			hasViolation = true
+			break
+		}
+	}
+	if !hasViolation {
+		t.Errorf("Expected violation 'missing-cmd-worker', got violations: %+v", violations)
+	}
+}
+
+
+
 

@@ -12,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"payment-service/internal/consumer"
 	"payment-service/internal/domain"
 	"payment-service/internal/handler"
 	"payment-service/internal/infrastructure/authclient"
@@ -24,7 +23,6 @@ import (
 	"payment-service/internal/provider/mock"
 	"payment-service/internal/repository"
 	"payment-service/internal/service"
-	"payment-service/internal/worker"
 
 	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
@@ -127,25 +125,18 @@ func main() {
 		log.Fatalf("Failed to declare exchange: %v", err)
 	}
 
-	outboxWorker := worker.NewOutboxWorker(outboxRepository, rmqClient, 2*time.Second, 50, logger)
-	go outboxWorker.Start(context.Background())
-	defer outboxWorker.Stop()
-
-	sweeper := worker.NewExpirationSweeper(paymentService, 1*time.Minute, 24*time.Hour, logger)
-	go sweeper.Start(context.Background())
-	defer sweeper.Stop()
+	workerRunner := registerWorkers(outboxRepository, rmqClient, paymentService, logger)
+	workerRunner.start(context.Background())
+	defer workerRunner.stop()
 
 	inboxService := service.NewInboxService(inboxRepository)
 
-	orderCreatedConsumer := consumer.NewOrderCreatedConsumer(consumer.OrderCreatedConsumerParams{
-		Client:         rmqClient,
-		TxManager:      txManager,
-		InboxService:   inboxService,
-		PaymentService: paymentService,
-		Logger:         logger,
-	})
-	if err := orderCreatedConsumer.Start(context.Background()); err != nil {
-		logger.Warn("failed to start order.created consumer", "err", err)
+	consumerRunner, err := registerConsumers(rmqClient, txManager, inboxService, paymentService, logger)
+	if err != nil {
+		log.Fatalf("Failed to register consumers: %v", err)
+	}
+	if err := consumerRunner.start(context.Background()); err != nil {
+		logger.Warn("failed to start consumers", "err", err)
 	}
 
 	// 6. Register HTTP Router & Handlers

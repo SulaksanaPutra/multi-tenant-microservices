@@ -116,6 +116,38 @@ func scanService(repoRoot, service string, strict bool) []Violation {
 		}
 	}
 
+	// Rule 1.4 — Services with internal/consumer must isolate queue consumers into cmd/consumer.go
+	consumerPkgDir := filepath.Join(serviceDir, "internal", "consumer")
+	if dirHasGoFiles(consumerPkgDir) && service != "infra-provisioner" {
+		consumerCmd := filepath.Join(serviceDir, "cmd", "consumer.go")
+		if !fileExists(consumerCmd) {
+			violations = append(violations, Violation{
+				Service: service,
+				Rule:    "1.4",
+				ID:      "missing-cmd-consumer",
+				Path:    filepath.ToSlash(filepath.Join(service, "cmd", "main.go")),
+				Line:    1,
+				Message: "Service with `internal/consumer` must isolate queue consumer registration and lifecycle into `cmd/consumer.go`",
+			})
+		}
+	}
+
+	// Rule 1.5 — Services with internal/worker must isolate background workers into cmd/worker.go
+	workerPkgDir := filepath.Join(serviceDir, "internal", "worker")
+	if dirHasGoFiles(workerPkgDir) && service != "infra-provisioner" {
+		workerCmd := filepath.Join(serviceDir, "cmd", "worker.go")
+		if !fileExists(workerCmd) {
+			violations = append(violations, Violation{
+				Service: service,
+				Rule:    "1.5",
+				ID:      "missing-cmd-worker",
+				Path:    filepath.ToSlash(filepath.Join(service, "cmd", "main.go")),
+				Line:    1,
+				Message: "Service with `internal/worker` must isolate background worker registration and lifecycle into `cmd/worker.go`",
+			})
+		}
+	}
+
 	// Rule 1.2 — Microservice entrypoints must call loadEnv(".env")
 	mainCmd := filepath.Join(serviceDir, "cmd", "main.go")
 	if fileExists(mainCmd) && service != "infra-provisioner" {
@@ -436,6 +468,15 @@ func checkFile(fset *token.FileSet, file *ast.File, service, relPath string, isT
 			if strings.Contains(relPath, "/domain/") {
 				if strings.HasSuffix(fn.Name.Name, "Record") {
 					add(fn.Pos(), "6.2", "record-suffix-domain", fmt.Sprintf("domain entity `type %s` uses a prohibited `Record` suffix", fn.Name.Name))
+				}
+			}
+
+			// Rule 2.3 — Layer 1 packages (consumer/handler/worker) must not declare inline interfaces outside interfaces.go
+			if (strings.Contains(relPath, "/consumer/") || strings.Contains(relPath, "/handler/") || strings.Contains(relPath, "/worker/")) && !isTest {
+				if filepath.Base(relPath) != "interfaces.go" {
+					if _, isIface := fn.Type.(*ast.InterfaceType); isIface {
+						add(fn.Pos(), "2.3", "inline-layer1-interface", fmt.Sprintf("Layer 1 driving package declares inline interface `%s` in `%s` — Rule 2.3 mandates all outbound contracts must be declared in `interfaces.go`", fn.Name.Name, filepath.Base(relPath)))
+					}
 				}
 			}
 

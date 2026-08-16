@@ -11,7 +11,6 @@ import (
 	"strings"
 	"syscall"
 
-	"auth-service/internal/consumer"
 	"auth-service/internal/crypto"
 	"auth-service/internal/handler"
 	"auth-service/internal/infrastructure/postgres"
@@ -116,13 +115,10 @@ func main() {
 		log.Printf("Auth Service: Warning — failed to connect RabbitMQ (%v); user.created membership copy consumer disabled until restart.", rmqErr)
 	} else {
 		defer rmqClient.Close()
-		userCreatedConsumer := consumer.NewUserCreatedConsumer(consumer.UserCreatedConsumerParams{
-			TxManager:         txManager,
-			Client:            rmqClient,
-			InboxService:      inboxService,
-			MembershipService: membershipService,
-		})
-		if err := userCreatedConsumer.Start(context.Background()); err != nil {
+		consumerRunner, err := registerConsumers(txManager, rmqClient, inboxService, membershipService)
+		if err != nil {
+			log.Printf("Auth Service: Warning — failed to register consumers (%v); membership copy consumer disabled.", err)
+		} else if err := consumerRunner.start(context.Background()); err != nil {
 			log.Printf("Auth Service: Warning — failed to start UserCreatedConsumer (%v); membership copy consumer disabled.", err)
 		}
 	}

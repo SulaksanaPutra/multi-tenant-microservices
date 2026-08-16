@@ -15,11 +15,8 @@ import (
 	"order-service/internal/infrastructure/authclient"
 	"order-service/internal/infrastructure/rabbitmq"
 	"order-service/internal/infrastructure/tenantdb"
-	"order-service/internal/publisher"
 	"order-service/internal/registry"
-	"order-service/internal/repository"
 	"order-service/internal/service"
-	"order-service/internal/worker"
 )
 
 func main() {
@@ -76,22 +73,13 @@ func main() {
 	}
 
 	// 4. Initialize Outbox Worker
-	orderEventPub, err := publisher.NewOrderEventPublisher(rmqClient)
+	wRunner, err := registerWorkers(tenantDBResolver, routingRegistry, rmqClient)
 	if err != nil {
-		log.Fatalf("Failed to initialize OrderEventPublisher: %v", err)
+		log.Fatalf("Failed to register workers: %v", err)
 	}
-	outboxWorker := worker.NewOutboxWorker(
-		tenantDBResolver,
-		routingRegistry,
-		routingRegistry,
-		func(cfg tenantdb.Config) worker.OutboxRepository {
-			return repository.NewOutboxRepository(cfg)
-		},
-		orderEventPub,
-	)
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	defer workerCancel()
-	go outboxWorker.Start(workerCtx)
+	wRunner.start(workerCtx)
 
 	// 5. Register & Start Inbound Consumers
 	cRunner, err := registerConsumers(rmqClient, migrationService, poolRegistry, routingRegistry, sharedSecret, sharedDBPass)
