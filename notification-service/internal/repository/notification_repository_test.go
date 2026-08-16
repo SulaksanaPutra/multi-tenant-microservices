@@ -187,6 +187,24 @@ func TestNotificationRepository_UpdateNotificationStatus_RowsAffectedError(t *te
 	}
 }
 
+func TestNotificationRepository_GetPendingNotification_Error(t *testing.T) {
+	mockExec := &testutil.MockDBExecutor{}
+
+	repo := NewNotificationRepository(&postgres.Client{})
+	ctx := txcontext.WithExecutor(context.Background(), mockExec)
+
+	pendingLog, err := repo.GetPendingNotification(ctx, "tenant-1")
+	if err == nil {
+		t.Fatal("expected error from QueryRowContext Scan on nil Row, got nil")
+	}
+	if pendingLog != nil {
+		t.Errorf("expected pendingLog to be nil on error, got %v", pendingLog)
+	}
+	if !strings.Contains(err.Error(), "failed to query pending notification for tenant_id='tenant-1'") {
+		t.Errorf("expected wrapped error message, got: %v", err)
+	}
+}
+
 func TestNotificationRepository_UpdateNotificationStatus_NotFound(t *testing.T) {
 	mockExec := &testutil.MockDBExecutor{
 		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {

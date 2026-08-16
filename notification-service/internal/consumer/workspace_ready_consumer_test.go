@@ -183,7 +183,7 @@ func TestWorkspaceReadyConsumer_HandleDelivery_NoEmailWhenBarrierNotMet(t *testi
 func TestWorkspaceReadyConsumer_HandleDelivery_MisroutedRoutingKey_AcksAndDiscards(t *testing.T) {
 	// Simulates a ghost AMQP binding delivering a user.created message to
 	// the notification_service_workspace_ready queue. The routing key guard must
-	// discard silently with Ack  Eno inbox write, no notification service call.
+	// discard silently with Ack — no inbox write, no notification service call.
 	body, _ := json.Marshal(domain.UserCreatedEvent{
 		EventID:  "evt-misrouted-2",
 		UserID:   "usr_999",
@@ -230,5 +230,75 @@ func TestWorkspaceReadyConsumer_HandleDelivery_MisroutedRoutingKey_AcksAndDiscar
 	}
 	if notifCalled {
 		t.Error("expected notification service NOT to be called for misrouted message")
+	}
+}
+
+func TestWorkspaceReadyConsumer_HandleDelivery_DuplicateInbox_AlreadySent_Acks(t *testing.T) {
+	body := makeWorkspaceReadyBody(t)
+
+	inbox := &mockInboxService{
+		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
+			return true, nil // duplicate
+		},
+	}
+	notifSvc := &mockNotificationService{
+		hasSentNotificationFunc: func(ctx context.Context, tenantID string) (bool, error) {
+			return true, nil // already sent
+		},
+	}
+
+	c := newWorkspaceReadyConsumer(&mockTxManager{}, inbox, notifSvc, nil, &mockMailer{})
+	mockAck := &mockAcknowledger{}
+	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
+
+	err := c.handleDelivery(context.Background(), d)
+	if err != nil {
+		t.Fatalf("expected no error on duplicate, got %v", err)
+	}
+	if !mockAck.ackCalled {
+		t.Error("expected ACK on duplicate when already sent (idempotent skip)")
+	}
+}
+
+func TestWorkspaceReadyConsumer_HandleDelivery_DuplicateInbox_Pending_RetriesAndSends(t *testing.T) {
+	body := makeWorkspaceReadyBody(t)
+
+	inbox := &mockInboxService{
+		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
+			return true, nil // duplicate event_id
+		},
+	}
+	emailSent := false
+	notifSvc := &mockNotificationService{
+		hasSentNotificationFunc: func(ctx context.Context, tenantID string) (bool, error) {
+			return false, nil // NOT yet sent!
+		},
+		processEventAndTrySendWelcomeFunc: func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
+			return &service.ProcessEventOutput{LogID: "ntf_retry_2", RecipientEmail: "owner@company.com", TenantID: "tenant-88"}, nil
+		},
+		updateNotificationStatusFunc: func(ctx context.Context, logID string, status string) error {
+			return nil
+		},
+	}
+	mailer := &mockMailer{
+		sendWelcomeEmailFunc: func(recipientEmail, tenantID, tenantName, tenantSlug, ownerName, setupToken string) (string, string, error) {
+			emailSent = true
+			return "Welcome", "Body", nil
+		},
+	}
+
+	c := newWorkspaceReadyConsumer(&mockTxManager{}, inbox, notifSvc, nil, mailer)
+	mockAck := &mockAcknowledger{}
+	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
+
+	err := c.handleDelivery(context.Background(), d)
+	if err != nil {
+		t.Fatalf("expected no error on duplicate retry, got %v", err)
+	}
+	if !emailSent {
+		t.Error("expected email to be dispatched during retry even if isDup is true")
+	}
+	if !mockAck.ackCalled {
+		t.Error("expected ACK after successful email dispatch")
 	}
 }

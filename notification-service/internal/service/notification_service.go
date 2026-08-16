@@ -61,6 +61,7 @@ type NotificationRepository interface {
 	CreateNotificationLog(ctx context.Context, input repository.CreateNotificationLogInput) (string, error)
 	UpdateNotificationStatus(ctx context.Context, id string, status string) error
 	HasSentNotification(ctx context.Context, tenantID string) (bool, error)
+	GetPendingNotification(ctx context.Context, tenantID string) (*domain.NotificationLog, error)
 	ListNotifications(ctx context.Context, tenantID string) ([]domain.NotificationLog, error)
 }
 
@@ -74,6 +75,13 @@ func NewNotificationService(
 	return &NotificationService{
 		notificationRepository: notificationRepository,
 	}
+}
+
+func (s *NotificationService) HasSentNotification(ctx context.Context, tenantID string) (bool, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return false, domain.ErrTenantIDRequired
+	}
+	return s.notificationRepository.HasSentNotification(ctx, tenantID)
 }
 
 // CreateOrderNotification persists a notification audit log for an order.created
@@ -228,35 +236,47 @@ func (s *NotificationService) ProcessEventAndTrySendWelcome(
 		return nil, nil
 	}
 
-	// Tenant display name: prefer the human-readable name carried on the
-	// workspace.ready event; fall back to the opaque tenant ID for events
-	// published before tenant info was added to the payload.
-	displayName := tenantName
-	if strings.TrimSpace(displayName) == "" {
-		displayName = input.TenantID
+	// Check if a pending notification log was already recorded on an earlier attempt (e.g. before retry).
+	existingPending, err := s.notificationRepository.GetPendingNotification(ctx, input.TenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed checking pending notification for tenant_id='%s': %w", input.TenantID, err)
 	}
 
-	description := "Welcome! Your Tenant Workspace is Ready"
-	if strings.TrimSpace(tenantName) != "" {
-		description = fmt.Sprintf("Welcome to %s!", tenantName)
-	}
-	bodyText := buildWelcomeBody(displayName, tenantSlug, ownerName)
+	var logID string
+	if existingPending != nil {
+		logID = existingPending.ID
+		log.Printf("NotificationService: Reusing existing pending notification log id=%s for tenant_id='%s'", logID, input.TenantID)
+	} else {
+		// Tenant display name: prefer the human-readable name carried on the
+		// workspace.ready event; fall back to the opaque tenant ID for events
+		// published before tenant info was added to the payload.
+		displayName := tenantName
+		if strings.TrimSpace(displayName) == "" {
+			displayName = input.TenantID
+		}
 
-	// Write an audit log with the status "pending" inside the caller's transaction.
-	// The consumer updates this to "sent" after the SMTP call succeeds post-commit.
-	auditLogInput := repository.CreateNotificationLogInput{
-		UserID:      userID,
-		TenantID:    input.TenantID,
-		Description: description,
-		Body:        bodyText,
-		Status:      "pending",
-	}
-	logID, dbErr := s.notificationRepository.CreateNotificationLog(ctx, auditLogInput)
-	if dbErr != nil {
-		return nil, fmt.Errorf("failed to persist notification audit log: %w", dbErr)
-	}
+		description := "Welcome! Your Tenant Workspace is Ready"
+		if strings.TrimSpace(tenantName) != "" {
+			description = fmt.Sprintf("Welcome to %s!", tenantName)
+		}
+		bodyText := buildWelcomeBody(displayName, tenantSlug, ownerName)
 
-	log.Printf("NotificationService: Barrier metdomain — persisted pending notification log id=%s for event_id='%s'", logID, input.EventID)
+		// Write an audit log with the status "pending" inside the caller's transaction.
+		// The consumer updates this to "sent" after the SMTP call succeeds post-commit.
+		auditLogInput := repository.CreateNotificationLogInput{
+			UserID:      userID,
+			TenantID:    input.TenantID,
+			Description: description,
+			Body:        bodyText,
+			Status:      "pending",
+		}
+		newID, dbErr := s.notificationRepository.CreateNotificationLog(ctx, auditLogInput)
+		if dbErr != nil {
+			return nil, fmt.Errorf("failed to persist notification audit log: %w", dbErr)
+		}
+		logID = newID
+		log.Printf("NotificationService: Barrier met — persisted pending notification log id=%s for event_id='%s'", logID, input.EventID)
+	}
 
 	return &ProcessEventOutput{
 		LogID:          logID,

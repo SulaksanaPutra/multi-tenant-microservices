@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"notification-service/internal/domain"
@@ -74,6 +76,26 @@ func (r *NotificationRepository) HasSentNotification(ctx context.Context, tenant
 		return false, fmt.Errorf("failed to check notification status for tenant_id='%s': %w", tenantID, err)
 	}
 	return count > 0, nil
+}
+
+func (r *NotificationRepository) GetPendingNotification(ctx context.Context, tenantID string) (*domain.NotificationLog, error) {
+	exec := txcontext.GetExecutor(ctx, r.dbClient)
+	const query = `
+		SELECT id, user_id, tenant_id, description, body, status, created_at, updated_at
+		FROM public.notifications
+		WHERE tenant_id = $1 AND status = 'pending'
+		ORDER BY created_at DESC
+		LIMIT 1;
+	`
+	var l domain.NotificationLog
+	err := exec.QueryRowContext(ctx, query, tenantID).Scan(&l.ID, &l.UserID, &l.TenantID, &l.Description, &l.Body, &l.Status, &l.CreatedAt, &l.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to query pending notification for tenant_id='%s': %w", tenantID, err)
+	}
+	return &l, nil
 }
 
 func (r *NotificationRepository) ListNotifications(ctx context.Context, tenantID string) ([]domain.NotificationLog, error) {

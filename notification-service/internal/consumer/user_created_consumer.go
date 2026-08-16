@@ -149,8 +149,15 @@ func (c *UserCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Del
 			return fmt.Errorf("inbox guard failed: %w", err)
 		}
 		if isDup {
-			log.Printf("UserCreatedConsumer: Duplicate event_id='%s' detected by Inbox guard. Skipping.", evt.EventID)
-			return nil
+			alreadySent, err := c.notificationService.HasSentNotification(txCtx, evt.TenantID)
+			if err != nil {
+				return fmt.Errorf("failed checking welcome email sent status for duplicate event_id='%s': %w", evt.EventID, err)
+			}
+			if alreadySent {
+				log.Printf("UserCreatedConsumer: Duplicate event_id='%s' detected and welcome email already sent. Skipping.", evt.EventID)
+				return nil
+			}
+			log.Printf("UserCreatedConsumer: Duplicate event_id='%s' detected, but welcome email is not yet sent. Resuming barrier check.", evt.EventID)
 		}
 
 		events, err := c.inboxService.ListBarrierEvents(txCtx, evt.TenantID)

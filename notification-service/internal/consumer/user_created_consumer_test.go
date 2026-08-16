@@ -25,6 +25,7 @@ func (m *mockTxManager) WithTransaction(ctx context.Context, fn func(txCtx conte
 type mockNotificationService struct {
 	processEventAndTrySendWelcomeFunc func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error)
 	updateNotificationStatusFunc      func(ctx context.Context, logID string, status string) error
+	hasSentNotificationFunc          func(ctx context.Context, tenantID string) (bool, error)
 	createOrderNotificationFunc       func(ctx context.Context, evt domain.OrderCreatedEvent) error
 }
 
@@ -40,6 +41,13 @@ func (m *mockNotificationService) UpdateNotificationStatus(ctx context.Context, 
 		return m.updateNotificationStatusFunc(ctx, logID, status)
 	}
 	return nil
+}
+
+func (m *mockNotificationService) HasSentNotification(ctx context.Context, tenantID string) (bool, error) {
+	if m.hasSentNotificationFunc != nil {
+		return m.hasSentNotificationFunc(ctx, tenantID)
+	}
+	return false, nil
 }
 
 func (m *mockNotificationService) CreateOrderNotification(ctx context.Context, evt domain.OrderCreatedEvent) error {
@@ -201,16 +209,21 @@ func TestUserCreatedConsumer_HandleDelivery_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestUserCreatedConsumer_HandleDelivery_DuplicateInbox_Acks(t *testing.T) {
+func TestUserCreatedConsumer_HandleDelivery_DuplicateInbox_AlreadySent_Acks(t *testing.T) {
 	body := makeUserCreatedBody(t)
 
 	inbox := &mockInboxService{
 		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
-			return true, nil // duplicate  Eskip cleanly
+			return true, nil // duplicate
+		},
+	}
+	notifSvc := &mockNotificationService{
+		hasSentNotificationFunc: func(ctx context.Context, tenantID string) (bool, error) {
+			return true, nil // already sent
 		},
 	}
 
-	c := newUserCreatedConsumer(&mockTxManager{}, inbox, &mockNotificationService{}, nil, &mockMailer{})
+	c := newUserCreatedConsumer(&mockTxManager{}, inbox, notifSvc, nil, &mockMailer{})
 	mockAck := &mockAcknowledger{}
 	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
 
@@ -219,7 +232,50 @@ func TestUserCreatedConsumer_HandleDelivery_DuplicateInbox_Acks(t *testing.T) {
 		t.Fatalf("expected no error on duplicate, got %v", err)
 	}
 	if !mockAck.ackCalled {
-		t.Error("expected ACK even on duplicate (idempotent skip)")
+		t.Error("expected ACK on duplicate when already sent (idempotent skip)")
+	}
+}
+
+func TestUserCreatedConsumer_HandleDelivery_DuplicateInbox_Pending_RetriesAndSends(t *testing.T) {
+	body := makeUserCreatedBody(t)
+
+	inbox := &mockInboxService{
+		claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
+			return true, nil // duplicate event_id
+		},
+	}
+	emailSent := false
+	notifSvc := &mockNotificationService{
+		hasSentNotificationFunc: func(ctx context.Context, tenantID string) (bool, error) {
+			return false, nil // NOT yet sent!
+		},
+		processEventAndTrySendWelcomeFunc: func(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error) {
+			return &service.ProcessEventOutput{LogID: "ntf_retry_1", UserID: "usr_100", RecipientEmail: "john@example.com", TenantID: "tenant-99"}, nil
+		},
+		updateNotificationStatusFunc: func(ctx context.Context, logID string, status string) error {
+			return nil
+		},
+	}
+	mailer := &mockMailer{
+		sendWelcomeEmailFunc: func(recipientEmail, tenantID, tenantName, tenantSlug, ownerName, setupToken string) (string, string, error) {
+			emailSent = true
+			return "Welcome", "Body", nil
+		},
+	}
+
+	c := newUserCreatedConsumer(&mockTxManager{}, inbox, notifSvc, nil, mailer)
+	mockAck := &mockAcknowledger{}
+	d := rabbitmq.Delivery{Acknowledger: mockAck, Body: body}
+
+	err := c.handleDelivery(context.Background(), d)
+	if err != nil {
+		t.Fatalf("expected no error on duplicate retry, got %v", err)
+	}
+	if !emailSent {
+		t.Error("expected email to be dispatched during retry even if isDup is true")
+	}
+	if !mockAck.ackCalled {
+		t.Error("expected ACK after successful email dispatch")
 	}
 }
 

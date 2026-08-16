@@ -41,6 +41,7 @@ type InboxService interface {
 type NotificationService interface {
 	ProcessEventAndTrySendWelcome(ctx context.Context, input service.ProcessEventInput, events []domain.InboxMessage) (*service.ProcessEventOutput, error)
 	UpdateNotificationStatus(ctx context.Context, logID string, status string) error
+	HasSentNotification(ctx context.Context, tenantID string) (bool, error)
 }
 
 // OrderNotificationService is the consumer-side interface for order notification flows.

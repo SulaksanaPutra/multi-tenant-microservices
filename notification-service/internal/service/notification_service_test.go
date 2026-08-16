@@ -19,6 +19,7 @@ type mockNotificationRepo struct {
 	createNotificationLogFunc    func(ctx context.Context, input repository.CreateNotificationLogInput) (string, error)
 	updateNotificationStatusFunc func(ctx context.Context, id string, status string) error
 	hasSentNotificationFunc      func(ctx context.Context, tenantID string) (bool, error)
+	getPendingNotificationFunc   func(ctx context.Context, tenantID string) (*domain.NotificationLog, error)
 	listNotificationsFunc        func(ctx context.Context, tenantID string) ([]domain.NotificationLog, error)
 }
 
@@ -41,6 +42,13 @@ func (m *mockNotificationRepo) HasSentNotification(ctx context.Context, tenantID
 		return m.hasSentNotificationFunc(ctx, tenantID)
 	}
 	return false, nil
+}
+
+func (m *mockNotificationRepo) GetPendingNotification(ctx context.Context, tenantID string) (*domain.NotificationLog, error) {
+	if m.getPendingNotificationFunc != nil {
+		return m.getPendingNotificationFunc(ctx, tenantID)
+	}
+	return nil, nil
 }
 
 func (m *mockNotificationRepo) ListNotifications(ctx context.Context, tenantID string) ([]domain.NotificationLog, error) {
@@ -191,6 +199,21 @@ func TestProcessEventAndTrySendWelcome_Errors(t *testing.T) {
 		}
 	})
 
+	t.Run("GetPendingNotification error", func(t *testing.T) {
+		notifRepo := &mockNotificationRepo{
+			getPendingNotificationFunc: func(ctx context.Context, tenantID string) (*domain.NotificationLog, error) {
+				return nil, expectedErr
+			},
+		}
+		svc := NewNotificationService(notifRepo)
+		_, err := svc.ProcessEventAndTrySendWelcome(context.Background(),
+			ProcessEventInput{EventID: "e-1", TenantID: "t-1"},
+			bothBarrierEvents())
+		if !errors.Is(err, expectedErr) {
+			t.Errorf("expected error %v, got %v", expectedErr, err)
+		}
+	})
+
 	t.Run("CreateNotificationLog error", func(t *testing.T) {
 		notifRepo := &mockNotificationRepo{
 			createNotificationLogFunc: func(ctx context.Context, input repository.CreateNotificationLogInput) (string, error) {
@@ -203,6 +226,69 @@ func TestProcessEventAndTrySendWelcome_Errors(t *testing.T) {
 			bothBarrierEvents())
 		if !errors.Is(err, expectedErr) {
 			t.Errorf("expected error %v, got %v", expectedErr, err)
+		}
+	})
+}
+
+func TestProcessEventAndTrySendWelcome_ReusesExistingPendingLog(t *testing.T) {
+	createCalled := false
+	notifRepo := &mockNotificationRepo{
+		getPendingNotificationFunc: func(ctx context.Context, tenantID string) (*domain.NotificationLog, error) {
+			return &domain.NotificationLog{
+				ID:       "ntf_existing_pending_1",
+				TenantID: tenantID,
+				Status:   "pending",
+			}, nil
+		},
+		createNotificationLogFunc: func(ctx context.Context, input repository.CreateNotificationLogInput) (string, error) {
+			createCalled = true
+			return "ntf_should_not_be_called", nil
+		},
+	}
+	svc := NewNotificationService(notifRepo)
+
+	details, err := svc.ProcessEventAndTrySendWelcome(context.Background(), ProcessEventInput{
+		EventID:   "evt-retry",
+		TenantID:  "tenant-retry",
+		EventType: "user.created",
+	}, bothBarrierEvents())
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if details == nil {
+		t.Fatal("expected non-nil ProcessEventOutput when barrier met")
+	}
+	if details.LogID != "ntf_existing_pending_1" {
+		t.Errorf("expected reused LogID 'ntf_existing_pending_1', got '%s'", details.LogID)
+	}
+	if createCalled {
+		t.Errorf("expected CreateNotificationLog NOT to be called when pending log already exists")
+	}
+}
+
+func TestNotificationService_HasSentNotification(t *testing.T) {
+	t.Run("empty tenant_id returns ErrTenantIDRequired", func(t *testing.T) {
+		svc := newSvc()
+		_, err := svc.HasSentNotification(context.Background(), "")
+		if !errors.Is(err, domain.ErrTenantIDRequired) {
+			t.Errorf("expected ErrTenantIDRequired, got %v", err)
+		}
+	})
+
+	t.Run("delegates to repo", func(t *testing.T) {
+		notifRepo := &mockNotificationRepo{
+			hasSentNotificationFunc: func(ctx context.Context, tenantID string) (bool, error) {
+				return true, nil
+			},
+		}
+		svc := NewNotificationService(notifRepo)
+		sent, err := svc.HasSentNotification(context.Background(), "t-1")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !sent {
+			t.Errorf("expected sent=true, got false")
 		}
 	})
 }
