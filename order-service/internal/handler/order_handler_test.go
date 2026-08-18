@@ -272,13 +272,13 @@ type functionalStubOrderService struct {
 	createOrderFn func(ctx context.Context, input service.CreateOrderInput) (*service.OrderOutput, error)
 }
 
-func (s *functionalStubOrderService) ListOrders(ctx context.Context) ([]service.OrderOutput, error) {
+func (functionalStubOrderService *functionalStubOrderService) ListOrders(ctx context.Context) ([]service.OrderOutput, error) {
 	return nil, nil
 }
 
-func (s *functionalStubOrderService) CreateOrder(ctx context.Context, input service.CreateOrderInput) (*service.OrderOutput, error) {
-	if s.createOrderFn != nil {
-		return s.createOrderFn(ctx, input)
+func (functionalStubOrderService *functionalStubOrderService) CreateOrder(ctx context.Context, input service.CreateOrderInput) (*service.OrderOutput, error) {
+	if functionalStubOrderService.createOrderFn != nil {
+		return functionalStubOrderService.createOrderFn(ctx, input)
 	}
 	return nil, nil
 }

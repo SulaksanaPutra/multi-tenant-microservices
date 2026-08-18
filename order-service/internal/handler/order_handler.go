@@ -76,8 +76,8 @@ func WithTxManagerFactory(txFactory TxManagerFactory) func(*OrderHandler) {
 }
 
 func (orderHandler *OrderHandler) getService(c *gin.Context) (OrderService, bool) {
-	svc, _, ok := orderHandler.getServiceAndConfig(c)
-	return svc, ok
+	orderService, _, ok := orderHandler.getServiceAndConfig(c)
+	return orderService, ok
 }
 
 func (orderHandler *OrderHandler) getServiceAndConfig(c *gin.Context) (OrderService, tenantdb.Config, bool) {
@@ -143,8 +143,8 @@ func (orderHandler *OrderHandler) CreateOrder(c *gin.Context) {
 	}
 
 	var order *service.OrderOutput
-	txMgr := orderHandler.getTxManager(tenantCfg)
-	err := txMgr.WithTransaction(c.Request.Context(), func(txCtx context.Context) error {
+	txManager := orderHandler.getTxManager(tenantCfg)
+	err := txManager.WithTransaction(c.Request.Context(), func(txCtx context.Context) error {
 		var err error
 		order, err = orderService.CreateOrder(txCtx, input)
 		return err
