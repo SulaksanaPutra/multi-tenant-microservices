@@ -125,3 +125,31 @@ func TestPaymentOutboxRepository_MarkFailed(t *testing.T) {
 		t.Errorf("unexpected captured args: %v", capturedArgs)
 	}
 }
+
+func TestPaymentOutboxRepository_FetchPending_QueryCheck(t *testing.T) {
+	var capturedQuery string
+	var capturedArgs []any
+
+	mockExec := &testutil.MockDBExecutor{
+		QueryContextFn: func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+			capturedQuery = query
+			capturedArgs = args
+			return nil, errors.New("query executed")
+		},
+	}
+
+	outboxRepository := NewOutboxRepository(&postgres.Client{})
+	ctx := txcontext.WithExecutor(context.Background(), mockExec)
+
+	_, _ = outboxRepository.FetchPending(ctx, 25)
+
+	if !strings.Contains(capturedQuery, "FOR UPDATE SKIP LOCKED") {
+		t.Errorf("expected query to contain 'FOR UPDATE SKIP LOCKED', got: %s", capturedQuery)
+	}
+	if !strings.Contains(capturedQuery, "WITH claimed AS") {
+		t.Errorf("expected query to contain CTE 'WITH claimed AS', got: %s", capturedQuery)
+	}
+	if len(capturedArgs) != 1 || capturedArgs[0] != 25 {
+		t.Errorf("expected limit arg 25, got: %v", capturedArgs)
+	}
+}

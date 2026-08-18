@@ -37,4 +37,5 @@ type InboxService interface {
 // PaymentInitiator is the consumer-side interface for initiating payments on order events.
 type PaymentInitiator interface {
 	InitiatePayment(ctx context.Context, tenantID, orderID string, amount float64, currency string) (*service.PaymentOutput, error)
+	GeneratePaymentInstructions(ctx context.Context, paymentID string) error
 }

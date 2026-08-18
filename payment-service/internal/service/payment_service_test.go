@@ -190,3 +190,25 @@ func TestPaymentService_SweepExpiredPayments(t *testing.T) {
 		t.Errorf("expected 1 expired payment swept, got %d", count)
 	}
 }
+
+func TestPaymentService_InitiatePayment(t *testing.T) {
+	var createdInput repository.CreatePaymentInput
+	paymentRepository := &mockPaymentRepository{
+		createFn: func(ctx context.Context, input repository.CreatePaymentInput) error {
+			createdInput = input
+			return nil
+		},
+	}
+	paymentService := NewPaymentService(nil, paymentRepository, &mockInboxRepository{}, &mockOutboxRepository{}, &mockPSPConfigRepository{}, &mockTenantPSPResolver{}, &mockProviderRegistry{}, []byte("key"), nil)
+
+	p, err := paymentService.InitiatePayment(context.Background(), "tnt_99", "ord_99", 150.0, "USD")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p.TenantID != "tnt_99" || p.OrderID != "ord_99" || p.Amount != 150.0 {
+		t.Errorf("unexpected payment output: %+v", p)
+	}
+	if createdInput.Status != domain.PaymentStatusPending {
+		t.Errorf("expected PENDING status on create, got %s", createdInput.Status)
+	}
+}

@@ -54,11 +54,21 @@ func (outboxRepository *OutboxRepository) FetchPending(ctx context.Context, limi
 	exec := txcontext.GetExecutor(ctx, outboxRepository.dbClient)
 
 	query := `
+		WITH claimed AS (
+			UPDATE payment_outbox
+			SET status = 'PROCESSING'
+			WHERE event_id IN (
+				SELECT event_id
+				FROM payment_outbox
+				WHERE status = 'PENDING' OR (status = 'PROCESSING' AND created_at < NOW() - INTERVAL '5 minutes')
+				ORDER BY created_at ASC
+				LIMIT $1
+				FOR UPDATE SKIP LOCKED
+			)
+			RETURNING event_id, routing_key, payload, status, retry_count, last_error, created_at, published_at
+		)
 		SELECT event_id, routing_key, payload, status, retry_count, last_error, created_at, published_at
-		FROM payment_outbox
-		WHERE status = 'PENDING'
-		ORDER BY created_at ASC
-		LIMIT $1
+		FROM claimed;
 	`
 
 	rows, err := exec.QueryContext(ctx, query, limit)
@@ -104,6 +114,7 @@ func (outboxRepository *OutboxRepository) MarkFailed(ctx context.Context, eventI
 
 	query := `
 		UPDATE payment_outbox SET
+			status = 'PENDING',
 			retry_count = retry_count + 1,
 			last_error = $1
 		WHERE event_id = $2

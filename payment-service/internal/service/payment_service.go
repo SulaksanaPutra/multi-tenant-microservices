@@ -218,34 +218,32 @@ func (paymentService *PaymentService) InitiatePayment(ctx context.Context, tenan
 		UpdatedAt: time.Now(),
 	}
 
-	err := paymentService.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-		return paymentService.paymentRepository.Create(txCtx, repository.CreatePaymentInput{
-			ID:                p.ID,
-			TenantID:          p.TenantID,
-			OrderID:           p.OrderID,
-			Amount:            p.Amount,
-			Currency:          p.Currency,
-			Status:            p.Status,
-			Provider:          p.Provider,
-			ExternalID:        p.ExternalID,
-			Instructions:      p.Instructions,
-			RawWebhookPayload: p.RawWebhookPayload,
-			CreatedAt:         p.CreatedAt,
-			UpdatedAt:         p.UpdatedAt,
+	createInput := repository.CreatePaymentInput{
+		ID:                p.ID,
+		TenantID:          p.TenantID,
+		OrderID:           p.OrderID,
+		Amount:            p.Amount,
+		Currency:          p.Currency,
+		Status:            p.Status,
+		Provider:          p.Provider,
+		ExternalID:        p.ExternalID,
+		Instructions:      p.Instructions,
+		RawWebhookPayload: p.RawWebhookPayload,
+		CreatedAt:         p.CreatedAt,
+		UpdatedAt:         p.UpdatedAt,
+	}
+
+	var err error
+	if paymentService.txManager != nil {
+		err = paymentService.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+			return paymentService.paymentRepository.Create(txCtx, createInput)
 		})
-	})
+	} else {
+		err = paymentService.paymentRepository.Create(ctx, createInput)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to initiate payment: %w", err)
 	}
-
-	// Trigger async payment instruction generation
-	go func() {
-		asyncCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := paymentService.GeneratePaymentInstructions(asyncCtx, p.ID); err != nil {
-			paymentService.logger.Error("async payment instruction generation failed", "payment_id", p.ID, "err", err)
-		}
-	}()
 
 	return toPaymentOutput(p), nil
 }

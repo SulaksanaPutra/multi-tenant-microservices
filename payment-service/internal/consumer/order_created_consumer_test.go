@@ -88,7 +88,8 @@ func (m *mockInboxService) ClaimEvent(txCtx context.Context, input service.Claim
 }
 
 type mockInitiator struct {
-	initiateFn func(ctx context.Context, tenantID, orderID string, amount float64, currency string) (*service.PaymentOutput, error)
+	initiateFn             func(ctx context.Context, tenantID, orderID string, amount float64, currency string) (*service.PaymentOutput, error)
+	generateInstructionsFn func(ctx context.Context, paymentID string) error
 }
 
 func (m *mockInitiator) InitiatePayment(ctx context.Context, tenantID, orderID string, amount float64, currency string) (*service.PaymentOutput, error) {
@@ -96,6 +97,13 @@ func (m *mockInitiator) InitiatePayment(ctx context.Context, tenantID, orderID s
 		return m.initiateFn(ctx, tenantID, orderID, amount, currency)
 	}
 	return &service.PaymentOutput{ID: "pay_1"}, nil
+}
+
+func (m *mockInitiator) GeneratePaymentInstructions(ctx context.Context, paymentID string) error {
+	if m.generateInstructionsFn != nil {
+		return m.generateInstructionsFn(ctx, paymentID)
+	}
+	return nil
 }
 
 func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
@@ -117,10 +125,15 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			},
 		}
 		var initiatedOrder string
+		var generatedPaymentID string
 		paymentService := &mockInitiator{
 			initiateFn: func(ctx context.Context, tenantID, orderID string, amount float64, currency string) (*service.PaymentOutput, error) {
 				initiatedOrder = orderID
 				return &service.PaymentOutput{ID: "pay_99"}, nil
+			},
+			generateInstructionsFn: func(ctx context.Context, paymentID string) error {
+				generatedPaymentID = paymentID
+				return nil
 			},
 		}
 
@@ -147,6 +160,9 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 		}
 		if initiatedOrder != "ord_99" {
 			t.Errorf("expected order 'ord_99' to be initiated, got '%s'", initiatedOrder)
+		}
+		if generatedPaymentID != "pay_99" {
+			t.Errorf("expected payment 'pay_99' instructions to be generated, got '%s'", generatedPaymentID)
 		}
 	})
 

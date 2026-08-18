@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"testing"
+	"time"
 
 	"payment-service/internal/domain"
 )
@@ -39,5 +40,14 @@ func TestPostgresTenantPSPResolver_DefaultFallback(t *testing.T) {
 	resolver.InvalidateCache("tenant_alpha")
 	if len(resolver.inMemoryCache) != 0 {
 		t.Fatalf("expected empty cache after invalidation")
+	}
+
+	// Test cache TTL expiry
+	resolver.cacheTTL = 1 * time.Nanosecond
+	cfg1, _ := resolver.ResolveConfig(context.Background(), "tenant_beta")
+	time.Sleep(2 * time.Millisecond)
+	cfg2, _ := resolver.ResolveConfig(context.Background(), "tenant_beta")
+	if cfg1 == cfg2 {
+		t.Fatalf("expected new pointer after cache TTL expiry")
 	}
 }

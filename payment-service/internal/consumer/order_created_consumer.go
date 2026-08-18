@@ -135,24 +135,29 @@ func (orderCreatedConsumer *OrderCreatedConsumer) handleDelivery(ctx context.Con
 
 	orderCreatedConsumer.logger.Info("received order.created event", "event_id", evt.EventID, "order_id", evt.OrderID, "tenant_id", evt.TenantID)
 
+	var paymentOutput *service.PaymentOutput
+	var isDup bool
+
 	err := orderCreatedConsumer.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-		isDup, err := orderCreatedConsumer.inboxService.ClaimEvent(txCtx, service.ClaimInboxInput{
+		var claimErr error
+		isDup, claimErr = orderCreatedConsumer.inboxService.ClaimEvent(txCtx, service.ClaimInboxInput{
 			EventID:   evt.EventID,
 			TenantID:  evt.TenantID,
 			EventType: domain.RoutingKeyOrderCreated,
 			Payload:   d.Body,
 		})
-		if err != nil {
-			return fmt.Errorf("inbox guard failed: %w", err)
+		if claimErr != nil {
+			return fmt.Errorf("inbox guard failed: %w", claimErr)
 		}
 		if isDup {
 			orderCreatedConsumer.logger.Info("duplicate order.created event detected by inbox guard; skipping", "event_id", evt.EventID)
 			return nil
 		}
 
-		_, err = orderCreatedConsumer.paymentService.InitiatePayment(txCtx, evt.TenantID, evt.OrderID, evt.Amount, "USD")
-		if err != nil {
-			return fmt.Errorf("failed to initiate payment: %w", err)
+		var initErr error
+		paymentOutput, initErr = orderCreatedConsumer.paymentService.InitiatePayment(txCtx, evt.TenantID, evt.OrderID, evt.Amount, "USD")
+		if initErr != nil {
+			return fmt.Errorf("failed to initiate payment: %w", initErr)
 		}
 		return nil
 	})
@@ -161,6 +166,17 @@ func (orderCreatedConsumer *OrderCreatedConsumer) handleDelivery(ctx context.Con
 		orderCreatedConsumer.logger.Error("failed to process order.created event; requeueing", "event_id", evt.EventID, "order_id", evt.OrderID, "err", err)
 		_ = d.Nack(false, true)
 		return
+	}
+
+	if isDup {
+		_ = d.Ack(false)
+		return
+	}
+
+	if paymentOutput != nil {
+		if err := orderCreatedConsumer.paymentService.GeneratePaymentInstructions(ctx, paymentOutput.ID); err != nil {
+			orderCreatedConsumer.logger.Error("failed to generate payment instructions", "payment_id", paymentOutput.ID, "err", err)
+		}
 	}
 
 	_ = d.Ack(false)
