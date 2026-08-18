@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -12,11 +13,13 @@ import (
 )
 
 type TenantHandler struct {
+	txManager        TxManager
 	workspaceService TenantServiceInterface
 }
 
-func NewTenantHandler(workspaceService TenantServiceInterface) *TenantHandler {
+func NewTenantHandler(txManager TxManager, workspaceService TenantServiceInterface) *TenantHandler {
 	return &TenantHandler{
+		txManager:        txManager,
 		workspaceService: workspaceService,
 	}
 }
@@ -144,7 +147,18 @@ func (tenantHandler *TenantHandler) ChangeTenantPlanMe(c *gin.Context) {
 		Plan:     req.Plan,
 	}
 
-	if err := tenantHandler.workspaceService.ChangeTenantPlan(c.Request.Context(), input); err != nil {
+	execChangePlan := func(ctx context.Context) error {
+		return tenantHandler.workspaceService.ChangeTenantPlan(ctx, input)
+	}
+
+	var err error
+	if tenantHandler.txManager != nil {
+		err = tenantHandler.txManager.WithTransaction(c.Request.Context(), execChangePlan)
+	} else {
+		err = execChangePlan(c.Request.Context())
+	}
+
+	if err != nil {
 		httputil.WriteError(c, http.StatusBadRequest, "tenant handler: failed to change tenant plan: "+err.Error())
 		return
 	}

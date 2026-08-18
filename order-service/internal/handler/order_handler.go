@@ -1,15 +1,17 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 
 	"order-service/internal/domain"
-	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 	"order-service/internal/infrastructure/tenantdb"
 	"order-service/internal/service"
 
@@ -45,30 +47,58 @@ func toOrderResponse(o service.OrderOutput) OrderResponse {
 }
 
 type OrderHandler struct {
-	factory OrderServiceFactory
+	factory          OrderServiceFactory
+	txManagerFactory TxManagerFactory
 }
 
-func NewOrderHandler(factory OrderServiceFactory) *OrderHandler {
+func NewOrderHandler(factory OrderServiceFactory, opts ...func(*OrderHandler)) *OrderHandler {
 	if factory == nil {
 		panic("order handler: OrderServiceFactory is required — wire it in the composition root")
 	}
-	return &OrderHandler{
+	h := &OrderHandler{
 		factory: factory,
+		txManagerFactory: func(cfg tenantdb.Config) TxManager {
+			return txcontext.NewTxManager(cfg.DB)
+		},
+	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
+}
+
+func WithTxManagerFactory(txFactory TxManagerFactory) func(*OrderHandler) {
+	return func(h *OrderHandler) {
+		if txFactory != nil {
+			h.txManagerFactory = txFactory
+		}
 	}
 }
 
 func (orderHandler *OrderHandler) getService(c *gin.Context) (OrderService, bool) {
+	svc, _, ok := orderHandler.getServiceAndConfig(c)
+	return svc, ok
+}
+
+func (orderHandler *OrderHandler) getServiceAndConfig(c *gin.Context) (OrderService, tenantdb.Config, bool) {
 	cfgVal, ok := c.Get("tenantConfig")
 	if !ok {
 		httputil.WriteError(c, http.StatusInternalServerError, "tenant database configuration missing from context")
-		return nil, false
+		return nil, tenantdb.Config{}, false
 	}
 	tenantCfg, ok := cfgVal.(tenantdb.Config)
 	if !ok {
 		httputil.WriteError(c, http.StatusInternalServerError, "invalid tenant database configuration type")
-		return nil, false
+		return nil, tenantdb.Config{}, false
 	}
-	return orderHandler.factory(tenantCfg), true
+	return orderHandler.factory(tenantCfg), tenantCfg, true
+}
+
+func (orderHandler *OrderHandler) getTxManager(cfg tenantdb.Config) TxManager {
+	if orderHandler.txManagerFactory != nil {
+		return orderHandler.txManagerFactory(cfg)
+	}
+	return txcontext.NewTxManager(cfg.DB)
 }
 
 func (orderHandler *OrderHandler) ListOrders(c *gin.Context) {
@@ -92,7 +122,7 @@ func (orderHandler *OrderHandler) ListOrders(c *gin.Context) {
 }
 
 func (orderHandler *OrderHandler) CreateOrder(c *gin.Context) {
-	orderService, ok := orderHandler.getService(c)
+	orderService, tenantCfg, ok := orderHandler.getServiceAndConfig(c)
 	if !ok {
 		return
 	}
@@ -112,7 +142,14 @@ func (orderHandler *OrderHandler) CreateOrder(c *gin.Context) {
 		Status:     req.Status,
 	}
 
-	order, err := orderService.CreateOrder(c.Request.Context(), input)
+	var order *service.OrderOutput
+	txMgr := orderHandler.getTxManager(tenantCfg)
+	err := txMgr.WithTransaction(c.Request.Context(), func(txCtx context.Context) error {
+		var err error
+		order, err = orderService.CreateOrder(txCtx, input)
+		return err
+	})
+
 	if err != nil {
 		if errors.Is(err, domain.ErrTenantIDRequired) ||
 			errors.Is(err, domain.ErrCustomerIDRequired) ||

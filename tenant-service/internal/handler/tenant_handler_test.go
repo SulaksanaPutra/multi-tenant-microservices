@@ -65,7 +65,7 @@ func TestTenantHandler_GetTenantMe(t *testing.T) {
 			}, nil
 		},
 	}
-	tenantHandler := NewTenantHandler(mockTenantService)
+	tenantHandler := NewTenantHandler(&mockTxManager{}, mockTenantService)
 	router := setupTenantTestRouter(tenantHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/tenants/me", nil)
@@ -118,7 +118,7 @@ func TestTenantHandler_UpdateTenantMe(t *testing.T) {
 			return nil
 		},
 	}
-	tenantHandler := NewTenantHandler(mockTenantService)
+	tenantHandler := NewTenantHandler(&mockTxManager{}, mockTenantService)
 	router := setupTenantTestRouter(tenantHandler)
 
 	ownerEmail := "owner@example.com"
@@ -159,7 +159,7 @@ func TestTenantHandler_UpdateTenantMe_OwnerFieldsOptional(t *testing.T) {
 			return nil
 		},
 	}
-	tenantHandler := NewTenantHandler(mockTenantService)
+	tenantHandler := NewTenantHandler(&mockTxManager{}, mockTenantService)
 	router := setupTenantTestRouter(tenantHandler)
 
 	body, _ := json.Marshal(UpdateTenantRequest{
@@ -181,6 +181,13 @@ func TestTenantHandler_UpdateTenantMe_OwnerFieldsOptional(t *testing.T) {
 
 func TestTenantHandler_ChangeTenantPlanMe(t *testing.T) {
 	changed := false
+	txCalled := false
+	mockTx := &mockTxManager{
+		withTransactionFn: func(ctx context.Context, fn func(txCtx context.Context) error) error {
+			txCalled = true
+			return fn(ctx)
+		},
+	}
 	mockTenantService := &mockTenantService{
 		changeTenantPlanFn: func(ctx context.Context, input service.ChangeTenantPlanInput) error {
 			if input.TenantID == "ten_test123" && input.Plan == "dedicated" {
@@ -189,7 +196,7 @@ func TestTenantHandler_ChangeTenantPlanMe(t *testing.T) {
 			return nil
 		},
 	}
-	tenantHandler := NewTenantHandler(mockTenantService)
+	tenantHandler := NewTenantHandler(mockTx, mockTenantService)
 	router := setupTenantTestRouter(tenantHandler)
 
 	body, _ := json.Marshal(ChangePlanRequest{Plan: "dedicated"})
@@ -203,6 +210,9 @@ func TestTenantHandler_ChangeTenantPlanMe(t *testing.T) {
 	}
 	if !changed {
 		t.Fatalf("expected ChangeTenantPlan to be called with dedicated plan")
+	}
+	if !txCalled {
+		t.Fatalf("expected WithTransaction to be called during ChangeTenantPlanMe")
 	}
 
 	var resp struct {

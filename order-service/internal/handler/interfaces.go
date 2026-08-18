@@ -20,3 +20,11 @@ type OrderService interface {
 // OrderServiceFactory constructs an OrderService for a given tenant configuration.
 // It is supplied by the composition root so Layer 1 never constructs repositories.
 type OrderServiceFactory func(cfg tenantdb.Config) OrderService
+
+// TxManager manages database transactions for atomic domain operations.
+type TxManager interface {
+	WithTransaction(ctx context.Context, fn func(txCtx context.Context) error) error
+}
+
+// TxManagerFactory constructs a TxManager for a given tenant configuration.
+type TxManagerFactory func(cfg tenantdb.Config) TxManager

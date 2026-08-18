@@ -20,7 +20,7 @@ func newRouter(txManager *txcontext.SQLTxManager, workspaceService *service.Work
 
 	workspaceHandler := handler.NewWorkspaceHandler(txManager, workspaceService)
 	internalTenantHandler := handler.NewInternalTenantHandler(tenantInfrastructureService)
-	tenantHandler := handler.NewTenantHandler(workspaceService)
+	tenantHandler := handler.NewTenantHandler(txManager, workspaceService)
 
 	// Public registration endpoint
 	r.POST("/api/tenants/register", workspaceHandler.RegisterWorkspace)

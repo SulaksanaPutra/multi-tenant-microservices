@@ -4,11 +4,41 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"payment-service/internal/infrastructure/postgres"
 	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
+
+const (
+	maxRetries        = 5
+	maxErrorLength    = 500
+	stuckClaimTimeout = 30 * time.Second
+)
+
+var sensitivePatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)(password|passwd|pwd)\s*=\s*\S+`),
+	regexp.MustCompile(`(?i)(host|port|user|sslmode)\s*=\s*\S+`),
+	regexp.MustCompile(`amqp://\S+`),
+	regexp.MustCompile(`postgres://\S+`),
+}
+
+func sanitizeError(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	for _, p := range sensitivePatterns {
+		msg = p.ReplaceAllString(msg, "[redacted]")
+	}
+	msg = strings.TrimSpace(msg)
+	if len(msg) > maxErrorLength {
+		msg = msg[:maxErrorLength] + " [truncated]"
+	}
+	return msg
+}
 
 type OutboxMessage struct {
 	EventID     string
@@ -38,11 +68,11 @@ func (outboxRepository *OutboxRepository) SaveOutboxEvent(ctx context.Context, e
 	}
 
 	query := `
-		INSERT INTO payment_outbox (event_id, routing_key, payload, status, created_at)
-		VALUES ($1, $2, $3, 'PENDING', $4)
+		INSERT INTO payment_outbox (event_id, routing_key, payload, status, retry_count, created_at)
+		VALUES ($1, $2, $3, 'PENDING', 0, NOW())
 	`
 
-	_, err = exec.ExecContext(ctx, query, eventID, routingKey, payloadBytes, time.Now())
+	_, err = exec.ExecContext(ctx, query, eventID, routingKey, payloadBytes)
 	if err != nil {
 		return fmt.Errorf("failed to insert outbox event: %w", err)
 	}
@@ -56,13 +86,16 @@ func (outboxRepository *OutboxRepository) FetchPending(ctx context.Context, limi
 	query := `
 		WITH claimed AS (
 			UPDATE payment_outbox
-			SET status = 'PROCESSING'
+			SET status     = 'PROCESSING',
+			    claimed_at = NOW()
 			WHERE event_id IN (
 				SELECT event_id
 				FROM payment_outbox
-				WHERE status = 'PENDING' OR (status = 'PROCESSING' AND created_at < NOW() - INTERVAL '5 minutes')
+				WHERE status      = 'PENDING'
+				  AND retry_count < $1
+				  AND (next_retry_at IS NULL OR next_retry_at <= NOW())
 				ORDER BY created_at ASC
-				LIMIT $1
+				LIMIT $2
 				FOR UPDATE SKIP LOCKED
 			)
 			RETURNING event_id, routing_key, payload, status, retry_count, last_error, created_at, published_at
@@ -71,7 +104,7 @@ func (outboxRepository *OutboxRepository) FetchPending(ctx context.Context, limi
 		FROM claimed;
 	`
 
-	rows, err := exec.QueryContext(ctx, query, limit)
+	rows, err := exec.QueryContext(ctx, query, maxRetries, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch pending outbox events: %w", err)
 	}
@@ -90,22 +123,38 @@ func (outboxRepository *OutboxRepository) FetchPending(ctx context.Context, limi
 		messages = append(messages, &msg)
 	}
 
-	return messages, nil
+	return messages, rows.Err()
+}
+
+func (outboxRepository *OutboxRepository) RecoverStuckClaims(ctx context.Context) error {
+	exec := txcontext.GetExecutor(ctx, outboxRepository.dbClient)
+	const query = `
+		UPDATE payment_outbox
+		SET status     = 'PENDING',
+		    claimed_at = NULL
+		WHERE status     = 'PROCESSING'
+		  AND claimed_at < NOW() - $1::interval;
+	`
+	_, err := exec.ExecContext(ctx, query, fmt.Sprintf("%d seconds", int(stuckClaimTimeout.Seconds())))
+	if err != nil {
+		return fmt.Errorf("failed to recover stuck claimed outbox rows: %w", err)
+	}
+	return nil
 }
 
 func (outboxRepository *OutboxRepository) MarkPublished(ctx context.Context, eventID string) error {
 	exec := txcontext.GetExecutor(ctx, outboxRepository.dbClient)
-	now := time.Now()
 
 	query := `
 		UPDATE payment_outbox SET
-			status = 'PUBLISHED',
-			published_at = $1,
-			last_error = ''
-		WHERE event_id = $2
+			status       = 'PUBLISHED',
+			claimed_at   = NULL,
+			published_at = NOW(),
+			last_error   = ''
+		WHERE event_id = $1
 	`
 
-	_, err := exec.ExecContext(ctx, query, now, eventID)
+	_, err := exec.ExecContext(ctx, query, eventID)
 	return err
 }
 
@@ -114,12 +163,20 @@ func (outboxRepository *OutboxRepository) MarkFailed(ctx context.Context, eventI
 
 	query := `
 		UPDATE payment_outbox SET
-			status = 'PENDING',
-			retry_count = retry_count + 1,
-			last_error = $1
-		WHERE event_id = $2
+			retry_count   = retry_count + 1,
+			last_error    = $1,
+			claimed_at    = NULL,
+			next_retry_at = CASE
+				WHEN retry_count + 1 < $2
+				THEN NOW() + (INTERVAL '1 second' * POWER(2, retry_count + 1))
+			END,
+			status = CASE
+				WHEN retry_count + 1 >= $2 THEN 'FAILED'
+				ELSE 'PENDING'
+			END
+		WHERE event_id = $3
 	`
 
-	_, err := exec.ExecContext(ctx, query, reason, eventID)
+	_, err := exec.ExecContext(ctx, query, reason, maxRetries, eventID)
 	return err
 }

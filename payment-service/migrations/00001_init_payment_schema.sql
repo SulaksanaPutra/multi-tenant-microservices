@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS payment_outbox (
     status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
     retry_count INT NOT NULL DEFAULT 0,
     last_error TEXT NOT NULL DEFAULT '',
+    claimed_at TIMESTAMPTZ,
+    next_retry_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     published_at TIMESTAMPTZ
 );

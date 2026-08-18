@@ -10,9 +10,10 @@ import (
 )
 
 type mockWorkerOutboxRepository struct {
-	fetchPendingFn  func(ctx context.Context, limit int) ([]*repository.OutboxMessage, error)
-	markFailedFn    func(ctx context.Context, eventID string, reason string) error
-	markPublishedFn func(ctx context.Context, eventID string) error
+	fetchPendingFn       func(ctx context.Context, limit int) ([]*repository.OutboxMessage, error)
+	recoverStuckClaimsFn func(ctx context.Context) error
+	markFailedFn         func(ctx context.Context, eventID string, reason string) error
+	markPublishedFn      func(ctx context.Context, eventID string) error
 }
 
 func (m *mockWorkerOutboxRepository) FetchPending(ctx context.Context, limit int) ([]*repository.OutboxMessage, error) {
@@ -20,6 +21,13 @@ func (m *mockWorkerOutboxRepository) FetchPending(ctx context.Context, limit int
 		return m.fetchPendingFn(ctx, limit)
 	}
 	return nil, nil
+}
+
+func (m *mockWorkerOutboxRepository) RecoverStuckClaims(ctx context.Context) error {
+	if m.recoverStuckClaimsFn != nil {
+		return m.recoverStuckClaimsFn(ctx)
+	}
+	return nil
 }
 
 func (m *mockWorkerOutboxRepository) MarkFailed(ctx context.Context, eventID string, reason string) error {

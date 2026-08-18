@@ -45,8 +45,8 @@ func TestPaymentOutboxRepository_SaveOutboxEvent_Success(t *testing.T) {
 		t.Errorf("expected query to contain 'INSERT INTO payment_outbox', got: %s", capturedQuery)
 	}
 
-	if len(capturedArgs) != 4 {
-		t.Fatalf("expected 4 query args, got %d", len(capturedArgs))
+	if len(capturedArgs) != 3 {
+		t.Fatalf("expected 3 query args, got %d", len(capturedArgs))
 	}
 }
 
@@ -93,7 +93,7 @@ func TestPaymentOutboxRepository_MarkPublished(t *testing.T) {
 	if !strings.Contains(capturedQuery, "UPDATE payment_outbox SET") {
 		t.Errorf("expected update query, got %s", capturedQuery)
 	}
-	if len(capturedArgs) != 2 || capturedArgs[1] != "evt-pub-100" {
+	if len(capturedArgs) != 1 || capturedArgs[0] != "evt-pub-100" {
 		t.Errorf("unexpected captured args: %v", capturedArgs)
 	}
 }
@@ -118,10 +118,10 @@ func TestPaymentOutboxRepository_MarkFailed(t *testing.T) {
 		t.Fatalf("expected nil error, got %v", err)
 	}
 
-	if !strings.Contains(capturedQuery, "retry_count = retry_count + 1") {
-		t.Errorf("expected update query, got %s", capturedQuery)
+	if !strings.Contains(capturedQuery, "retry_count") || !strings.Contains(capturedQuery, "next_retry_at") {
+		t.Errorf("expected update query with retry_count and next_retry_at, got %s", capturedQuery)
 	}
-	if len(capturedArgs) != 2 || capturedArgs[0] != "connection refused" || capturedArgs[1] != "evt-fail-100" {
+	if len(capturedArgs) != 3 || capturedArgs[0] != "connection refused" || capturedArgs[2] != "evt-fail-100" {
 		t.Errorf("unexpected captured args: %v", capturedArgs)
 	}
 }
@@ -149,7 +149,28 @@ func TestPaymentOutboxRepository_FetchPending_QueryCheck(t *testing.T) {
 	if !strings.Contains(capturedQuery, "WITH claimed AS") {
 		t.Errorf("expected query to contain CTE 'WITH claimed AS', got: %s", capturedQuery)
 	}
-	if len(capturedArgs) != 1 || capturedArgs[0] != 25 {
-		t.Errorf("expected limit arg 25, got: %v", capturedArgs)
+	if len(capturedArgs) != 2 || capturedArgs[1] != 25 {
+		t.Errorf("expected limit arg 25 as second param, got: %v", capturedArgs)
+	}
+}
+
+func TestPaymentOutboxRepository_RecoverStuckClaims(t *testing.T) {
+	var capturedQuery string
+	mockExec := &testutil.MockDBExecutor{
+		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+			capturedQuery = query
+			return testutil.MockResult{RowsAffectedVal: 2}, nil
+		},
+	}
+
+	outboxRepository := NewOutboxRepository(&postgres.Client{})
+	ctx := txcontext.WithExecutor(context.Background(), mockExec)
+
+	err := outboxRepository.RecoverStuckClaims(ctx)
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !strings.Contains(capturedQuery, "claimed_at < NOW() - $1::interval") {
+		t.Errorf("expected query to recover stuck claims, got: %s", capturedQuery)
 	}
 }

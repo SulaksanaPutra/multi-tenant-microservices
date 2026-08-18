@@ -14,6 +14,10 @@ func (m *mockOutboxRepository) FetchPending(ctx context.Context, limit int) ([]*
 	return nil, nil
 }
 
+func (m *mockOutboxRepository) RecoverStuckClaims(ctx context.Context) error {
+	return nil
+}
+
 func (m *mockOutboxRepository) MarkFailed(ctx context.Context, eventID string, reason string) error {
 	return nil
 }

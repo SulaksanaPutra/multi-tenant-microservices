@@ -196,3 +196,89 @@ func TestCreateOrder_ValidJWT(t *testing.T) {
 		t.Errorf("expected non-auth error, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+type mockTxManager struct {
+	txCalled bool
+}
+
+func (m *mockTxManager) WithTransaction(ctx context.Context, fn func(txCtx context.Context) error) error {
+	m.txCalled = true
+	return fn(ctx)
+}
+
+func TestCreateOrder_WithTransactionalExecution(t *testing.T) {
+	privateKey, pubKeyPEM := testKeyPair(t)
+
+	mockTx := &mockTxManager{}
+	var serviceCalled bool
+
+	orderHandler := handler.NewOrderHandler(
+		func(cfg tenantdb.Config) handler.OrderService {
+			return &functionalStubOrderService{
+				createOrderFn: func(ctx context.Context, input service.CreateOrderInput) (*service.OrderOutput, error) {
+					serviceCalled = true
+					return &service.OrderOutput{
+						ID:         "ord-123",
+						TenantID:   input.TenantID,
+						CustomerID: input.CustomerID,
+						Amount:     input.Amount,
+						Status:     "pending",
+					}, nil
+				},
+			}
+		},
+		handler.WithTxManagerFactory(func(cfg tenantdb.Config) handler.TxManager {
+			return mockTx
+		}),
+	)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	tenantHandlerHook := func(c *gin.Context, tenantID string) error {
+		tenantCfg := tenantdb.Config{
+			TenantID:   tenantID,
+			SchemaName: "tenant_test",
+		}
+		c.Set("tenantConfig", tenantCfg)
+		return nil
+	}
+
+	api := r.Group("/api")
+	api.Use(middleware.RequireJWT(pubKeyPEM, middleware.WithTenantHandler(tenantHandlerHook)))
+	api.POST("/orders", orderHandler.CreateOrder)
+
+	body := map[string]any{"customer_id": "cust-tx-001", "amount": 100.0}
+	jsonBytes, _ := json.Marshal(body)
+
+	req, _ := http.NewRequest(http.MethodPost, "/api/orders", bytes.NewBuffer(jsonBytes))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+signJWT(t, privateKey, "tenant-test", "usr_test"))
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created, got %d: %s", w.Code, w.Body.String())
+	}
+	if !mockTx.txCalled {
+		t.Error("expected TxManager.WithTransaction to be invoked during CreateOrder")
+	}
+	if !serviceCalled {
+		t.Error("expected OrderService.CreateOrder to be invoked inside transaction")
+	}
+}
+
+type functionalStubOrderService struct {
+	createOrderFn func(ctx context.Context, input service.CreateOrderInput) (*service.OrderOutput, error)
+}
+
+func (s *functionalStubOrderService) ListOrders(ctx context.Context) ([]service.OrderOutput, error) {
+	return nil, nil
+}
+
+func (s *functionalStubOrderService) CreateOrder(ctx context.Context, input service.CreateOrderInput) (*service.OrderOutput, error) {
+	if s.createOrderFn != nil {
+		return s.createOrderFn(ctx, input)
+	}
+	return nil, nil
+}

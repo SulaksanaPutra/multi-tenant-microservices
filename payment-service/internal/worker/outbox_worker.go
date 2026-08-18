@@ -66,6 +66,10 @@ func (outboxWorker *OutboxWorker) Stop() {
 }
 
 func (outboxWorker *OutboxWorker) processOutboxBatch(ctx context.Context) {
+	if err := outboxWorker.outboxRepository.RecoverStuckClaims(ctx); err != nil {
+		outboxWorker.logger.Warn("failed to recover stuck outbox claims", "err", err)
+	}
+
 	messages, err := outboxWorker.outboxRepository.FetchPending(ctx, outboxWorker.batchSize)
 	if err != nil {
 		outboxWorker.logger.Error("failed to fetch outbox pending events", "err", err)
