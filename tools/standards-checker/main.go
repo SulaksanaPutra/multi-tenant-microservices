@@ -194,6 +194,19 @@ func scanService(repoRoot, service string, strict bool) []Violation {
 				Message: "Handler package must declare all outbound service contracts in `internal/handler/interfaces.go` (Rule 2.3: Layer 1 Outbound Ports Manifest)",
 			})
 		}
+
+		// Rule 6.1 — Handlers must declare transport DTOs directly within handler files (no standalone dto.go)
+		dtoFile := filepath.Join(handlerDir, "dto.go")
+		if fileExists(dtoFile) {
+			violations = append(violations, Violation{
+				Service: service,
+				Rule:    "6.1",
+				ID:      "handler-standalone-dto-file",
+				Path:    filepath.ToSlash(filepath.Join(service, "internal", "handler", "dto.go")),
+				Line:    1,
+				Message: "Standalone `dto.go` found in `internal/handler` — HTTP transport DTOs (*Request/*Response) must be declared directly in their corresponding handler file (`<name>_handler.go`)",
+			})
+		}
 	}
 
 	workerDir := filepath.Join(serviceDir, "internal", "worker")

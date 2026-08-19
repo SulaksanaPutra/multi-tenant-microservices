@@ -81,20 +81,20 @@ func (r *ProviderRegistry) GetProvider(id domain.ProviderType) (domain.PaymentPr
 	return p, ok
 }
 
-type ExecutionResult struct {
-	Provider          domain.ProviderType
-	Session           *domain.PaymentSessionResult
-	FailedAttempts    []domain.ProviderType
-	AttemptErrors     map[domain.ProviderType]error
+type FallbackExecutionOutput struct {
+	Provider       domain.ProviderType
+	Session        *domain.PaymentSessionOutput
+	FailedAttempts []domain.ProviderType
+	AttemptErrors  map[domain.ProviderType]error
 }
 
-func (r *ProviderRegistry) ExecuteFallbackChain(ctx context.Context, req domain.CreateSessionRequest) (*ExecutionResult, error) {
+func (r *ProviderRegistry) ExecuteFallbackChain(ctx context.Context, req domain.CreateSessionRequest) (*FallbackExecutionOutput, error) {
 	cfg, err := r.resolver.ResolveConfig(ctx, req.TenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve tenant PSP config: %w", err)
 	}
 
-	res := &ExecutionResult{
+	res := &FallbackExecutionOutput{
 		AttemptErrors: make(map[domain.ProviderType]error),
 	}
 
@@ -113,7 +113,14 @@ func (r *ProviderRegistry) ExecuteFallbackChain(ctx context.Context, req domain.
 			continue
 		}
 
-		session, err := p.CreatePaymentSession(ctx, req)
+		reqWithCreds := req
+		if cfg.ProviderConfigs != nil {
+			if creds, exists := cfg.ProviderConfigs[providerID]; exists {
+				reqWithCreds.Credentials = creds
+			}
+		}
+
+		session, err := p.CreatePaymentSession(ctx, reqWithCreds)
 		if err != nil {
 			if breaker != nil {
 				breaker.RecordFailure()

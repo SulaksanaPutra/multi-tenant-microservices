@@ -13,19 +13,21 @@ import (
 )
 
 type OrderCreatedConsumerParams struct {
-	Client         AMQPClient
-	TxManager      TxManager
-	InboxService   InboxService
-	PaymentService PaymentInitiator
-	Logger         *slog.Logger
+	Client                 AMQPClient
+	TxManager              TxManager
+	InboxService           InboxService
+	PaymentService         PaymentService
+	PaymentProviderService PaymentProviderService
+	Logger                 *slog.Logger
 }
 
 type OrderCreatedConsumer struct {
-	client         AMQPClient
-	txManager      TxManager
-	inboxService   InboxService
-	paymentService PaymentInitiator
-	logger         *slog.Logger
+	client                 AMQPClient
+	txManager              TxManager
+	inboxService           InboxService
+	paymentService         PaymentService
+	paymentProviderService PaymentProviderService
+	logger                 *slog.Logger
 }
 
 func NewOrderCreatedConsumer(params OrderCreatedConsumerParams) *OrderCreatedConsumer {
@@ -34,11 +36,12 @@ func NewOrderCreatedConsumer(params OrderCreatedConsumerParams) *OrderCreatedCon
 		logger = slog.Default()
 	}
 	return &OrderCreatedConsumer{
-		client:         params.Client,
-		txManager:      params.TxManager,
-		inboxService:   params.InboxService,
-		paymentService: params.PaymentService,
-		logger:         logger,
+		client:                 params.Client,
+		txManager:              params.TxManager,
+		inboxService:           params.InboxService,
+		paymentService:         params.PaymentService,
+		paymentProviderService: params.PaymentProviderService,
+		logger:                 logger,
 	}
 }
 
@@ -138,6 +141,7 @@ func (orderCreatedConsumer *OrderCreatedConsumer) handleDelivery(ctx context.Con
 	var paymentOutput *service.PaymentOutput
 	var isDup bool
 
+	// STEP 1: DB Transaction (<5ms) - Inbox Claim & Initial PENDING Payment Write
 	err := orderCreatedConsumer.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 		var claimErr error
 		isDup, claimErr = orderCreatedConsumer.inboxService.ClaimEvent(txCtx, service.ClaimInboxInput{
@@ -155,7 +159,12 @@ func (orderCreatedConsumer *OrderCreatedConsumer) handleDelivery(ctx context.Con
 		}
 
 		var initErr error
-		paymentOutput, initErr = orderCreatedConsumer.paymentService.InitiatePayment(txCtx, evt.TenantID, evt.OrderID, evt.Amount, "USD")
+		paymentOutput, initErr = orderCreatedConsumer.paymentService.InitiatePayment(txCtx, service.InitiatePaymentInput{
+			TenantID: evt.TenantID,
+			OrderID:  evt.OrderID,
+			Amount:   evt.Amount,
+			Currency: "USD",
+		})
 		if initErr != nil {
 			return fmt.Errorf("failed to initiate payment: %w", initErr)
 		}
@@ -173,9 +182,54 @@ func (orderCreatedConsumer *OrderCreatedConsumer) handleDelivery(ctx context.Con
 		return
 	}
 
-	if paymentOutput != nil {
-		if err := orderCreatedConsumer.paymentService.GeneratePaymentInstructions(ctx, paymentOutput.ID); err != nil {
-			orderCreatedConsumer.logger.Error("failed to generate payment instructions", "payment_id", paymentOutput.ID, "err", err)
+	if paymentOutput == nil {
+		_ = d.Ack(false)
+		return
+	}
+
+	// STEP 2: Pure External Gateway I/O (OUTSIDE DB Transaction - Rule 5.4 Compliant)
+	execOut, execErr := orderCreatedConsumer.paymentProviderService.ExecuteFallback(ctx, service.ExecuteFallbackInput{
+		TenantID:    evt.TenantID,
+		PaymentID:   paymentOutput.ID,
+		OrderID:     evt.OrderID,
+		Amount:      evt.Amount,
+		Currency:    "USD",
+		Description: fmt.Sprintf("Order %s", evt.OrderID),
+		ReturnURL:   fmt.Sprintf("http://localhost:8000/orders/%s", evt.OrderID),
+	})
+
+	// STEP 3: DB Transaction (<5ms) - Persist Generated Instructions & Outbox Event
+	if execErr != nil || execOut == nil || execOut.Session == nil {
+		failedAttempts := []domain.ProviderType{}
+		attemptErrors := map[domain.ProviderType]error{}
+		errMsg := "no available payment provider"
+		if execErr != nil {
+			errMsg = execErr.Error()
+		}
+		if execOut != nil {
+			failedAttempts = execOut.FailedAttempts
+			attemptErrors = execOut.AttemptErrors
+		}
+
+		orderCreatedConsumer.logger.Error("fallback chain failed to generate payment instructions",
+			"payment_id", paymentOutput.ID, "err", errMsg)
+
+		_ = orderCreatedConsumer.paymentService.FailInstructionGeneration(ctx, service.FailInstructionInput{
+			PaymentID:      paymentOutput.ID,
+			Reason:         errMsg,
+			FailedAttempts: failedAttempts,
+			AttemptErrors:  attemptErrors,
+		})
+	} else {
+		if err := orderCreatedConsumer.paymentService.CompleteInstructionGeneration(ctx, service.CompleteInstructionInput{
+			PaymentID:         paymentOutput.ID,
+			Provider:          execOut.Provider,
+			ExternalSessionID: execOut.Session.ExternalSessionID,
+			Instructions:      execOut.Session.Instructions,
+			FailedAttempts:    execOut.FailedAttempts,
+			AttemptErrors:     execOut.AttemptErrors,
+		}); err != nil {
+			orderCreatedConsumer.logger.Error("failed to persist payment instructions", "payment_id", paymentOutput.ID, "err", err)
 		}
 	}
 

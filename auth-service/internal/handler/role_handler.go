@@ -8,6 +8,7 @@ import (
 
 	"auth-service/internal/domain"
 	"auth-service/internal/service"
+
 	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
 
@@ -32,7 +33,6 @@ type AssignUserRoleRequest struct {
 	RoleID   string `json:"role_id"   binding:"required"`
 }
 
-// RoleResponse is the transport DTO for a role returned to API consumers.
 type RoleResponse struct {
 	ID          string               `json:"id"`
 	Name        string               `json:"name"`
@@ -43,7 +43,6 @@ type RoleResponse struct {
 	Permissions []PermissionResponse `json:"permissions"`
 }
 
-// UserRoleResponse is the transport DTO for a user's role assignment.
 type UserRoleResponse struct {
 	UserID     string        `json:"user_id"`
 	TenantID   string        `json:"tenant_id"`
@@ -53,7 +52,6 @@ type UserRoleResponse struct {
 	Role       *RoleResponse `json:"role,omitempty"`
 }
 
-// UserRoleAssignmentResponse is the transport DTO for a lightweight "user + role" row.
 type UserRoleAssignmentResponse struct {
 	UserID   string `json:"user_id"`
 	RoleID   string `json:"role_id"`

@@ -82,15 +82,24 @@ func main() {
 	registry.RegisterProvider(directbank.NewDirectBankProvider("BCA"), 3, 30*time.Second)
 
 	// 3. Initialize Domain Services
+	pspConfigService := service.NewPSPConfigService(
+		txManager,
+		pspConfigRepository,
+		postgresResolver,
+		masterEncryptionKey,
+		logger,
+	)
+
+	paymentProviderService := service.NewPaymentProviderService(
+		registry,
+		logger,
+	)
+
 	paymentService := service.NewPaymentService(
 		txManager,
 		paymentRepository,
 		inboxRepository,
 		outboxRepository,
-		pspConfigRepository,
-		postgresResolver,
-		registry,
-		masterEncryptionKey,
 		logger,
 	)
 
@@ -131,7 +140,7 @@ func main() {
 
 	inboxService := service.NewInboxService(inboxRepository)
 
-	consumerRunner, err := registerConsumers(rmqClient, txManager, inboxService, paymentService, logger)
+	consumerRunner, err := registerConsumers(rmqClient, txManager, inboxService, paymentService, paymentProviderService, logger)
 	if err != nil {
 		log.Fatalf("Failed to register consumers: %v", err)
 	}
@@ -140,7 +149,7 @@ func main() {
 	}
 
 	// 6. Register HTTP Router & Handlers
-	paymentHandler := handler.NewPaymentHandler(paymentService)
+	paymentHandler := handler.NewPaymentHandler(paymentService, paymentProviderService, pspConfigService)
 
 	srv := &http.Server{
 		Addr:    ":" + port,

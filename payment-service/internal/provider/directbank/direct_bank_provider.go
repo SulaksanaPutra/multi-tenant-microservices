@@ -24,14 +24,14 @@ func (p *DirectBankProvider) ID() domain.ProviderType {
 	return domain.ProviderDirectBank
 }
 
-func (p *DirectBankProvider) CreatePaymentSession(ctx context.Context, req domain.CreateSessionRequest) (*domain.PaymentSessionResult, error) {
+func (p *DirectBankProvider) CreatePaymentSession(ctx context.Context, req domain.CreateSessionRequest) (*domain.PaymentSessionOutput, error) {
 	extID := fmt.Sprintf("va_%s_%s", p.bankCode, req.PaymentID)
 	vaNumber := fmt.Sprintf("88012%s", req.PaymentID)
 	if len(vaNumber) > 16 {
 		vaNumber = vaNumber[:16]
 	}
 
-	return &domain.PaymentSessionResult{
+	return &domain.PaymentSessionOutput{
 		Provider:          domain.ProviderDirectBank,
 		ExternalSessionID: extID,
 		Instructions: domain.PaymentInstructions{

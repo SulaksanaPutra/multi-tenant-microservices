@@ -4,22 +4,98 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
-	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
 	"payment-service/internal/domain"
 	"payment-service/internal/service"
+
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
+	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
 )
 
-type PaymentHandler struct {
-	paymentService PaymentService
+type PaymentInstructionsResponse struct {
+	Type         string    `json:"type"`
+	RedirectURL  string    `json:"redirect_url,omitempty"`
+	VANumber     string    `json:"va_number,omitempty"`
+	BankCode     string    `json:"bank_code,omitempty"`
+	QRCodeString string    `json:"qr_code_string,omitempty"`
+	DeepLink     string    `json:"deep_link,omitempty"`
+	ExpiresAt    time.Time `json:"expires_at"`
 }
 
-func NewPaymentHandler(paymentService PaymentService) *PaymentHandler {
+type GetPaymentResponse struct {
+	ID           string                      `json:"id"`
+	TenantID     string                      `json:"tenant_id"`
+	OrderID      string                      `json:"order_id"`
+	Amount       float64                     `json:"amount"`
+	Currency     string                      `json:"currency"`
+	Status       string                      `json:"status"`
+	Provider     string                      `json:"provider"`
+	Instructions PaymentInstructionsResponse `json:"instructions"`
+	CreatedAt    time.Time                   `json:"created_at"`
+	UpdatedAt    time.Time                   `json:"updated_at"`
+}
+
+type UpdatePSPConfigRequest struct {
+	PriorityChain   []domain.ProviderType                              `json:"priority_chain" binding:"required"`
+	ProviderConfigs map[domain.ProviderType]domain.ProviderCredentials `json:"provider_configs"`
+}
+
+type UpdatePSPConfigResponse struct {
+	TenantID      string                `json:"tenant_id"`
+	PriorityChain []domain.ProviderType `json:"priority_chain"`
+}
+
+type TenantPSPConfigResponse struct {
+	TenantID        string                                             `json:"tenant_id"`
+	PriorityChain   []domain.ProviderType                              `json:"priority_chain"`
+	ProviderConfigs map[domain.ProviderType]domain.ProviderCredentials `json:"provider_configs"`
+}
+
+type WebhookResponse struct {
+	Processed bool `json:"processed"`
+}
+
+func toPaymentResponse(p *service.PaymentOutput) GetPaymentResponse {
+	return GetPaymentResponse{
+		ID:       p.ID,
+		TenantID: p.TenantID,
+		OrderID:  p.OrderID,
+		Amount:   p.Amount,
+		Currency: p.Currency,
+		Status:   string(p.Status),
+		Provider: string(p.Provider),
+		Instructions: PaymentInstructionsResponse{
+			Type:         string(p.Instructions.Type),
+			RedirectURL:  p.Instructions.RedirectURL,
+			VANumber:     p.Instructions.VANumber,
+			BankCode:     p.Instructions.BankCode,
+			QRCodeString: p.Instructions.QRCodeString,
+			DeepLink:     p.Instructions.DeepLink,
+			ExpiresAt:    p.Instructions.ExpiresAt,
+		},
+		CreatedAt: p.CreatedAt,
+		UpdatedAt: p.UpdatedAt,
+	}
+}
+
+type PaymentHandler struct {
+	paymentService         PaymentService
+	paymentProviderService PaymentProviderService
+	pspConfigService       PSPConfigService
+}
+
+func NewPaymentHandler(
+	paymentService PaymentService,
+	paymentProviderService PaymentProviderService,
+	pspConfigService PSPConfigService,
+) *PaymentHandler {
 	return &PaymentHandler{
-		paymentService: paymentService,
+		paymentService:         paymentService,
+		paymentProviderService: paymentProviderService,
+		pspConfigService:       pspConfigService,
 	}
 }
 
@@ -46,7 +122,7 @@ func (paymentHandler *PaymentHandler) GetPaymentByID(c *gin.Context) {
 		return
 	}
 
-	httputil.WriteSuccess(c, http.StatusOK, "payment retrieved successfully", p)
+	httputil.WriteSuccess(c, http.StatusOK, "payment retrieved successfully", toPaymentResponse(p))
 }
 
 func (paymentHandler *PaymentHandler) GetPaymentByOrderID(c *gin.Context) {
@@ -73,7 +149,7 @@ func (paymentHandler *PaymentHandler) GetPaymentByOrderID(c *gin.Context) {
 		return
 	}
 
-	httputil.WriteSuccess(c, http.StatusOK, "payment retrieved successfully", p)
+	httputil.WriteSuccess(c, http.StatusOK, "payment retrieved successfully", toPaymentResponse(p))
 }
 
 func (paymentHandler *PaymentHandler) HandleWebhook(c *gin.Context) {
@@ -97,12 +173,31 @@ func (paymentHandler *PaymentHandler) HandleWebhook(c *gin.Context) {
 		}
 	}
 
-	err = paymentHandler.paymentService.ProcessWebhook(c.Request.Context(), providerID, headers, body)
+	// 1. Verify Webhook Signature (External Provider Adapter)
+	webhookEvt, err := paymentHandler.paymentProviderService.VerifyWebhookSignature(c.Request.Context(), providerID, headers, body)
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidWebhookSignature) {
 			httputil.WriteError(c, http.StatusBadRequest, "invalid webhook signature")
 			return
 		}
+		httputil.WriteError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// 2. Process Verified Webhook (Database Unit-of-Work & State Machine)
+	output, err := paymentHandler.paymentService.ProcessVerifiedWebhook(c.Request.Context(), service.ProcessVerifiedWebhookInput{
+		EventID:           webhookEvt.EventID,
+		EventType:         webhookEvt.EventType,
+		Provider:          webhookEvt.Provider,
+		TenantID:          webhookEvt.TenantID,
+		OrderID:           webhookEvt.OrderID,
+		PaymentID:         webhookEvt.PaymentID,
+		ExternalSessionID: webhookEvt.ExternalSessionID,
+		Amount:            webhookEvt.Amount,
+		Currency:          webhookEvt.Currency,
+		RawPayload:        webhookEvt.RawPayload,
+	})
+	if err != nil {
 		if errors.Is(err, domain.ErrPaymentAmountMismatch) {
 			httputil.WriteError(c, http.StatusBadRequest, "payment amount or currency mismatch")
 			return
@@ -115,12 +210,14 @@ func (paymentHandler *PaymentHandler) HandleWebhook(c *gin.Context) {
 		return
 	}
 
-	httputil.WriteSuccess(c, http.StatusOK, "webhook processed successfully", gin.H{"processed": true})
-}
+	// 3. Proactively Cancel Phantom Sessions on Secondary Gateways (Outside DB Transaction)
+	if output != nil && len(output.CancelledAttempts) > 0 {
+		for _, att := range output.CancelledAttempts {
+			_ = paymentHandler.paymentProviderService.CancelPaymentSession(c.Request.Context(), att.Provider, att.ExternalSessionID)
+		}
+	}
 
-type UpdatePSPConfigRequest struct {
-	PriorityChain   []domain.ProviderType                              `json:"priority_chain" binding:"required"`
-	ProviderConfigs map[domain.ProviderType]domain.ProviderCredentials `json:"provider_configs"`
+	httputil.WriteSuccess(c, http.StatusOK, "webhook processed successfully", WebhookResponse{Processed: true})
 }
 
 func (paymentHandler *PaymentHandler) UpdatePSPConfig(c *gin.Context) {
@@ -137,20 +234,20 @@ func (paymentHandler *PaymentHandler) UpdatePSPConfig(c *gin.Context) {
 		return
 	}
 
-	cfg := &domain.TenantPSPConfig{
+	input := service.SavePSPConfigInput{
 		TenantID:        tenantID,
 		PriorityChain:   req.PriorityChain,
 		ProviderConfigs: req.ProviderConfigs,
 	}
 
-	if err := paymentHandler.paymentService.SavePSPConfig(c.Request.Context(), cfg); err != nil {
+	if err := paymentHandler.pspConfigService.SaveConfig(c.Request.Context(), input); err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	httputil.WriteSuccess(c, http.StatusOK, "tenant PSP config updated successfully", gin.H{
-		"tenant_id":      tenantID,
-		"priority_chain": req.PriorityChain,
+	httputil.WriteSuccess(c, http.StatusOK, "tenant PSP config updated successfully", UpdatePSPConfigResponse{
+		TenantID:      tenantID,
+		PriorityChain: req.PriorityChain,
 	})
 }
 
@@ -162,7 +259,7 @@ func (paymentHandler *PaymentHandler) GetPSPConfig(c *gin.Context) {
 	}
 	tenantID := rawTenantID.(string)
 
-	cfg, err := paymentHandler.paymentService.GetPSPConfig(c.Request.Context(), tenantID)
+	cfg, err := paymentHandler.pspConfigService.GetConfig(c.Request.Context(), tenantID)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return
@@ -176,5 +273,9 @@ func (paymentHandler *PaymentHandler) GetPSPConfig(c *gin.Context) {
 		}
 	}
 
-	httputil.WriteSuccess(c, http.StatusOK, "tenant PSP config retrieved successfully", cfg)
+	httputil.WriteSuccess(c, http.StatusOK, "tenant PSP config retrieved successfully", TenantPSPConfigResponse{
+		TenantID:        cfg.TenantID,
+		PriorityChain:   cfg.PriorityChain,
+		ProviderConfigs: cfg.ProviderConfigs,
+	})
 }

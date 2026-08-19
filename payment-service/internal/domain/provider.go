@@ -23,9 +23,10 @@ type CreateSessionRequest struct {
 	Currency    string
 	Description string
 	ReturnURL   string
+	Credentials ProviderCredentials
 }
 
-type PaymentSessionResult struct {
+type PaymentSessionOutput struct {
 	Provider            ProviderType
 	ExternalSessionID   string
 	Instructions        PaymentInstructions
@@ -56,7 +57,7 @@ type WebhookEvent struct {
 
 type PaymentProvider interface {
 	ID() ProviderType
-	CreatePaymentSession(ctx context.Context, req CreateSessionRequest) (*PaymentSessionResult, error)
+	CreatePaymentSession(ctx context.Context, req CreateSessionRequest) (*PaymentSessionOutput, error)
 	VerifyWebhookSignature(ctx context.Context, headers map[string]string, body []byte) (*WebhookEvent, error)
 	CancelPaymentSession(ctx context.Context, externalSessionID string) error
 }

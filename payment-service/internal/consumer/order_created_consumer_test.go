@@ -87,23 +87,53 @@ func (m *mockInboxService) ClaimEvent(txCtx context.Context, input service.Claim
 	return false, nil
 }
 
-type mockInitiator struct {
-	initiateFn             func(ctx context.Context, tenantID, orderID string, amount float64, currency string) (*service.PaymentOutput, error)
-	generateInstructionsFn func(ctx context.Context, paymentID string) error
+type mockPaymentService struct {
+	initiateFn func(ctx context.Context, input service.InitiatePaymentInput) (*service.PaymentOutput, error)
+	completeFn func(ctx context.Context, input service.CompleteInstructionInput) error
+	failFn     func(ctx context.Context, input service.FailInstructionInput) error
 }
 
-func (m *mockInitiator) InitiatePayment(ctx context.Context, tenantID, orderID string, amount float64, currency string) (*service.PaymentOutput, error) {
+func (m *mockPaymentService) InitiatePayment(ctx context.Context, input service.InitiatePaymentInput) (*service.PaymentOutput, error) {
 	if m.initiateFn != nil {
-		return m.initiateFn(ctx, tenantID, orderID, amount, currency)
+		return m.initiateFn(ctx, input)
 	}
 	return &service.PaymentOutput{ID: "pay_1"}, nil
 }
 
-func (m *mockInitiator) GeneratePaymentInstructions(ctx context.Context, paymentID string) error {
-	if m.generateInstructionsFn != nil {
-		return m.generateInstructionsFn(ctx, paymentID)
+func (m *mockPaymentService) CompleteInstructionGeneration(ctx context.Context, input service.CompleteInstructionInput) error {
+	if m.completeFn != nil {
+		return m.completeFn(ctx, input)
 	}
 	return nil
+}
+
+func (m *mockPaymentService) FailInstructionGeneration(ctx context.Context, input service.FailInstructionInput) error {
+	if m.failFn != nil {
+		return m.failFn(ctx, input)
+	}
+	return nil
+}
+
+type mockPaymentProviderService struct {
+	executeFallbackFn func(ctx context.Context, input service.ExecuteFallbackInput) (*service.ExecuteFallbackOutput, error)
+}
+
+func (m *mockPaymentProviderService) ExecuteFallback(ctx context.Context, input service.ExecuteFallbackInput) (*service.ExecuteFallbackOutput, error) {
+	if m.executeFallbackFn != nil {
+		return m.executeFallbackFn(ctx, input)
+	}
+	return &service.ExecuteFallbackOutput{
+		Provider: domain.ProviderDirectBank,
+		Session: &domain.PaymentSessionOutput{
+			Provider:          domain.ProviderDirectBank,
+			ExternalSessionID: "ext_1",
+			Instructions: domain.PaymentInstructions{
+				Type:     domain.InstructionVirtualAccount,
+				VANumber: "880123",
+				BankCode: "BCA",
+			},
+		},
+	}, nil
 }
 
 func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
@@ -115,7 +145,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 	}
 	validBody, _ := json.Marshal(validEvt)
 
-	t.Run("success claims inbox and initiates payment", func(t *testing.T) {
+	t.Run("success claims inbox, initiates payment, executes fallback outside tx, and completes", func(t *testing.T) {
 		mockAck := &mockAcknowledger{}
 		var claimedInput service.ClaimInboxInput
 		inboxService := &mockInboxService{
@@ -125,23 +155,37 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			},
 		}
 		var initiatedOrder string
-		var generatedPaymentID string
-		paymentService := &mockInitiator{
-			initiateFn: func(ctx context.Context, tenantID, orderID string, amount float64, currency string) (*service.PaymentOutput, error) {
-				initiatedOrder = orderID
+		var completedPaymentID string
+		paymentService := &mockPaymentService{
+			initiateFn: func(ctx context.Context, input service.InitiatePaymentInput) (*service.PaymentOutput, error) {
+				initiatedOrder = input.OrderID
 				return &service.PaymentOutput{ID: "pay_99"}, nil
 			},
-			generateInstructionsFn: func(ctx context.Context, paymentID string) error {
-				generatedPaymentID = paymentID
+			completeFn: func(ctx context.Context, input service.CompleteInstructionInput) error {
+				completedPaymentID = input.PaymentID
 				return nil
 			},
 		}
 
+		var fallbackPaymentID string
+		paymentProviderService := &mockPaymentProviderService{
+			executeFallbackFn: func(ctx context.Context, input service.ExecuteFallbackInput) (*service.ExecuteFallbackOutput, error) {
+				fallbackPaymentID = input.PaymentID
+				return &service.ExecuteFallbackOutput{
+					Provider: domain.ProviderDirectBank,
+					Session: &domain.PaymentSessionOutput{
+						ExternalSessionID: "va_123",
+					},
+				}, nil
+			},
+		}
+
 		orderCreatedConsumer := NewOrderCreatedConsumer(OrderCreatedConsumerParams{
-			Client:         &mockAMQPClient{},
-			TxManager:      &mockTxManager{},
-			InboxService:   inboxService,
-			PaymentService: paymentService,
+			Client:                 &mockAMQPClient{},
+			TxManager:              &mockTxManager{},
+			InboxService:           inboxService,
+			PaymentService:         paymentService,
+			PaymentProviderService: paymentProviderService,
 		})
 
 		d := rabbitmq.Delivery{
@@ -161,8 +205,11 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 		if initiatedOrder != "ord_99" {
 			t.Errorf("expected order 'ord_99' to be initiated, got '%s'", initiatedOrder)
 		}
-		if generatedPaymentID != "pay_99" {
-			t.Errorf("expected payment 'pay_99' instructions to be generated, got '%s'", generatedPaymentID)
+		if fallbackPaymentID != "pay_99" {
+			t.Errorf("expected fallback payment 'pay_99', got '%s'", fallbackPaymentID)
+		}
+		if completedPaymentID != "pay_99" {
+			t.Errorf("expected completed payment 'pay_99', got '%s'", completedPaymentID)
 		}
 	})
 
@@ -174,18 +221,19 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			},
 		}
 		initiated := false
-		paymentService := &mockInitiator{
-			initiateFn: func(ctx context.Context, tenantID, orderID string, amount float64, currency string) (*service.PaymentOutput, error) {
+		paymentService := &mockPaymentService{
+			initiateFn: func(ctx context.Context, input service.InitiatePaymentInput) (*service.PaymentOutput, error) {
 				initiated = true
 				return nil, nil
 			},
 		}
 
 		orderCreatedConsumer := NewOrderCreatedConsumer(OrderCreatedConsumerParams{
-			Client:         &mockAMQPClient{},
-			TxManager:      &mockTxManager{},
-			InboxService:   inboxService,
-			PaymentService: paymentService,
+			Client:                 &mockAMQPClient{},
+			TxManager:              &mockTxManager{},
+			InboxService:           inboxService,
+			PaymentService:         paymentService,
+			PaymentProviderService: &mockPaymentProviderService{},
 		})
 
 		d := rabbitmq.Delivery{
@@ -207,10 +255,11 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 	t.Run("invalid json nacks without requeue", func(t *testing.T) {
 		mockAck := &mockAcknowledger{}
 		orderCreatedConsumer := NewOrderCreatedConsumer(OrderCreatedConsumerParams{
-			Client:         &mockAMQPClient{},
-			TxManager:      &mockTxManager{},
-			InboxService:   &mockInboxService{},
-			PaymentService: &mockInitiator{},
+			Client:                 &mockAMQPClient{},
+			TxManager:              &mockTxManager{},
+			InboxService:           &mockInboxService{},
+			PaymentService:         &mockPaymentService{},
+			PaymentProviderService: &mockPaymentProviderService{},
 		})
 
 		d := rabbitmq.Delivery{
@@ -232,10 +281,11 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 	t.Run("max delivery count nacks without requeue for DLQ", func(t *testing.T) {
 		mockAck := &mockAcknowledger{}
 		orderCreatedConsumer := NewOrderCreatedConsumer(OrderCreatedConsumerParams{
-			Client:         &mockAMQPClient{},
-			TxManager:      &mockTxManager{},
-			InboxService:   &mockInboxService{},
-			PaymentService: &mockInitiator{},
+			Client:                 &mockAMQPClient{},
+			TxManager:              &mockTxManager{},
+			InboxService:           &mockInboxService{},
+			PaymentService:         &mockPaymentService{},
+			PaymentProviderService: &mockPaymentProviderService{},
 		})
 
 		d := rabbitmq.Delivery{
@@ -260,10 +310,11 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 	t.Run("misrouted key acks and discards", func(t *testing.T) {
 		mockAck := &mockAcknowledger{}
 		orderCreatedConsumer := NewOrderCreatedConsumer(OrderCreatedConsumerParams{
-			Client:         &mockAMQPClient{},
-			TxManager:      &mockTxManager{},
-			InboxService:   &mockInboxService{},
-			PaymentService: &mockInitiator{},
+			Client:                 &mockAMQPClient{},
+			TxManager:              &mockTxManager{},
+			InboxService:           &mockInboxService{},
+			PaymentService:         &mockPaymentService{},
+			PaymentProviderService: &mockPaymentProviderService{},
 		})
 
 		d := rabbitmq.Delivery{
@@ -281,17 +332,18 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 
 	t.Run("payment initiation failure nacks with requeue", func(t *testing.T) {
 		mockAck := &mockAcknowledger{}
-		paymentService := &mockInitiator{
-			initiateFn: func(ctx context.Context, tenantID, orderID string, amount float64, currency string) (*service.PaymentOutput, error) {
-				return nil, errors.New("psp timeout")
+		paymentService := &mockPaymentService{
+			initiateFn: func(ctx context.Context, input service.InitiatePaymentInput) (*service.PaymentOutput, error) {
+				return nil, errors.New("db error")
 			},
 		}
 
 		orderCreatedConsumer := NewOrderCreatedConsumer(OrderCreatedConsumerParams{
-			Client:         &mockAMQPClient{},
-			TxManager:      &mockTxManager{},
-			InboxService:   &mockInboxService{},
-			PaymentService: paymentService,
+			Client:                 &mockAMQPClient{},
+			TxManager:              &mockTxManager{},
+			InboxService:           &mockInboxService{},
+			PaymentService:         paymentService,
+			PaymentProviderService: &mockPaymentProviderService{},
 		})
 
 		d := rabbitmq.Delivery{

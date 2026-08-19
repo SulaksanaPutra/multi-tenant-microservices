@@ -5,9 +5,10 @@ import (
 	"net/http"
 	"time"
 
+	"tenant-service/internal/service"
+
 	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
-	"tenant-service/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -35,7 +36,6 @@ type ChangePlanRequest struct {
 	Plan string `json:"plan" binding:"required"`
 }
 
-// TenantResponse is the transport DTO for a tenant profile returned to API consumers.
 type TenantResponse struct {
 	TenantID   string    `json:"tenant_id"`
 	Name       string    `json:"name"`
@@ -48,7 +48,6 @@ type TenantResponse struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
-// ChangeTenantPlanResponse is the transport DTO for a tenant isolation plan mutation.
 type ChangeTenantPlanResponse struct {
 	TenantID string `json:"tenant_id"`
 	Plan     string `json:"plan"`

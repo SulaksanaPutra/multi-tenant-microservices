@@ -426,7 +426,7 @@ paths:
             x-service: payment-service
             x-source:
                 - payment-service/cmd/router.go:23
-                - payment-service/internal/handler/payment_handler.go:79
+                - payment-service/internal/handler/payment_handler.go:155
             security:
                 - BearerAuth: []
             parameters:

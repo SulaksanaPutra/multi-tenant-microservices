@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"payment-service/internal/domain"
-	"payment-service/internal/provider"
 	"payment-service/internal/repository"
 )
 
@@ -75,50 +74,9 @@ func (m *mockOutboxRepository) SaveOutboxEvent(ctx context.Context, eventID, rou
 	return nil
 }
 
-type mockPSPConfigRepository struct {
-	saveFn func(ctx context.Context, input repository.SaveConfigInput, masterKey []byte) error
-	getFn  func(ctx context.Context, tenantID string, masterKey []byte) (*domain.TenantPSPConfig, error)
-}
-
-func (m *mockPSPConfigRepository) SaveConfig(ctx context.Context, input repository.SaveConfigInput, masterKey []byte) error {
-	if m.saveFn != nil {
-		return m.saveFn(ctx, input, masterKey)
-	}
-	return nil
-}
-
-func (m *mockPSPConfigRepository) GetConfig(ctx context.Context, tenantID string, masterKey []byte) (*domain.TenantPSPConfig, error) {
-	if m.getFn != nil {
-		return m.getFn(ctx, tenantID, masterKey)
-	}
-	return &domain.TenantPSPConfig{TenantID: tenantID, PriorityChain: []domain.ProviderType{domain.ProviderMock}}, nil
-}
-
-type mockTenantPSPResolver struct {
-	invalidated bool
-}
-
-func (m *mockTenantPSPResolver) ResolveConfig(ctx context.Context, tenantID string) (*domain.TenantPSPConfig, error) {
-	return &domain.TenantPSPConfig{TenantID: tenantID, PriorityChain: []domain.ProviderType{domain.ProviderMock}}, nil
-}
-
-func (m *mockTenantPSPResolver) InvalidateCache(tenantID string) {
-	m.invalidated = true
-}
-
-type mockProviderRegistry struct{}
-
-func (m *mockProviderRegistry) ExecuteFallbackChain(ctx context.Context, req domain.CreateSessionRequest) (*provider.ExecutionResult, error) {
-	return &provider.ExecutionResult{Provider: domain.ProviderMock}, nil
-}
-
-func (m *mockProviderRegistry) GetProvider(providerID domain.ProviderType) (domain.PaymentProvider, bool) {
-	return nil, false
-}
-
 func TestPaymentService_GetPaymentByID(t *testing.T) {
 	paymentRepository := &mockPaymentRepository{}
-	paymentService := NewPaymentService(nil, paymentRepository, &mockInboxRepository{}, &mockOutboxRepository{}, &mockPSPConfigRepository{}, &mockTenantPSPResolver{}, &mockProviderRegistry{}, []byte("key"), nil)
+	paymentService := NewPaymentService(nil, paymentRepository, &mockInboxRepository{}, &mockOutboxRepository{}, nil)
 
 	p, err := paymentService.GetPaymentByID(context.Background(), "pay_1")
 	if err != nil {
@@ -131,7 +89,7 @@ func TestPaymentService_GetPaymentByID(t *testing.T) {
 
 func TestPaymentService_GetPaymentByOrderID(t *testing.T) {
 	paymentRepository := &mockPaymentRepository{}
-	paymentService := NewPaymentService(nil, paymentRepository, &mockInboxRepository{}, &mockOutboxRepository{}, &mockPSPConfigRepository{}, &mockTenantPSPResolver{}, &mockProviderRegistry{}, []byte("key"), nil)
+	paymentService := NewPaymentService(nil, paymentRepository, &mockInboxRepository{}, &mockOutboxRepository{}, nil)
 
 	p, err := paymentService.GetPaymentByOrderID(context.Background(), "tnt_1", "ord_1")
 	if err != nil {
@@ -139,36 +97,6 @@ func TestPaymentService_GetPaymentByOrderID(t *testing.T) {
 	}
 	if p.OrderID != "ord_1" {
 		t.Errorf("expected OrderID ord_1, got %s", p.OrderID)
-	}
-}
-
-func TestPaymentService_SavePSPConfig(t *testing.T) {
-	resolver := &mockTenantPSPResolver{}
-	paymentService := NewPaymentService(nil, &mockPaymentRepository{}, &mockInboxRepository{}, &mockOutboxRepository{}, &mockPSPConfigRepository{}, resolver, &mockProviderRegistry{}, []byte("key"), nil)
-
-	if err := paymentService.SavePSPConfig(context.Background(), &domain.TenantPSPConfig{}); err == nil {
-		t.Error("expected error for empty tenant_id")
-	}
-
-	cfg := &domain.TenantPSPConfig{TenantID: "tnt_100", PriorityChain: []domain.ProviderType{domain.ProviderMock}}
-	if err := paymentService.SavePSPConfig(context.Background(), cfg); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !resolver.invalidated {
-		t.Error("expected resolver cache invalidation")
-	}
-}
-
-func TestPaymentService_GetPSPConfig(t *testing.T) {
-	paymentService := NewPaymentService(nil, &mockPaymentRepository{}, &mockInboxRepository{}, &mockOutboxRepository{}, &mockPSPConfigRepository{}, &mockTenantPSPResolver{}, &mockProviderRegistry{}, []byte("key"), nil)
-
-	cfg, err := paymentService.GetPSPConfig(context.Background(), "tnt_1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cfg.TenantID != "tnt_1" {
-		t.Errorf("expected TenantID tnt_1, got %s", cfg.TenantID)
 	}
 }
 
@@ -180,7 +108,7 @@ func TestPaymentService_SweepExpiredPayments(t *testing.T) {
 			}, nil
 		},
 	}
-	paymentService := NewPaymentService(nil, paymentRepository, &mockInboxRepository{}, &mockOutboxRepository{}, &mockPSPConfigRepository{}, &mockTenantPSPResolver{}, &mockProviderRegistry{}, []byte("key"), nil)
+	paymentService := NewPaymentService(nil, paymentRepository, &mockInboxRepository{}, &mockOutboxRepository{}, nil)
 
 	count, err := paymentService.SweepExpiredPayments(context.Background(), 24*time.Hour)
 	if err != nil {
@@ -199,9 +127,14 @@ func TestPaymentService_InitiatePayment(t *testing.T) {
 			return nil
 		},
 	}
-	paymentService := NewPaymentService(nil, paymentRepository, &mockInboxRepository{}, &mockOutboxRepository{}, &mockPSPConfigRepository{}, &mockTenantPSPResolver{}, &mockProviderRegistry{}, []byte("key"), nil)
+	paymentService := NewPaymentService(nil, paymentRepository, &mockInboxRepository{}, &mockOutboxRepository{}, nil)
 
-	p, err := paymentService.InitiatePayment(context.Background(), "tnt_99", "ord_99", 150.0, "USD")
+	p, err := paymentService.InitiatePayment(context.Background(), InitiatePaymentInput{
+		TenantID: "tnt_99",
+		OrderID:  "ord_99",
+		Amount:   150.0,
+		Currency: "USD",
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -210,5 +143,75 @@ func TestPaymentService_InitiatePayment(t *testing.T) {
 	}
 	if createdInput.Status != domain.PaymentStatusPending {
 		t.Errorf("expected PENDING status on create, got %s", createdInput.Status)
+	}
+}
+
+func TestPaymentService_CompleteInstructionGeneration(t *testing.T) {
+	var updatedInput repository.UpdatePaymentInput
+	paymentRepository := &mockPaymentRepository{
+		findByIDFn: func(ctx context.Context, id string) (*domain.Payment, error) {
+			return &domain.Payment{
+				ID:       id,
+				TenantID: "tnt_1",
+				OrderID:  "ord_1",
+				Status:   domain.PaymentStatusPending,
+			}, nil
+		},
+		updateFn: func(ctx context.Context, input repository.UpdatePaymentInput) error {
+			updatedInput = input
+			return nil
+		},
+	}
+	paymentService := NewPaymentService(nil, paymentRepository, &mockInboxRepository{}, &mockOutboxRepository{}, nil)
+
+	err := paymentService.CompleteInstructionGeneration(context.Background(), CompleteInstructionInput{
+		PaymentID:         "pay_1",
+		Provider:          domain.ProviderDirectBank,
+		ExternalSessionID: "va_123",
+		Instructions: domain.PaymentInstructions{
+			Type:     domain.InstructionVirtualAccount,
+			VANumber: "88012999",
+			BankCode: "BCA",
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if updatedInput.Status != domain.PaymentStatusInstructionsReady {
+		t.Errorf("expected status PAYMENT_INSTRUCTIONS_READY, got %s", updatedInput.Status)
+	}
+}
+
+func TestPaymentService_ProcessVerifiedWebhook(t *testing.T) {
+	paymentRepository := &mockPaymentRepository{
+		findByIDFn: func(ctx context.Context, id string) (*domain.Payment, error) {
+			return &domain.Payment{
+				ID:       id,
+				TenantID: "tnt_1",
+				OrderID:  "ord_1",
+				Amount:   100.0,
+				Currency: "USD",
+				Status:   domain.PaymentStatusInstructionsReady,
+			}, nil
+		},
+	}
+	paymentService := NewPaymentService(nil, paymentRepository, &mockInboxRepository{}, &mockOutboxRepository{}, nil)
+
+	output, err := paymentService.ProcessVerifiedWebhook(context.Background(), ProcessVerifiedWebhookInput{
+		EventID:           "evt_1",
+		EventType:         domain.WebhookEventTypePaymentSucceeded,
+		Provider:          domain.ProviderDirectBank,
+		TenantID:          "tnt_1",
+		OrderID:           "ord_1",
+		PaymentID:         "pay_1",
+		ExternalSessionID: "va_123",
+		Amount:            100.0,
+		Currency:          "USD",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if output.Status != domain.PaymentStatusSucceeded {
+		t.Errorf("expected SUCCEEDED status, got %s", output.Status)
 	}
 }

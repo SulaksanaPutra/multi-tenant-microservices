@@ -36,13 +36,18 @@ func (p *MockProvider) ID() domain.ProviderType {
 	return p.id
 }
 
-func (p *MockProvider) CreatePaymentSession(ctx context.Context, req domain.CreateSessionRequest) (*domain.PaymentSessionResult, error) {
+func (p *MockProvider) CreatePaymentSession(ctx context.Context, req domain.CreateSessionRequest) (*domain.PaymentSessionOutput, error) {
 	if p.shouldError {
 		return nil, domain.ErrProviderTransientFailure
 	}
 
+	secret := p.secretKey
+	if req.Credentials.SecretKey != "" {
+		secret = req.Credentials.SecretKey
+	}
+
 	extID := fmt.Sprintf("ext_%s_%s", p.id, req.PaymentID)
-	return &domain.PaymentSessionResult{
+	return &domain.PaymentSessionOutput{
 		Provider:          p.id,
 		ExternalSessionID: extID,
 		Instructions: domain.PaymentInstructions{
@@ -51,7 +56,8 @@ func (p *MockProvider) CreatePaymentSession(ctx context.Context, req domain.Crea
 			ExpiresAt:   time.Now().Add(24 * time.Hour),
 		},
 		RawProviderMetadata: map[string]string{
-			"mock_mode": "test",
+			"mock_mode":  "test",
+			"secret_ref": secret[:min(4, len(secret))],
 		},
 	}, nil
 }

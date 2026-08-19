@@ -18,9 +18,7 @@ import (
 type mockPaymentService struct {
 	getByIDFn        func(ctx context.Context, id string) (*service.PaymentOutput, error)
 	getByOrderIDFn   func(ctx context.Context, tenantID, orderID string) (*service.PaymentOutput, error)
-	processWebhookFn func(ctx context.Context, providerID domain.ProviderType, headers map[string]string, body []byte) error
-	savePSPConfigFn  func(ctx context.Context, config *domain.TenantPSPConfig) error
-	getPSPConfigFn   func(ctx context.Context, tenantID string) (*service.TenantPSPConfigOutput, error)
+	processWebhookFn func(ctx context.Context, input service.ProcessVerifiedWebhookInput) (*service.ProcessWebhookOutput, error)
 }
 
 func (m *mockPaymentService) GetPaymentByID(ctx context.Context, id string) (*service.PaymentOutput, error) {
@@ -37,31 +35,69 @@ func (m *mockPaymentService) GetPaymentByOrderID(ctx context.Context, tenantID, 
 	return &service.PaymentOutput{ID: "pay_1", TenantID: tenantID, OrderID: orderID}, nil
 }
 
-func (m *mockPaymentService) ProcessWebhook(ctx context.Context, providerID domain.ProviderType, headers map[string]string, body []byte) error {
+func (m *mockPaymentService) ProcessVerifiedWebhook(ctx context.Context, input service.ProcessVerifiedWebhookInput) (*service.ProcessWebhookOutput, error) {
 	if m.processWebhookFn != nil {
-		return m.processWebhookFn(ctx, providerID, headers, body)
+		return m.processWebhookFn(ctx, input)
+	}
+	return &service.ProcessWebhookOutput{PaymentID: input.PaymentID, Status: domain.PaymentStatusSucceeded}, nil
+}
+
+type mockPaymentProviderService struct {
+	verifyFn func(ctx context.Context, providerID domain.ProviderType, headers map[string]string, body []byte) (*service.VerifyWebhookOutput, error)
+	cancelFn func(ctx context.Context, providerID domain.ProviderType, externalSessionID string) error
+}
+
+func (m *mockPaymentProviderService) VerifyWebhookSignature(ctx context.Context, providerID domain.ProviderType, headers map[string]string, body []byte) (*service.VerifyWebhookOutput, error) {
+	if m.verifyFn != nil {
+		return m.verifyFn(ctx, providerID, headers, body)
+	}
+	return &service.VerifyWebhookOutput{
+		EventID:           "evt_1",
+		EventType:         domain.WebhookEventTypePaymentSucceeded,
+		Provider:          providerID,
+		TenantID:          "tnt_1",
+		OrderID:           "ord_1",
+		PaymentID:         "pay_1",
+		ExternalSessionID: "ext_1",
+		Amount:            100.0,
+		Currency:          "USD",
+	}, nil
+}
+
+func (m *mockPaymentProviderService) CancelPaymentSession(ctx context.Context, providerID domain.ProviderType, externalSessionID string) error {
+	if m.cancelFn != nil {
+		return m.cancelFn(ctx, providerID, externalSessionID)
 	}
 	return nil
 }
 
-func (m *mockPaymentService) SavePSPConfig(ctx context.Context, config *domain.TenantPSPConfig) error {
-	if m.savePSPConfigFn != nil {
-		return m.savePSPConfigFn(ctx, config)
+type mockPSPConfigService struct {
+	saveFn func(ctx context.Context, input service.SavePSPConfigInput) error
+	getFn  func(ctx context.Context, tenantID string) (*service.TenantPSPConfigOutput, error)
+}
+
+func (m *mockPSPConfigService) SaveConfig(ctx context.Context, input service.SavePSPConfigInput) error {
+	if m.saveFn != nil {
+		return m.saveFn(ctx, input)
 	}
 	return nil
 }
 
-func (m *mockPaymentService) GetPSPConfig(ctx context.Context, tenantID string) (*service.TenantPSPConfigOutput, error) {
-	if m.getPSPConfigFn != nil {
-		return m.getPSPConfigFn(ctx, tenantID)
+func (m *mockPSPConfigService) GetConfig(ctx context.Context, tenantID string) (*service.TenantPSPConfigOutput, error) {
+	if m.getFn != nil {
+		return m.getFn(ctx, tenantID)
 	}
 	return &service.TenantPSPConfigOutput{TenantID: tenantID}, nil
 }
 
-func setupTestRouter(paymentService PaymentService) *gin.Engine {
+func setupTestRouter(
+	paymentService PaymentService,
+	paymentProviderService PaymentProviderService,
+	pspConfigService PSPConfigService,
+) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	paymentHandler := NewPaymentHandler(paymentService)
+	paymentHandler := NewPaymentHandler(paymentService, paymentProviderService, pspConfigService)
 
 	router.POST("/api/payments/webhook/:provider", paymentHandler.HandleWebhook)
 
@@ -80,8 +116,7 @@ func setupTestRouter(paymentService PaymentService) *gin.Engine {
 }
 
 func TestPaymentHandler_GetPaymentByID(t *testing.T) {
-	paymentService := &mockPaymentService{}
-	router := setupTestRouter(paymentService)
+	router := setupTestRouter(&mockPaymentService{}, &mockPaymentProviderService{}, &mockPSPConfigService{})
 
 	req, _ := http.NewRequest(http.MethodGet, "/api/payments/pay_123", nil)
 	w := httptest.NewRecorder()
@@ -93,8 +128,7 @@ func TestPaymentHandler_GetPaymentByID(t *testing.T) {
 }
 
 func TestPaymentHandler_GetPaymentByOrderID(t *testing.T) {
-	paymentService := &mockPaymentService{}
-	router := setupTestRouter(paymentService)
+	router := setupTestRouter(&mockPaymentService{}, &mockPaymentProviderService{}, &mockPSPConfigService{})
 
 	req, _ := http.NewRequest(http.MethodGet, "/api/payments/by-order/ord_123", nil)
 	w := httptest.NewRecorder()
@@ -106,8 +140,7 @@ func TestPaymentHandler_GetPaymentByOrderID(t *testing.T) {
 }
 
 func TestPaymentHandler_HandleWebhook(t *testing.T) {
-	paymentService := &mockPaymentService{}
-	router := setupTestRouter(paymentService)
+	router := setupTestRouter(&mockPaymentService{}, &mockPaymentProviderService{}, &mockPSPConfigService{})
 
 	body := []byte(`{"test": true}`)
 	req, _ := http.NewRequest(http.MethodPost, "/api/payments/webhook/mock", bytes.NewBuffer(body))
@@ -120,8 +153,7 @@ func TestPaymentHandler_HandleWebhook(t *testing.T) {
 }
 
 func TestPaymentHandler_UpdateAndGetPSPConfig(t *testing.T) {
-	paymentService := &mockPaymentService{}
-	router := setupTestRouter(paymentService)
+	router := setupTestRouter(&mockPaymentService{}, &mockPaymentProviderService{}, &mockPSPConfigService{})
 
 	payload := UpdatePSPConfigRequest{
 		PriorityChain: []domain.ProviderType{domain.ProviderMock},

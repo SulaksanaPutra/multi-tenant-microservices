@@ -34,8 +34,14 @@ type InboxService interface {
 // Domain Service Contracts
 // =============================================================================
 
-// PaymentInitiator is the consumer-side interface for initiating payments on order events.
-type PaymentInitiator interface {
-	InitiatePayment(ctx context.Context, tenantID, orderID string, amount float64, currency string) (*service.PaymentOutput, error)
-	GeneratePaymentInstructions(ctx context.Context, paymentID string) error
+// PaymentService is the consumer-side interface for payment DB lifecycle operations.
+type PaymentService interface {
+	InitiatePayment(ctx context.Context, input service.InitiatePaymentInput) (*service.PaymentOutput, error)
+	CompleteInstructionGeneration(ctx context.Context, input service.CompleteInstructionInput) error
+	FailInstructionGeneration(ctx context.Context, input service.FailInstructionInput) error
+}
+
+// PaymentProviderService is the consumer-side interface for external gateway fallback execution.
+type PaymentProviderService interface {
+	ExecuteFallback(ctx context.Context, input service.ExecuteFallbackInput) (*service.ExecuteFallbackOutput, error)
 }

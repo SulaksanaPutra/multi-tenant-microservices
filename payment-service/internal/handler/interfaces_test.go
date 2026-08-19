@@ -4,3 +4,5 @@ package handler
 // every interface declared in interfaces.go (compile-time only).
 
 var _ PaymentService = (*mockPaymentService)(nil)
+var _ PaymentProviderService = (*mockPaymentProviderService)(nil)
+var _ PSPConfigService = (*mockPSPConfigService)(nil)

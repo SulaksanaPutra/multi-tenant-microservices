@@ -18,8 +18,7 @@ type UserCreatedConsumerParams struct {
 	Client            AMQPClient
 	InboxService      InboxService
 	MembershipService MembershipService
-	// MaxDeliveries caps poison-pill requeues before routing to the DLQ.
-	MaxDeliveries int
+	MaxDeliveries     int
 }
 
 type UserCreatedConsumer struct {
@@ -45,9 +44,6 @@ func NewUserCreatedConsumer(params UserCreatedConsumerParams) *UserCreatedConsum
 	}
 }
 
-// setupTopology declares the broker-native DLX topology: the main queue is
-// bound to company.events on user.created and dead-letters to
-// company.events.dlx → auth_service_user_created_membership_dlq.
 func (userCreatedConsumer *UserCreatedConsumer) setupTopology() error {
 	if err := userCreatedConsumer.client.DeclareExchange(domain.ExchangeCompanyEvents, "topic"); err != nil {
 		return fmt.Errorf("failed to declare exchange: %w", err)
