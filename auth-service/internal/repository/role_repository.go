@@ -9,6 +9,7 @@ import (
 
 	"auth-service/internal/domain"
 	"auth-service/internal/infrastructure/postgres"
+
 	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 
 	"github.com/lib/pq"
@@ -18,7 +19,6 @@ type RoleRepository struct {
 	dbClient *postgres.Client
 }
 
-// CreateRoleInput is the operation-specific write DTO for role creation.
 type CreateRoleInput struct {
 	TenantID    *string
 	Name        string
@@ -50,7 +50,7 @@ func (roleRepository *RoleRepository) CreateRole(ctx context.Context, input Crea
 
 	if err := exec.QueryRowContext(ctx, query, tenantIDVal, input.Name, input.Description, input.IsSystem).Scan(&created.ID, &created.CreatedAt, &created.UpdatedAt); err != nil {
 		var pqErr *pq.Error
-		if errors.As(err, &pqErr) && pqErr.Code == "23505" { // unique_violation
+		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
 			return nil, domain.ErrRoleAlreadyExists
 		}
 		return nil, fmt.Errorf("role repository: failed to create role '%s': %w", input.Name, err)
@@ -78,7 +78,6 @@ func (roleRepository *RoleRepository) FindRoleByID(ctx context.Context, id strin
 		role.TenantID = &tenantID.String
 	}
 
-	// Fetch permissions attached to this role
 	perms, err := roleRepository.ListPermissionsForRole(ctx, id)
 	if err != nil {
 		return nil, err
@@ -214,7 +213,6 @@ func (roleRepository *RoleRepository) ListPermissionsForRole(ctx context.Context
 func (roleRepository *RoleRepository) UpdateRolePermissions(ctx context.Context, roleID string, permissionIDs []string) error {
 	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 
-	// Delete existing permissions for role
 	if _, err := exec.ExecContext(ctx, `DELETE FROM public.role_permissions WHERE role_id = $1;`, roleID); err != nil {
 		return fmt.Errorf("role repository: failed to clear role permissions for role_id '%s': %w", roleID, err)
 	}
@@ -229,7 +227,6 @@ func (roleRepository *RoleRepository) UpdateRolePermissions(ctx context.Context,
 		ON CONFLICT (id) DO NOTHING;
 	`
 
-	// Insert new permissions
 	insertQuery := `
 		INSERT INTO public.role_permissions (role_id, permission_id)
 		VALUES ($1, $2)
@@ -245,7 +242,6 @@ func (roleRepository *RoleRepository) UpdateRolePermissions(ctx context.Context,
 		}
 	}
 
-	// Reflect the mutation in the tenant-scoped resource's updated_at.
 	if _, err := exec.ExecContext(ctx, `UPDATE public.roles SET updated_at = NOW() WHERE id = $1;`, roleID); err != nil {
 		return fmt.Errorf("role repository: failed to stamp updated_at on role_id '%s': %w", roleID, err)
 	}
@@ -255,7 +251,6 @@ func (roleRepository *RoleRepository) UpdateRolePermissions(ctx context.Context,
 func (roleRepository *RoleRepository) DeleteRole(ctx context.Context, id string) error {
 	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 
-	// Verify not system role
 	var isSystem bool
 	if err := exec.QueryRowContext(ctx, `SELECT is_system FROM public.roles WHERE id = $1;`, id).Scan(&isSystem); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -288,7 +283,6 @@ func (roleRepository *RoleRepository) AssignUserRole(ctx context.Context, userID
 		return fmt.Errorf("role repository: failed to assign role_id '%s' to user_id '%s': %w", roleID, userID, err)
 	}
 
-	// Also ensure user_permission_versions row exists
 	vQuery := `
 		INSERT INTO public.user_permission_versions (user_id, tenant_id, version, updated_at)
 		VALUES ($1, $2, 1, NOW())
@@ -364,7 +358,6 @@ func (roleRepository *RoleRepository) FindUserRole(ctx context.Context, userID, 
 func (roleRepository *RoleRepository) FindUserPermissions(ctx context.Context, userID, tenantID string) ([]string, int64, error) {
 	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 
-	// Fetch permission names
 	query := `
 		SELECT DISTINCT p.name
 		FROM public.permissions p
@@ -388,7 +381,6 @@ func (roleRepository *RoleRepository) FindUserPermissions(ctx context.Context, u
 		permissions = append(permissions, name)
 	}
 
-	// Fetch version
 	var version int64 = 1
 	vQuery := `SELECT version FROM public.user_permission_versions WHERE user_id = $1 AND tenant_id = $2;`
 	if err := exec.QueryRowContext(ctx, vQuery, userID, tenantID).Scan(&version); err != nil {
@@ -400,8 +392,6 @@ func (roleRepository *RoleRepository) FindUserPermissions(ctx context.Context, u
 	return permissions, version, nil
 }
 
-// UserRoleBrief is the lightweight role-assignment projection returned by the
-// bulk lookup used to compose tenant "users + roles" tables without N+1 calls.
 type UserRoleBrief struct {
 	UserID   string `json:"user_id"`
 	RoleID   string `json:"role_id"`

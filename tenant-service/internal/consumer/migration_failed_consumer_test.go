@@ -67,7 +67,7 @@ func TestMigrationFailedConsumer_HandleDelivery(t *testing.T) {
 		txManager := &mockTxManager{}
 		inboxService := &mockInboxService{
 			claimEventFunc: func(txCtx context.Context, eventID string) (bool, error) {
-				return true, nil // duplicate
+				return true, nil
 			},
 		}
 		rollbackService := &mockMigrationRollbackService{}

@@ -45,7 +45,7 @@ func TestInboxService_ClaimEvent(t *testing.T) {
 		mockInboxRepository := &mockInboxRepository{
 			tryInsertFunc: func(ctx context.Context, eventID string) (bool, error) {
 				capturedID = eventID
-				return false, nil // not duplicate
+				return false, nil
 			},
 		}
 
@@ -65,7 +65,7 @@ func TestInboxService_ClaimEvent(t *testing.T) {
 	t.Run("duplicate_event_returns_true", func(t *testing.T) {
 		mockInboxRepository := &mockInboxRepository{
 			tryInsertFunc: func(ctx context.Context, eventID string) (bool, error) {
-				return true, nil // duplicate
+				return true, nil
 			},
 		}
 

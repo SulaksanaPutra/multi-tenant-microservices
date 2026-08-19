@@ -5,9 +5,10 @@ import (
 	"os"
 
 	"tenant-service/internal/handler"
+	"tenant-service/internal/service"
+
 	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
-	"tenant-service/internal/service"
 	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 
 	"github.com/gin-gonic/gin"
@@ -22,7 +23,6 @@ func newRouter(txManager *txcontext.SQLTxManager, workspaceService *service.Work
 	internalTenantHandler := handler.NewInternalTenantHandler(tenantInfrastructureService)
 	tenantHandler := handler.NewTenantHandler(txManager, workspaceService)
 
-	// Public registration endpoint
 	r.POST("/api/tenants/register", workspaceHandler.RegisterWorkspace)
 
 	publicKeyPEM := os.Getenv("AUTH_JWT_PUBLIC_KEY_PEM")
@@ -39,14 +39,12 @@ func newRouter(txManager *txcontext.SQLTxManager, workspaceService *service.Work
 		}
 	}
 
-	// Protected Internal Control Plane routing endpoints (Zero-Trust)
 	internal := r.Group("/internal/tenants")
 	internal.Use(middleware.InternalAuthMiddleware(internalToken))
 	{
 		internal.GET("/:tenant_id/infrastructure/:service_name", internalTenantHandler.GetServiceInfrastructure)
 	}
 
-	// Health check
 	r.GET("/health", func(c *gin.Context) {
 		httputil.WriteSuccess[any](c, http.StatusOK, "OK", nil)
 	})

@@ -1,4 +1,3 @@
-// Package consumer implements the inbound AMQP consumers for auth-service.
 package consumer
 
 import (
@@ -136,21 +135,19 @@ func (userCreatedConsumer *UserCreatedConsumer) runConsumerLoop(appCtx, connCtx 
 }
 
 func (userCreatedConsumer *UserCreatedConsumer) handleDelivery(ctx context.Context, d rabbitmq.Delivery) error {
-	// Routing-key guard: drain misrouted messages without processing them.
 	if d.RoutingKey != domain.RoutingKeyUserCreated && d.RoutingKey != "" {
 		log.Printf("[WARN] UserCreatedConsumer: Received misrouted message with routing_key='%s' (expected '%s'). Discarding. Check AMQP queue topology for ghost bindings.", d.RoutingKey, domain.RoutingKeyUserCreated)
-		_ = d.Ack(false) // Ack to drain from queue; no valid handler exists on this consumer
+		_ = d.Ack(false)
 		return nil
 	}
 
 	var evt domain.UserCreatedEvent
 	if err := json.Unmarshal(d.Body, &evt); err != nil {
 		log.Printf("Error unmarshaling UserCreated payload: %v", err)
-		_ = d.Nack(false, false) // poison pill -> broker routes to DLQ via DLX
+		_ = d.Nack(false, false)
 		return err
 	}
 
-	// Delivery-count cap: DLQ persistent failures instead of infinite requeues.
 	deliveryCount := getDeliveryCount(d.Headers)
 	if deliveryCount >= userCreatedConsumer.maxDeliveries {
 		log.Printf("[DLQ] UserCreatedConsumer: Max deliveries (%d) reached for event_id='%s' user_id='%s' (delivery_count=%d). Routing to DLQ.",
@@ -169,7 +166,6 @@ func (userCreatedConsumer *UserCreatedConsumer) handleDelivery(ctx context.Conte
 			Payload:   d.Body,
 		}
 
-		// Step 1: transactional inbox guard — deduplicates the event.
 		isDup, err := userCreatedConsumer.inboxService.ClaimEvent(txCtx, inboxInput)
 		if err != nil {
 			return fmt.Errorf("inbox guard failed: %w", err)
@@ -179,7 +175,6 @@ func (userCreatedConsumer *UserCreatedConsumer) handleDelivery(ctx context.Conte
 			return nil
 		}
 
-		// Step 2: upsert the local user_tenant_memberships copy.
 		if err := userCreatedConsumer.membershipService.AddMembership(txCtx, evt.UserID, evt.TenantID); err != nil {
 			return fmt.Errorf("failed to upsert membership copy: %w", err)
 		}
@@ -189,11 +184,10 @@ func (userCreatedConsumer *UserCreatedConsumer) handleDelivery(ctx context.Conte
 
 	if err != nil {
 		log.Printf("UserCreatedConsumer Error: Transaction failed for event '%s': %v", evt.EventID, err)
-		_ = d.Nack(false, true) // Requeue on transient error
+		_ = d.Nack(false, true)
 		return err
 	}
 
-	// Ack only after successful DB commit.
 	_ = d.Ack(false)
 	log.Printf("UserCreatedConsumer: Successfully committed transaction & ACKed message event_id='%s'", evt.EventID)
 	return nil

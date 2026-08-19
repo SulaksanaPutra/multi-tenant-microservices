@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"auth-service/internal/infrastructure/postgres"
+
 	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
@@ -23,8 +24,6 @@ func NewInboxRepository(dbClient *postgres.Client) *InboxRepository {
 	return &InboxRepository{dbClient: dbClient}
 }
 
-// TryInsert inserts the event into the inbox atomically. Returns isDuplicate
-// = true when the event_id already exists (dedup barrier satisfied).
 func (inboxRepository *InboxRepository) TryInsert(ctx context.Context, input CreateInboxMessageInput) (bool, error) {
 	exec := txcontext.GetExecutor(ctx, inboxRepository.dbClient)
 	const query = `
@@ -45,7 +44,7 @@ func (inboxRepository *InboxRepository) TryInsert(ctx context.Context, input Cre
 		return false, fmt.Errorf("failed to check rows affected in inbox insert: %w", err)
 	}
 	if rows == 0 {
-		return true, nil // isDuplicate = true
+		return true, nil
 	}
-	return false, nil // isDuplicate = false, safe to process
+	return false, nil
 }

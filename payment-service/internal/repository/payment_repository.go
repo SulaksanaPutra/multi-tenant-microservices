@@ -10,6 +10,7 @@ import (
 
 	"payment-service/internal/domain"
 	"payment-service/internal/infrastructure/postgres"
+
 	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
@@ -22,33 +23,33 @@ func NewPaymentRepository(dbClient *postgres.Client) *PaymentRepository {
 }
 
 type CreatePaymentInput struct {
-	ID                  string
-	TenantID            string
-	OrderID             string
-	Amount              float64
-	Currency            string
-	Status              domain.PaymentStatus
-	Provider            domain.ProviderType
-	ExternalID          string
-	Instructions        domain.PaymentInstructions
-	RawWebhookPayload   map[string]any
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	ID                string
+	TenantID          string
+	OrderID           string
+	Amount            float64
+	Currency          string
+	Status            domain.PaymentStatus
+	Provider          domain.ProviderType
+	ExternalID        string
+	Instructions      domain.PaymentInstructions
+	RawWebhookPayload map[string]any
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 type UpdatePaymentInput struct {
-	ID                  string
-	TenantID            string
-	OrderID             string
-	Amount              float64
-	Currency            string
-	Status              domain.PaymentStatus
-	Provider            domain.ProviderType
-	ExternalID          string
-	Instructions        domain.PaymentInstructions
-	RawWebhookPayload   map[string]any
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	ID                string
+	TenantID          string
+	OrderID           string
+	Amount            float64
+	Currency          string
+	Status            domain.PaymentStatus
+	Provider          domain.ProviderType
+	ExternalID        string
+	Instructions      domain.PaymentInstructions
+	RawWebhookPayload map[string]any
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 type CreateAttemptInput struct {
@@ -170,7 +171,6 @@ func (paymentRepository *PaymentRepository) FindByID(ctx context.Context, id str
 	return paymentRepository.scanPayment(exec.QueryRowContext(ctx, query, id))
 }
 
-// FindByIDForUpdate locks the payment row for pessimistic concurrency control during webhook processing.
 func (paymentRepository *PaymentRepository) FindByIDForUpdate(ctx context.Context, id string) (*domain.Payment, error) {
 	exec := txcontext.GetExecutor(ctx, paymentRepository.dbClient)
 	query := `

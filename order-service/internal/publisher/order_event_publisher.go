@@ -9,7 +9,6 @@ import (
 	"order-service/internal/infrastructure/rabbitmq"
 )
 
-// OrderEventPublisher publishes order domain events to the company.events exchange.
 type OrderEventPublisher struct {
 	client *rabbitmq.Client
 }
@@ -21,7 +20,6 @@ func NewOrderEventPublisher(client *rabbitmq.Client) (*OrderEventPublisher, erro
 	return &OrderEventPublisher{client: client}, nil
 }
 
-// PublishOrderCreated publishes an order.created event to the company.events exchange.
 func (p *OrderEventPublisher) PublishOrderCreated(ctx context.Context, evt domain.OrderCreatedEvent) error {
 	if err := p.client.PublishEvent(ctx, domain.ExchangeCompanyEvents, domain.RoutingKeyOrderCreated, evt); err != nil {
 		return fmt.Errorf("order_event_publisher: failed to publish OrderCreated event: %w", err)

@@ -15,19 +15,19 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/lib/pq"
 	"order-service/internal/domain"
 	"order-service/internal/handler"
 	"order-service/internal/infrastructure/tenantdb"
+	"order-service/internal/service"
+
 	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
-	"order-service/internal/service"
+	_ "github.com/lib/pq"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// stubOrderService reproduces handler-observable service behaviour without a DB.
 type stubOrderService struct{}
 
 func (stubOrderService *stubOrderService) ListOrders(ctx context.Context) ([]service.OrderOutput, error) {
@@ -41,7 +41,6 @@ func (stubOrderService *stubOrderService) CreateOrder(ctx context.Context, input
 	return nil, errors.New("no database in unit test")
 }
 
-// mockResolver implements middleware.Resolver for test use.
 type mockResolver struct {
 	getTenantDBFn func(ctx context.Context, tenantID string) (tenantdb.Config, error)
 }
@@ -61,14 +60,12 @@ func (m *mockResolver) GetTenantDB(ctx context.Context, tenantID string) (tenant
 	}, nil
 }
 
-// jwtTestClaims mirrors the auth-service JWT payload.
 type jwtTestClaims struct {
 	TenantID string `json:"tenant_id"`
 	Email    string `json:"email"`
 	jwt.RegisteredClaims
 }
 
-// testKeyPair generates an RSA-2048 key pair and returns the private key + PEM public key.
 func testKeyPair(t *testing.T) (*rsa.PrivateKey, string) {
 	t.Helper()
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -83,7 +80,6 @@ func testKeyPair(t *testing.T) (*rsa.PrivateKey, string) {
 	return privateKey, pubPEM
 }
 
-// signJWT signs a test JWT with the given private key for a specific tenant.
 func signJWT(t *testing.T, key *rsa.PrivateKey, tenantID, userID string) string {
 	t.Helper()
 	claims := jwtTestClaims{
@@ -112,9 +108,6 @@ func setupTestRouter(pubKeyPEM string, resolver tenantResolver) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 
-	// Stub factory avoids DB coupling in unit tests; CreateOrder's amount
-	// validation lives in the service, so a fake that rejects negative amounts
-	// reproduces the 400 path while the success path fails non-auth (no real DB).
 	orderHandler := handler.NewOrderHandler(func(cfg tenantdb.Config) handler.OrderService {
 		return &stubOrderService{}
 	})
@@ -191,7 +184,6 @@ func TestCreateOrder_ValidJWT(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	// 500 is expected in unit test (no real DB) — but NOT 401 or 403
 	if w.Code == http.StatusUnauthorized || w.Code == http.StatusForbidden {
 		t.Errorf("expected non-auth error, got %d: %s", w.Code, w.Body.String())
 	}

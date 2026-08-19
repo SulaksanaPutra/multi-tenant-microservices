@@ -217,7 +217,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 		mockAck := &mockAcknowledger{}
 		inboxService := &mockInboxService{
 			claimEventFn: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
-				return true, nil // duplicate
+				return true, nil
 			},
 		}
 		initiated := false
@@ -319,7 +319,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 
 		d := rabbitmq.Delivery{
 			Acknowledger: mockAck,
-			RoutingKey:   "user.created", // misrouted
+			RoutingKey:   "user.created",
 			Body:         validBody,
 		}
 

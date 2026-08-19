@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"tenant-service/internal/infrastructure/postgres"
+
 	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
@@ -28,7 +29,7 @@ func (inboxRepository *InboxRepository) TryInsert(ctx context.Context, eventID s
 		return false, fmt.Errorf("failed to check rows affected in inbox insert: %w", err)
 	}
 	if rows == 0 {
-		return true, nil // isDuplicate = true
+		return true, nil
 	}
-	return false, nil // isDuplicate = false, safe to process
+	return false, nil
 }

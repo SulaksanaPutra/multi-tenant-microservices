@@ -11,7 +11,6 @@ import (
 	"order-service/internal/service"
 )
 
-// consumerRunner manages all inbound queue consumers for order-service.
 type consumerRunner struct {
 	infraProvisionedConsumer      *consumer.InfrastructureProvisionedConsumer
 	infrastructureChangedConsumer *consumer.InfrastructureChangedConsumer

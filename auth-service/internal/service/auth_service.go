@@ -15,7 +15,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// CredentialRepository is the consumer-side interface expected by AuthService.
 type CredentialRepository interface {
 	UpsertCredential(ctx context.Context, input repository.UpsertCredentialInput) error
 	FindByEmail(ctx context.Context, email string) (*domain.Credential, error)
@@ -23,7 +22,6 @@ type CredentialRepository interface {
 	ListUserMemberships(ctx context.Context, userID string) ([]string, error)
 }
 
-// TokenRepository is the consumer-side interface expected by AuthService.
 type TokenRepository interface {
 	CreateRefreshToken(ctx context.Context, input repository.CreateRefreshTokenInput) error
 	FindByTokenHash(ctx context.Context, tokenHash string) (*domain.RefreshToken, error)
@@ -31,19 +29,16 @@ type TokenRepository interface {
 	DeleteRefreshToken(ctx context.Context, input repository.DeleteRefreshTokenInput) error
 }
 
-// SetupTokenRepository is the consumer-side interface expected by AuthService.
 type SetupTokenRepository interface {
 	CreateSetupToken(ctx context.Context, input repository.CreateSetupTokenInput) error
 	FindByTokenHash(ctx context.Context, tokenHash string) (*domain.PasswordSetupToken, error)
 	MarkTokenUsed(ctx context.Context, tokenHash string) error
 }
 
-// UserPermissionProvider is the consumer-side interface for loading permission claims into JWTs.
 type UserPermissionProvider interface {
 	FindUserPermissions(ctx context.Context, userID, tenantID string) ([]string, int64, error)
 }
 
-// RoleSeeder is the consumer-side interface for seeding default roles and admin role assignments for new tenants.
 type RoleSeeder interface {
 	SeedDefaultRolesForTenant(ctx context.Context, tenantID string, adminUserID string) error
 }
@@ -63,7 +58,7 @@ type WorkspaceInfo struct {
 }
 
 type LoginOutput struct {
-	Status        string // domain.LoginStatusSelectWorkspace (always; token pair requires SelectWorkspace)
+	Status        string
 	TokenPair     *TokenPair
 	ExchangeToken string
 	Workspaces    []WorkspaceInfo
@@ -247,8 +242,6 @@ func (authService *AuthService) RefreshToken(ctx context.Context, input RefreshT
 		return nil, fmt.Errorf("auth service: failed to retrieve credential for user_id='%s': %w", refreshToken.UserID, err)
 	}
 
-	// Preserve the workspace that was active when the refresh token was issued
-	// so rotation does not silently drop the tenant context.
 	return authService.issuePair(ctx, refreshToken.UserID, refreshToken.TenantID, cred.Email)
 }
 

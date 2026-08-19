@@ -33,7 +33,7 @@ func TestInboxService_ClaimEvent_EmptyEventID(t *testing.T) {
 func TestInboxService_ClaimEvent_NewEvent(t *testing.T) {
 	inboxService := NewInboxService(&mockInboxRepository{
 		tryInsertFunc: func(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
-			return false, nil // not a duplicate
+			return false, nil
 		},
 	})
 	isDup, err := inboxService.ClaimEvent(context.Background(), ClaimInboxInput{
@@ -52,7 +52,7 @@ func TestInboxService_ClaimEvent_NewEvent(t *testing.T) {
 func TestInboxService_ClaimEvent_DuplicateEvent(t *testing.T) {
 	inboxService := NewInboxService(&mockInboxRepository{
 		tryInsertFunc: func(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error) {
-			return true, nil // duplicate
+			return true, nil
 		},
 	})
 	isDup, err := inboxService.ClaimEvent(context.Background(), ClaimInboxInput{

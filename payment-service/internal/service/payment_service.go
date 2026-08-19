@@ -230,7 +230,6 @@ func (paymentService *PaymentService) CompleteInstructionGeneration(ctx context.
 			return nil
 		}
 
-		// Record failed attempts if any
 		if len(input.FailedAttempts) > 0 {
 			for _, failedProv := range input.FailedAttempts {
 				errMsg := ""
@@ -249,7 +248,6 @@ func (paymentService *PaymentService) CompleteInstructionGeneration(ctx context.
 			}
 		}
 
-		// Record successful attempt
 		attInput := repository.CreateAttemptInput{
 			ID:                domain.GenerateAttemptID(),
 			PaymentID:         p.ID,
@@ -341,7 +339,6 @@ func (paymentService *PaymentService) ProcessVerifiedWebhook(ctx context.Context
 	var output *ProcessWebhookOutput
 
 	actionFn := func(txCtx context.Context) error {
-		// 1. Transactional Inbox Deduplication Guard
 		if err := paymentService.inboxRepository.SaveInboxEvent(txCtx, input.EventID, string(input.EventType)); err != nil {
 			if errors.Is(err, domain.ErrDuplicateEvent) {
 				paymentService.logger.Info("ignoring duplicate webhook event", "event_id", input.EventID)
@@ -353,7 +350,6 @@ func (paymentService *PaymentService) ProcessVerifiedWebhook(ctx context.Context
 			return err
 		}
 
-		// 2. Resolve & Lock Payment entity
 		var p *domain.Payment
 		var err error
 		if input.PaymentID != "" {
@@ -371,7 +367,6 @@ func (paymentService *PaymentService) ProcessVerifiedWebhook(ctx context.Context
 
 		p.RawWebhookPayload = input.RawPayload
 
-		// 3. Strict Amount & Currency Verification Guard
 		if input.EventType == domain.WebhookEventTypePaymentSucceeded {
 			if input.Amount > 0 && (input.Amount != p.Amount || input.Currency != p.Currency) {
 				paymentService.logger.Warn("payment webhook amount mismatch detected!",
@@ -385,7 +380,6 @@ func (paymentService *PaymentService) ProcessVerifiedWebhook(ctx context.Context
 			}
 		}
 
-		// 4. State Machine Transition Validation
 		var targetStatus domain.PaymentStatus
 		switch input.EventType {
 		case domain.WebhookEventTypePaymentSucceeded:
@@ -421,7 +415,6 @@ func (paymentService *PaymentService) ProcessVerifiedWebhook(ctx context.Context
 
 		var cancelled []CancelledAttemptOutput
 
-		// 5. Emit Outbox Event based on state
 		switch targetStatus {
 		case domain.PaymentStatusSucceeded:
 			outboxEvt := &domain.PaymentSucceededEvent{
@@ -439,7 +432,6 @@ func (paymentService *PaymentService) ProcessVerifiedWebhook(ctx context.Context
 				return err
 			}
 
-			// 6. Mark other attempts CANCELLED in DB
 			attempts, _ := paymentService.paymentRepository.FindAttemptsByPaymentID(txCtx, p.ID)
 			for _, att := range attempts {
 				if att.Provider != p.Provider && att.ExternalSessionID != "" && att.Status != domain.AttemptStatusCancelled {

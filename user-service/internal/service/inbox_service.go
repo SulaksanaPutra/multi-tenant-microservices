@@ -5,7 +5,6 @@ import (
 	"fmt"
 )
 
-// InboxRepository is the consumer-side interface expected by InboxService.
 type InboxRepository interface {
 	TryInsert(ctx context.Context, eventID string) (bool, error)
 }
@@ -20,8 +19,6 @@ func NewInboxService(inboxRepository InboxRepository) *InboxService {
 	}
 }
 
-// ClaimEvent participates in the Outer Unit-of-Work passed via txCtx.
-// It attempts to claim the event_id in the inbox repository and returns (isDuplicate, error).
 func (inboxService *InboxService) ClaimEvent(txCtx context.Context, eventID string) (bool, error) {
 	if eventID == "" {
 		return false, nil

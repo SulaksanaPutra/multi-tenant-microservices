@@ -18,8 +18,6 @@ type InfrastructureChangedConsumerParams struct {
 	RoutingRegistry *registry.RoutingRegistry
 }
 
-// InfrastructureChangedConsumer handles cache invalidation and materialized view updates when a tenant's infrastructure changes.
-// Each replica process declares an exclusive, auto-delete anonymous queue so cache invalidations are broadcast to ALL live replicas.
 type InfrastructureChangedConsumer struct {
 	client          AMQPClient
 	poolRegistry    *registry.PoolRegistry
@@ -43,7 +41,6 @@ func (infrastructureChangedConsumer *InfrastructureChangedConsumer) setupTopolog
 	return infrastructureChangedConsumer.client.DeclareAndBindExclusiveQueue(domain.ExchangeCompanyEvents, domain.RoutingKeyInfraChanged)
 }
 
-// Start launches the consumer lifecycle loop in a background goroutine and returns immediately.
 func (infrastructureChangedConsumer *InfrastructureChangedConsumer) Start(ctx context.Context) error {
 	go func() {
 		for {

@@ -22,8 +22,6 @@ const (
 	PrefixNotification = "ntf_"
 )
 
-// GenerateNotificationID produces a prefixed string identifier for a
-// notification audit log row, e.g. "ntf_<32-hex-chars>".
 func GenerateNotificationID() string {
 	raw := make([]byte, 16)
 	if _, err := rand.Read(raw); err != nil {

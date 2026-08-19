@@ -17,11 +17,6 @@ type InfrastructureLockingConsumerParams struct {
 	RoutingRegistry *registry.RoutingRegistry
 }
 
-// InfrastructureLockingConsumer receives the tenant.infrastructure_locking broadcast event
-// and sets the tenant's Status to "MIGRATING" in the local RoutingRegistry.
-//
-// This consumer uses the Fanout Broadcast pattern (exclusive anonymous queue) so that
-// ALL live replicas of order-service receive the lock event simultaneously.
 type InfrastructureLockingConsumer struct {
 	client          AMQPClient
 	routingRegistry *registry.RoutingRegistry
@@ -43,7 +38,6 @@ func (infrastructureLockingConsumer *InfrastructureLockingConsumer) setupTopolog
 	return infrastructureLockingConsumer.client.DeclareAndBindExclusiveQueue(domain.ExchangeCompanyEvents, domain.RoutingKeyInfrastructureLocking)
 }
 
-// Start launches the consumer lifecycle loop in a background goroutine and returns immediately.
 func (infrastructureLockingConsumer *InfrastructureLockingConsumer) Start(ctx context.Context) error {
 	go func() {
 		for {

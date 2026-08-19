@@ -159,7 +159,7 @@ func (orderCreatedConsumer *OrderCreatedConsumer) handleDelivery(ctx context.Con
 
 	if err != nil {
 		log.Printf("OrderCreatedConsumer Error: Failed to handle OrderCreated for event '%s': %v", evt.EventID, err)
-		_ = d.Nack(false, true) // Requeue
+		_ = d.Nack(false, true)
 		return err
 	}
 

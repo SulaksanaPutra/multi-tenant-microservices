@@ -157,7 +157,6 @@ func TestInfrastructureProvisionedConsumer_HandleDelivery(t *testing.T) {
 			t.Errorf("unexpected published ready event: %+v", publishedEvt)
 		}
 
-		// Verify routing registry was populated
 		rMeta, ok := routingReg.Get("tenant-shared-1")
 		if !ok || rMeta.SchemaName != "tenant_shared_1_order_db" {
 			t.Errorf("unexpected routing metadata in registry: %+v", rMeta)

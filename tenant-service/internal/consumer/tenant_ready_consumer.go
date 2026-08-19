@@ -131,7 +131,6 @@ func (tenantOrderDBReadyConsumer *TenantOrderDBReadyConsumer) handleDelivery(ctx
 	log.Printf("TenantOrderDBReadyConsumer: Received order DB ready for tenant='%s' service='%s'",
 		evt.TenantID, evt.ServiceName)
 
-	// Wrap update handling inside transaction
 	err := tenantOrderDBReadyConsumer.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 		isDuplicate, err := tenantOrderDBReadyConsumer.inboxService.ClaimEvent(txCtx, evt.EventID)
 		if err != nil {

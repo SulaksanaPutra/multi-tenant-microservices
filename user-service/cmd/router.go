@@ -5,13 +5,13 @@ import (
 	"os"
 
 	"user-service/internal/handler"
+
 	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
 
 	"github.com/gin-gonic/gin"
 )
 
-// newRouter initializes all HTTP routes, middleware, and handlers for User Service.
 func newRouter(userHandler *handler.UserHandler) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()

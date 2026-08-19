@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"order-service/internal/domain"
 	"order-service/internal/infrastructure/tenantdb"
+
 	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 
 	"github.com/lib/pq"
@@ -80,7 +81,6 @@ func (orderRepository *OrderRepository) CreateOrder(ctx context.Context, input C
 	exec := txcontext.GetExecutor(ctx, orderRepository.config.DB)
 	quotedSchema := pq.QuoteIdentifier(schemaName)
 
-	// 1. Insert into orders table.
 	orderQuery := fmt.Sprintf(`
 		INSERT INTO %s.orders (id, tenant_id, customer_id, status, amount, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
@@ -90,7 +90,6 @@ func (orderRepository *OrderRepository) CreateOrder(ctx context.Context, input C
 		return fmt.Errorf("failed to insert order into schema '%s': %w", schemaName, err)
 	}
 
-	// 2. Stage outbox event in the same executor (atomic dual-write).
 	outboxID := domain.GenerateOutboxID()
 	evt := domain.OrderCreatedEvent{
 		EventID:    outboxID,

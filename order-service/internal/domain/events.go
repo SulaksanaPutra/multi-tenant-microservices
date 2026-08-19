@@ -37,7 +37,6 @@ type InfraChangedEvent struct {
 	TenantID string `json:"tenant_id"`
 }
 
-// OrderCreatedEvent is published by the order-service outbox worker when an order is created.
 type OrderCreatedEvent struct {
 	EventID    string  `json:"event_id"`
 	TenantID   string  `json:"tenant_id"`
@@ -47,8 +46,6 @@ type OrderCreatedEvent struct {
 	Status     string  `json:"status"`
 }
 
-// InfrastructureLockingEvent is broadcast (fanout) by tenant-service to pause
-// all order-service replicas for a specific tenant during data migration.
 type InfrastructureLockingEvent struct {
 	EventID  string `json:"event_id"`
 	TenantID string `json:"tenant_id"`

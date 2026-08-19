@@ -7,10 +7,10 @@ import (
 
 	"payment-service/internal/domain"
 	"payment-service/internal/handler"
+
 	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
 )
 
-// newRouter initializes HTTP endpoints, public webhooks, and JWT/permission middleware for payment-service.
 func newRouter(paymentHandler *handler.PaymentHandler, jwtPubKeyPEM string) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()

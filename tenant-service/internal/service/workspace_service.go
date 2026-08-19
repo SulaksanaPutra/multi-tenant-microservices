@@ -64,7 +64,6 @@ func toTenantOutput(t domain.Tenant) TenantOutput {
 	}
 }
 
-// TenantRepository is the consumer-side interface expected by WorkspaceService.
 type TenantRepository interface {
 	CreateTenant(ctx context.Context, input repository.CreateTenantInput) error
 	GetTenantByID(ctx context.Context, tenantID string) (*domain.Tenant, error)
@@ -74,12 +73,10 @@ type TenantRepository interface {
 	SetTenantStatus(ctx context.Context, tenantID, status string) error
 }
 
-// OutboxRepository is the consumer-side interface expected by WorkspaceService.
 type OutboxRepository interface {
 	CreateOutboxMessage(ctx context.Context, input repository.CreateOutboxMessageInput) error
 }
 
-// OutboxWorker is the consumer-side interface expected by WorkspaceService.
 type OutboxWorker interface {
 	Poke()
 }
@@ -211,7 +208,6 @@ func (workspaceService *WorkspaceService) ActivateWorkspace(ctx context.Context,
 		return fmt.Errorf("workspace service: failed to stage workspace.ready outbox event: %w", err)
 	}
 
-	// Stage tenant.infrastructure_changed broadcast outbox event to purge stale routing/connection pools across all microservices
 	infraChangedID := domain.GenerateOutboxID()
 	infraChangedEvt := domain.InfraChangedEvent{
 		EventID:  infraChangedID,
@@ -251,21 +247,15 @@ func (workspaceService *WorkspaceService) GetTenantByID(ctx context.Context, ten
 	return &output, nil
 }
 
-// RollbackFailedMigration resets a tenant to ACTIVE after its infrastructure
-// migration failed and stages the tenant.infrastructure_changed broadcast to
-// unfreeze order-service replicas. It participates in the outer Unit-of-Work
-// passed via txCtx when invoked from a consumer transaction.
 func (workspaceService *WorkspaceService) RollbackFailedMigration(ctx context.Context, tenantID string) error {
 	if strings.TrimSpace(tenantID) == "" {
 		return domain.ErrTenantIDRequired
 	}
 
-	// 1. Reset tenant status back to ACTIVE
 	if err := workspaceService.tenantRepository.SetTenantStatus(ctx, tenantID, domain.StatusActive); err != nil {
 		return fmt.Errorf("workspace service: failed to set tenant status to active: %w", err)
 	}
 
-	// 2. Stage tenant.infrastructure_changed broadcast outbox message to unfreeze order-service replicas
 	infraChangedID := domain.GenerateOutboxID()
 	infraChangedEvt := domain.InfraChangedEvent{
 		EventID:  infraChangedID,
@@ -336,7 +326,6 @@ func (workspaceService *WorkspaceService) ChangeTenantPlan(ctx context.Context, 
 		return fmt.Errorf("workspace service: failed to set status to MIGRATING: %w", err)
 	}
 
-	// 1. Stage tenant.infrastructure_locking broadcast event
 	lockEvtID := domain.GenerateOutboxID()
 	lockEvt := domain.InfrastructureLockingEvent{
 		EventID:  lockEvtID,
@@ -358,7 +347,6 @@ func (workspaceService *WorkspaceService) ChangeTenantPlan(ctx context.Context, 
 		return fmt.Errorf("workspace service: failed to stage lock event: %w", err)
 	}
 
-	// 2. Stage workspace.initiated outbox event to trigger infra-provisioner
 	initEvtID := domain.GenerateOutboxID()
 	initEvt := domain.WorkspaceInitiatedEvent{
 		EventID:    initEvtID,

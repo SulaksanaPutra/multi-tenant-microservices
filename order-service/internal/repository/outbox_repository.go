@@ -10,6 +10,7 @@ import (
 
 	"order-service/internal/domain"
 	"order-service/internal/infrastructure/tenantdb"
+
 	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 
 	"github.com/lib/pq"
@@ -49,9 +50,6 @@ type CreateOutboxMessageInput struct {
 	Payload       []byte
 }
 
-// OutboxRepository manages the per-tenant outbox table in order-service.
-// Unlike user-service (which uses a fixed public.outbox), this repository
-// targets {{SCHEMA_NAME}}.outbox using the dynamic schema injected via tenantdb.Config.
 type OutboxRepository struct {
 	config tenantdb.Config
 }

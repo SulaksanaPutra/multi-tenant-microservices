@@ -164,7 +164,7 @@ func TestProcessEventAndTrySendWelcome_BarrierMet_ReturnsDetails(t *testing.T) {
 func TestProcessEventAndTrySendWelcome_AlreadySent(t *testing.T) {
 	mockNotificationRepository := &mockNotificationRepository{
 		hasSentNotificationFunc: func(ctx context.Context, tenantID string) (bool, error) {
-			return true, nil // already sent
+			return true, nil
 		},
 	}
 	notificationService := NewNotificationService(mockNotificationRepository)

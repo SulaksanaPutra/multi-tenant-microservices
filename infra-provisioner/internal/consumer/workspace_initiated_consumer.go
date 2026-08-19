@@ -148,7 +148,7 @@ func (workspaceInitiatedConsumer *WorkspaceInitiatedConsumer) handleDelivery(ctx
 	var evt domain.WorkspaceInitiatedEvent
 	if err := json.Unmarshal(d.Body, &evt); err != nil {
 		log.Printf("WorkspaceInitiatedConsumer Error: Bad payload JSON: %v", err)
-		_ = d.Nack(false, false) // unrecoverable bad JSON
+		_ = d.Nack(false, false)
 		return err
 	}
 
@@ -165,11 +165,10 @@ func (workspaceInitiatedConsumer *WorkspaceInitiatedConsumer) handleDelivery(ctx
 	provEvent, err := workspaceInitiatedConsumer.handleProvisioning(ctx, evt)
 	if err != nil {
 		log.Printf("WorkspaceInitiatedConsumer Error: Provisioning failed for tenant='%s': %v", evt.TenantID, err)
-		_ = d.Nack(false, true) // requeue for retry
+		_ = d.Nack(false, true)
 		return err
 	}
 
-	// Publish infrastructure.provisioned event via Publisher Adapter
 	if err := workspaceInitiatedConsumer.infrastructureEventPublisher.PublishInfrastructureProvisioned(ctx, *provEvent); err != nil {
 		log.Printf("WorkspaceInitiatedConsumer Error: Failed to publish '%s' for tenant='%s': %v", domain.RoutingKeyInfrastructureProvisioned, evt.TenantID, err)
 		_ = d.Nack(false, true)

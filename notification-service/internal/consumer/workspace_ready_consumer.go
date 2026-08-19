@@ -182,7 +182,7 @@ func (workspaceReadyConsumer *WorkspaceReadyConsumer) handleDelivery(ctx context
 
 	if err != nil {
 		log.Printf("WorkspaceReadyConsumer Error: Failed to handle WorkspaceReady for event '%s': %v", evt.EventID, err)
-		_ = d.Nack(false, true) // Requeue
+		_ = d.Nack(false, true)
 		return err
 	}
 

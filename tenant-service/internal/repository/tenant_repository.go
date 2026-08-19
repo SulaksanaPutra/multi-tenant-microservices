@@ -9,6 +9,7 @@ import (
 
 	"tenant-service/internal/domain"
 	"tenant-service/internal/infrastructure/postgres"
+
 	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
@@ -92,8 +93,6 @@ func (tenantRepository *TenantRepository) GetTenantByID(ctx context.Context, ten
 func (tenantRepository *TenantRepository) UpdateTenant(ctx context.Context, input UpdateTenantInput) error {
 	exec := txcontext.GetExecutor(ctx, tenantRepository.dbClient)
 
-	// Build a dynamic UPDATE that only touches fields actually provided by the caller.
-	// name and slug are always updated (slug is normalized by the service layer).
 	setClauses := []string{"name = $2", "slug = $3"}
 	args := []any{input.ID, input.Name, input.Slug}
 	nextParam := 4
@@ -163,4 +162,3 @@ func (tenantRepository *TenantRepository) SetTenantStatus(ctx context.Context, t
 	}
 	return nil
 }
-

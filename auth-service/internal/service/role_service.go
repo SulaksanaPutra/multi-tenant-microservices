@@ -194,7 +194,6 @@ func (roleService *RoleService) UpdateRolePermissions(ctx context.Context, input
 		return fmt.Errorf("role service: failed to update role permissions: %w", err)
 	}
 
-	// Invalidate versions for users assigned to this role
 	if err := roleService.roleRepository.BumpUserPermissionVersionsForRole(ctx, input.RoleID); err != nil {
 		log.Printf("RoleService: Warning — failed to bump user permission versions for role '%s': %v", input.RoleID, err)
 	}
@@ -221,12 +220,10 @@ func (roleService *RoleService) AssignUserRole(ctx context.Context, input Assign
 		return domain.ErrRoleIDRequired
 	}
 
-	// Verify role exists
 	if _, err := roleService.roleRepository.FindRoleByID(ctx, input.RoleID); err != nil {
 		return err
 	}
 
-	// Verify the target user is an actual member of the tenant to prevent cross-tenant role assignment
 	isMember, err := roleService.roleRepository.UserHasMembership(ctx, input.UserID, input.TenantID)
 	if err != nil {
 		return fmt.Errorf("role service: failed to verify tenant membership: %w", err)

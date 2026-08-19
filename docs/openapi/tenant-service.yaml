@@ -82,7 +82,7 @@ paths:
             x-category: public
             x-service: tenant-service
             x-source:
-                - tenant-service/cmd/router.go:50
+                - tenant-service/cmd/router.go:48
             responses:
                 "200":
                     description: Successful response
@@ -95,7 +95,7 @@ paths:
             x-category: internal
             x-service: tenant-service
             x-source:
-                - tenant-service/cmd/router.go:46
+                - tenant-service/cmd/router.go:45
                 - tenant-service/internal/handler/internal_tenant_handler.go:29
             security:
                 - InternalToken: []

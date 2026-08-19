@@ -44,7 +44,6 @@ func toUserOutput(u domain.User) UserOutput {
 	}
 }
 
-// UserRepository is the consumer-side interface expected by UserService.
 type UserRepository interface {
 	CreateUser(ctx context.Context, input repository.CreateUserInput) error
 	GetUserByEmail(ctx context.Context, email string) (*domain.User, error)
@@ -54,7 +53,6 @@ type UserRepository interface {
 	AddUserTenantMembership(ctx context.Context, userID, tenantID string) error
 }
 
-// OutboxRepository is the consumer-side interface expected by UserService.
 type OutboxRepository interface {
 	CreateOutboxMessage(ctx context.Context, input repository.CreateOutboxMessageInput) error
 }

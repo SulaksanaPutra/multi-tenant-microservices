@@ -234,8 +234,6 @@ func (roleHandler *RoleHandler) UpdateRolePermissions(c *gin.Context) {
 		return
 	}
 
-	// Return the full, updated role so clients can reset local role state from
-	// the authoritative record.
 	updatedRole, err := roleHandler.roleService.GetRole(c.Request.Context(), roleID)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
@@ -330,10 +328,6 @@ func (roleHandler *RoleHandler) GetUserRole(c *gin.Context) {
 	httputil.WriteSuccess(c, http.StatusOK, "User role retrieved successfully", toUserRoleResponse(*userRoleOutput))
 }
 
-// ListUserRoles returns role assignments for a set of user IDs within the
-// caller's tenant. Supports a comma-separated (?user_ids=a,b,c) or repeated
-// (?user_ids=a&user_ids=b) query parameter so the frontend can compose a
-// "users + roles" table in a single round-trip.
 func (roleHandler *RoleHandler) ListUserRoles(c *gin.Context) {
 	tenantID := c.GetString(middleware.ContextKeyTenantID)
 	if tenantID == "" {

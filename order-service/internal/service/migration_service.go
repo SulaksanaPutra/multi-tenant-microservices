@@ -49,7 +49,6 @@ func NewMigrationServiceFromSQL(migrationSQL string) *MigrationService {
 	}
 }
 
-// BuildMigrationSQL performs schema placeholder substitution, defaulting empty schemaName to 'public' to prevent syntax errors.
 func (migrationService *MigrationService) BuildMigrationSQL(schemaName string) string {
 	if strings.TrimSpace(schemaName) == "" {
 		schemaName = "public"

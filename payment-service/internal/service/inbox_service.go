@@ -7,8 +7,6 @@ import (
 	"payment-service/internal/repository"
 )
 
-// ClaimInboxInput is the Layer-2 service DTO used by Layer-1 consumers when
-// claiming an inbound event through the transactional inbox guard.
 type ClaimInboxInput struct {
 	EventID   string
 	TenantID  string
@@ -16,7 +14,6 @@ type ClaimInboxInput struct {
 	Payload   []byte
 }
 
-// InboxServiceRepository is the consumer-side interface expected by InboxService.
 type InboxServiceRepository interface {
 	TryInsert(ctx context.Context, input repository.CreateInboxMessageInput) (bool, error)
 }
@@ -31,9 +28,6 @@ func NewInboxService(inboxRepository InboxServiceRepository) *InboxService {
 	}
 }
 
-// ClaimEvent participates in the outer Unit-of-Work passed via txCtx.
-// It attempts to claim the event_id in the inbox repository and returns
-// (isDuplicate, error).
 func (inboxService *InboxService) ClaimEvent(txCtx context.Context, input ClaimInboxInput) (bool, error) {
 	if input.EventID == "" {
 		return false, nil

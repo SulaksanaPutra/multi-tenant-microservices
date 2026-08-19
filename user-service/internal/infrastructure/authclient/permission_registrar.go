@@ -20,11 +20,6 @@ type registerPayload struct {
 	Permissions []PermissionItem `json:"permissions"`
 }
 
-// PermissionRegistrar is a startup-only capability declaration client. It is
-// NOT a role/proxy adapter — user-service never makes synchronous role or
-// permission-management calls to auth-service at runtime. It only registers its
-// own atomic capability strings (`users:read`, `users:write`) so tenant admin
-// roles can be composed from them.
 type PermissionRegistrar struct {
 	authServiceURL       string
 	internalServiceToken string

@@ -56,7 +56,6 @@ func toNotificationLogOutput(l domain.NotificationLog) NotificationLogOutput {
 	}
 }
 
-// NotificationRepository is the consumer-side interface expected by NotificationService.
 type NotificationRepository interface {
 	CreateNotificationLog(ctx context.Context, input repository.CreateNotificationLogInput) (string, error)
 	UpdateNotificationStatus(ctx context.Context, id string, status string) error
@@ -84,9 +83,6 @@ func (notificationService *NotificationService) HasSentNotification(ctx context.
 	return notificationService.notificationRepository.HasSentNotification(ctx, tenantID)
 }
 
-// CreateOrderNotification persists a notification audit log for an order.created
-// event. No email is dispatched for this case; the log is recorded directly as
-// "sent" to surface it in the notifications list.
 func (notificationService *NotificationService) CreateOrderNotification(ctx context.Context, evt domain.OrderCreatedEvent) error {
 	if strings.TrimSpace(evt.TenantID) == "" {
 		return domain.ErrTenantIDRequired
@@ -118,8 +114,6 @@ func (notificationService *NotificationService) CreateOrderNotification(ctx cont
 	return nil
 }
 
-// buildOrderBody renders the plain-text body shown in the notifications list for
-// an order.created event.
 func buildOrderBody(evt domain.OrderCreatedEvent) string {
 	body := "A new order has been created."
 	if strings.TrimSpace(evt.OrderID) != "" {
@@ -236,7 +230,6 @@ func (notificationService *NotificationService) ProcessEventAndTrySendWelcome(
 		return nil, nil
 	}
 
-	// Check if a pending notification log was already recorded on an earlier attempt (e.g. before retry).
 	existingPending, err := notificationService.notificationRepository.GetPendingNotification(ctx, input.TenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed checking pending notification for tenant_id='%s': %w", input.TenantID, err)
@@ -247,9 +240,6 @@ func (notificationService *NotificationService) ProcessEventAndTrySendWelcome(
 		logID = existingPending.ID
 		log.Printf("NotificationService: Reusing existing pending notification log id=%s for tenant_id='%s'", logID, input.TenantID)
 	} else {
-		// Tenant display name: prefer the human-readable name carried on the
-		// workspace.ready event; fall back to the opaque tenant ID for events
-		// published before tenant info was added to the payload.
 		displayName := tenantName
 		if strings.TrimSpace(displayName) == "" {
 			displayName = input.TenantID
@@ -261,8 +251,6 @@ func (notificationService *NotificationService) ProcessEventAndTrySendWelcome(
 		}
 		bodyText := buildWelcomeBody(displayName, tenantSlug, ownerName)
 
-		// Write an audit log with the status "pending" inside the caller's transaction.
-		// The consumer updates this to "sent" after the SMTP call succeeds post-commit.
 		auditLogInput := repository.CreateNotificationLogInput{
 			UserID:      userID,
 			TenantID:    input.TenantID,
@@ -289,10 +277,6 @@ func (notificationService *NotificationService) ProcessEventAndTrySendWelcome(
 	}, nil
 }
 
-// buildWelcomeBody renders the plain-text welcome message shown to the tenant
-// owner. The display name is always human-readable (either the tenant name or a
-// fallback to the tenant ID), and the greeting is personalized with the owner's
-// name when available.
 func buildWelcomeBody(displayName, tenantSlug, ownerName string) string {
 	greeting := "Hello"
 	if strings.TrimSpace(ownerName) != "" {

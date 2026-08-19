@@ -2,7 +2,6 @@ package domain
 
 import "time"
 
-// Permission represents an atomic capability string across system or domain microservices.
 type Permission struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
@@ -12,8 +11,6 @@ type Permission struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-// Role represents a named collection of permissions.
-// If TenantID is nil/empty, it is a system-wide role. Otherwise, it is tenant-scoped.
 type Role struct {
 	ID          string       `json:"id"`
 	TenantID    *string      `json:"tenant_id,omitempty"`
@@ -25,7 +22,6 @@ type Role struct {
 	Permissions []Permission `json:"permissions,omitempty"`
 }
 
-// UserRole represents the single role assignment for a user within a specific tenant.
 type UserRole struct {
 	UserID     string    `json:"user_id"`
 	TenantID   string    `json:"tenant_id"`
@@ -35,7 +31,6 @@ type UserRole struct {
 	Role       *Role     `json:"role,omitempty"`
 }
 
-// UserPermissionVersion tracks the version counter for user permission revocations.
 type UserPermissionVersion struct {
 	UserID    string    `json:"user_id"`
 	TenantID  string    `json:"tenant_id"`

@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// OutboxMessage represents a staged transactional outbox record.
 type OutboxMessage struct {
 	ID            string
 	TenantID      string
@@ -21,12 +20,10 @@ type OutboxMessage struct {
 	CreatedAt     time.Time
 }
 
-// System entity ID prefixes.
 const (
 	PrefixOutbox = "outbox_"
 )
 
-// GenerateOutboxID produces a globally unique outbox record ID.
 func GenerateOutboxID() string {
 	raw := strings.ReplaceAll(uuid.New().String(), "-", "")
 	return fmt.Sprintf("%s%s", PrefixOutbox, raw)

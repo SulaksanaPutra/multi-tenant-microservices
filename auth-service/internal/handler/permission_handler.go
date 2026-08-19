@@ -4,13 +4,13 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 	"auth-service/internal/service"
+
+	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 
 	"github.com/gin-gonic/gin"
 )
 
-// PermissionResponse is the transport DTO for a permission catalog entry.
 type PermissionResponse struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`

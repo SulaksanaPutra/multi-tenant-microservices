@@ -56,9 +56,9 @@ func (inboxRepository *InboxRepository) TryInsert(ctx context.Context, input Cre
 		return false, fmt.Errorf("failed to check rows affected in inbox insert: %w", err)
 	}
 	if rows == 0 {
-		return true, nil // isDuplicate = true
+		return true, nil
 	}
-	return false, nil // isDuplicate = false, safe to process
+	return false, nil
 }
 
 func (inboxRepository *InboxRepository) ListEventsByTenantID(ctx context.Context, tenantID string) ([]domain.InboxMessage, error) {

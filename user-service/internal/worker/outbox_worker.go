@@ -38,7 +38,6 @@ func NewOutboxWorker(
 	}
 }
 
-// Poke sends a non-blocking wake-up signal to the worker loop.
 func (outboxWorker *OutboxWorker) Poke() {
 	select {
 	case outboxWorker.wakeUpChan <- struct{}{}:
@@ -132,7 +131,6 @@ func (outboxWorker *OutboxWorker) processBatch(ctx context.Context, eventType st
 		}
 	}
 
-	// If we filled the entire batch, chain immediately to catch remaining rows.
 	if len(messages) == outboxWorker.batchSize {
 		log.Printf("OutboxWorker: Full batch for '%s' — re-poking for more.", eventType)
 		outboxWorker.Poke()

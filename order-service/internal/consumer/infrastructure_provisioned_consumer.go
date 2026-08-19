@@ -137,7 +137,6 @@ func (infrastructureProvisionedConsumer *InfrastructureProvisionedConsumer) hand
 		return errors.New("missing tenant_id in payload")
 	}
 
-	// Check delivery count to prevent infinite poison pill retry loops
 	deliveryCount := getDeliveryCount(d.Headers)
 	if deliveryCount >= 3 {
 		log.Printf("InfrastructureProvisionedConsumer Warning: Max retries (3) reached for tenant='%s' event_id='%s' (delivery_count=%d). Routing directly to DLQ.",
@@ -159,14 +158,12 @@ func (infrastructureProvisionedConsumer *InfrastructureProvisionedConsumer) hand
 	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
 		evt.DBHost, evt.DBPort, evt.DBUser, pass, evt.DBName)
 
-	// 1. Run SQL migrations
 	if err := infrastructureProvisionedConsumer.migrationService.MigrateTenantDB(ctx, dsn, evt.SchemaName); err != nil {
 		log.Printf("InfrastructureProvisionedConsumer Error: Migration failed for tenant='%s': %v", evt.TenantID, err)
-		_ = d.Nack(false, true) // requeue for retry
+		_ = d.Nack(false, true)
 		return err
 	}
 
-	// 2. Populate/update local RoutingRegistry materialized view
 	infrastructureProvisionedConsumer.routingRegistry.Set(registry.RoutingMetadata{
 		TenantID:   evt.TenantID,
 		DBHost:     evt.DBHost,
@@ -177,10 +174,9 @@ func (infrastructureProvisionedConsumer *InfrastructureProvisionedConsumer) hand
 		Status:     "active",
 	})
 
-	// 3. Evict any cached pool in order-service pool registry, so fresh connection parameters are used
+	// Evict any cached pool in order-service pool registry, so fresh connection parameters are used
 	infrastructureProvisionedConsumer.poolRegistry.Evict(evt.TenantID)
 
-	// 4. Emit tenant.order_db.ready event via dedicated Publisher Adapter
 	readyEvt := domain.TenantOrderDBReadyEvent{
 		EventID:     evt.EventID,
 		TenantID:    evt.TenantID,
@@ -209,7 +205,6 @@ func getDeliveryCount(headers map[string]any) int {
 		return 0
 	}
 
-	// 1. Quorum Queues (x-delivery-count header)
 	if count, ok := headers["x-delivery-count"]; ok {
 		switch v := count.(type) {
 		case int:
@@ -221,7 +216,6 @@ func getDeliveryCount(headers map[string]any) int {
 		}
 	}
 
-	// 2. Classic Queues DLX (x-death array header fallback)
 	if xDeath, ok := headers["x-death"].([]any); ok && len(xDeath) > 0 {
 		if deathMap, ok := xDeath[0].(map[string]any); ok {
 			if count, ok := deathMap["count"]; ok {

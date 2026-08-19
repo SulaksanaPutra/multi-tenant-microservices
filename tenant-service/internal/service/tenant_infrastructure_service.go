@@ -28,14 +28,12 @@ type RoutingOutput struct {
 	SchemaName string
 }
 
-// TenantInfrastructureRepository is the consumer-side interface expected by TenantInfrastructureService.
 type TenantInfrastructureRepository interface {
 	UpsertServiceInfrastructure(ctx context.Context, input repository.UpsertServiceInfrastructureInput) error
 	GetPendingServiceCount(ctx context.Context, tenantID string, requiredServices []string) (int, error)
 	GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*domain.TenantInfra, error)
 }
 
-// WorkspaceActivator is the consumer-side interface expected by TenantInfrastructureService to signal workspace activation.
 type WorkspaceActivator interface {
 	ActivateWorkspace(ctx context.Context, tenantID string) error
 }

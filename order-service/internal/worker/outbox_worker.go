@@ -16,17 +16,6 @@ const (
 	defaultBatchSize     = 50
 )
 
-// OutboxWorker polls the per-tenant outbox tables of every tenant materialized in the
-// local RoutingRegistry and publishes order.created events to RabbitMQ.
-//
-// Outbox rows are physically distributed: shared-plan tenants store them in
-// <tenant>_order_db.outbox inside the shared cluster, while dedicated-plan tenants
-// store them in public.outbox of their private container. The worker therefore
-// iterates the registry and resolves each tenant through tenantdb.Resolver.
-//
-// Migration safety: before executing the SELECT FOR UPDATE SKIP LOCKED query for a
-// tenant, the worker consults the in-memory RoutingRegistry. If the tenant's status
-// is MIGRATING it is skipped entirely, respecting the deterministic schema lock.
 type OutboxWorker struct {
 	resolver            TenantDBResolver
 	tenantLister        TenantLister
@@ -59,7 +48,6 @@ func NewOutboxWorker(
 	}
 }
 
-// Poke sends a non-blocking wake-up signal to the worker loop.
 func (outboxWorker *OutboxWorker) Poke() {
 	select {
 	case outboxWorker.wakeUpChan <- struct{}{}:
@@ -123,8 +111,6 @@ func (outboxWorker *OutboxWorker) processBatch(ctx context.Context, eventType st
 	})
 }
 
-// forEachActiveTenant iterates every tenant in the RoutingRegistry, skipping any
-// tenant whose status is MIGRATING before a single outbox query is executed.
 func (outboxWorker *OutboxWorker) forEachActiveTenant(ctx context.Context, fn func(cfg tenantdb.Config)) {
 	if outboxWorker.resolver == nil || outboxWorker.tenantLister == nil || outboxWorker.repoFactory == nil {
 		log.Printf("OutboxWorker Warning: resolver, tenant lister or repo factory is nil; polling disabled")
@@ -171,9 +157,6 @@ func (outboxWorker *OutboxWorker) processTenantBatch(ctx context.Context, outbox
 				continue
 			}
 
-			// MIGRATING guard: if the tenant is currently being migrated to a dedicated
-			// container, skip publishing and leave the message in PENDING state.
-			// The message will be re-claimed on the next poll cycle after the lock clears.
 			if outboxWorker.routingStatus != nil && outboxWorker.routingStatus.GetStatus(evt.TenantID) == "MIGRATING" {
 				log.Printf("OutboxWorker: Skipping event id='%s' for tenant='%s' — tenant is MIGRATING.", msg.ID, evt.TenantID)
 				_ = outboxRepository.MarkFailed(ctx, msg.ID, migratingErr(evt.TenantID))
@@ -197,15 +180,12 @@ func (outboxWorker *OutboxWorker) processTenantBatch(ctx context.Context, outbox
 		}
 	}
 
-	// If we filled the entire batch, chain immediately to catch remaining rows.
 	if len(messages) == outboxWorker.batchSize {
 		log.Printf("OutboxWorker: Full batch for '%s' — re-poking for more.", eventType)
 		outboxWorker.Poke()
 	}
 }
 
-// migratingErr is a sentinel error type used when a tenant is MIGRATING.
-// It is passed to MarkFailed to reset the claim without logging a loud error.
 type migratingError struct{ tenantID string }
 
 func (e migratingError) Error() string {

@@ -124,7 +124,6 @@ func TestInboxRepository_TryInsert_GenericError(t *testing.T) {
 }
 
 func TestInboxRepository_SaveInboxEvent_SuccessAndDuplicate(t *testing.T) {
-	// Success case (rowsAffected = 1)
 	mockExecSuccess := &testutil.MockDBExecutor{
 		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
 			return testutil.MockResult{RowsAffectedVal: 1}, nil
@@ -136,7 +135,6 @@ func TestInboxRepository_SaveInboxEvent_SuccessAndDuplicate(t *testing.T) {
 		t.Fatalf("expected nil error on SaveInboxEvent, got %v", err)
 	}
 
-	// Duplicate case (rowsAffected = 0) -> domain.ErrDuplicateEvent
 	mockExecDup := &testutil.MockDBExecutor{
 		ExecContextFn: func(ctx context.Context, query string, args ...any) (sql.Result, error) {
 			return testutil.MockResult{RowsAffectedVal: 0}, nil

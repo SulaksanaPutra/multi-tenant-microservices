@@ -9,6 +9,7 @@ import (
 
 	"tenant-service/internal/infrastructure/postgres"
 	"tenant-service/internal/testutil"
+
 	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
@@ -84,7 +85,7 @@ func TestTenantInfrastructureRepository_UpsertServiceInfrastructure_DefaultValue
 		TenantID:    "tenant-200",
 		ServiceName: "user-service",
 		DBHost:      "postgres-user",
-		DBPort:      0,  // Should default to 5432
+		DBPort:      0, // Should default to 5432
 		DBName:      "user_db",
 		DBUser:      "", // Should default to "postgres"
 		SchemaName:  "public",

@@ -79,7 +79,7 @@ func (pspConfigRepository *PSPConfigRepository) GetConfig(ctx context.Context, t
 	err := exec.QueryRowContext(ctx, query, tenantID).Scan(&cfg.TenantID, &chainBytes, &encryptedCreds)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil // Return nil on not found
+			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to query tenant PSP config: %w", err)
 	}

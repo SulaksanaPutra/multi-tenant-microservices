@@ -141,7 +141,6 @@ func (orderCreatedConsumer *OrderCreatedConsumer) handleDelivery(ctx context.Con
 	var paymentOutput *service.PaymentOutput
 	var isDup bool
 
-	// STEP 1: DB Transaction (<5ms) - Inbox Claim & Initial PENDING Payment Write
 	err := orderCreatedConsumer.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 		var claimErr error
 		isDup, claimErr = orderCreatedConsumer.inboxService.ClaimEvent(txCtx, service.ClaimInboxInput{
@@ -187,7 +186,6 @@ func (orderCreatedConsumer *OrderCreatedConsumer) handleDelivery(ctx context.Con
 		return
 	}
 
-	// STEP 2: Pure External Gateway I/O (OUTSIDE DB Transaction - Rule 5.4 Compliant)
 	execOut, execErr := orderCreatedConsumer.paymentProviderService.ExecuteFallback(ctx, service.ExecuteFallbackInput{
 		TenantID:    evt.TenantID,
 		PaymentID:   paymentOutput.ID,
@@ -198,7 +196,6 @@ func (orderCreatedConsumer *OrderCreatedConsumer) handleDelivery(ctx context.Con
 		ReturnURL:   fmt.Sprintf("http://localhost:8000/orders/%s", evt.OrderID),
 	})
 
-	// STEP 3: DB Transaction (<5ms) - Persist Generated Instructions & Outbox Event
 	if execErr != nil || execOut == nil || execOut.Session == nil {
 		failedAttempts := []domain.ProviderType{}
 		attemptErrors := map[domain.ProviderType]error{}

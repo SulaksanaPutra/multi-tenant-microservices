@@ -7,7 +7,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Plan represents the tenant hosting/pricing plan tier.
 type Plan string
 
 const (
@@ -15,7 +14,6 @@ const (
 	PlanDedicated Plan = "dedicated"
 )
 
-// IsValid checks whether the plan is an allowed plan type.
 func (p Plan) IsValid() bool {
 	switch p {
 	case PlanShared, PlanDedicated:
@@ -29,7 +27,6 @@ func (p Plan) String() string {
 	return string(p)
 }
 
-// System entity ID prefixes.
 const (
 	PrefixTenant = "tnt_"
 	PrefixOutbox = "outbox_"

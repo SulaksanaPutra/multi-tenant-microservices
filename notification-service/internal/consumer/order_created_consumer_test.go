@@ -70,7 +70,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 		txManager := &mockTxManager{}
 		inboxService := &mockInboxService{
 			claimEventFunc: func(txCtx context.Context, input service.ClaimInboxInput) (bool, error) {
-				return true, nil // duplicate
+				return true, nil
 			},
 		}
 		createCalled := false

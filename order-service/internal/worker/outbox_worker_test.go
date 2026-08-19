@@ -188,7 +188,7 @@ func TestOutboxWorker_Poke(t *testing.T) {
 	}
 
 	outboxWorker.Poke()
-	outboxWorker.Poke() // Non-blocking drop
+	outboxWorker.Poke()
 	select {
 	case <-outboxWorker.wakeUpChan:
 	default:
@@ -389,7 +389,6 @@ func TestOutboxWorker_ProcessBatch_FetchError(t *testing.T) {
 	outboxWorker := newTestWorker(&mockTenantDBResolver{}, &mockTenantLister{}, &mockRoutingStatusChecker{},
 		func(cfg tenantdb.Config) OutboxRepository { return outboxRepository }, &mockOrderEventPublisher{})
 
-	// Should log error and return without panic
 	outboxWorker.processBatch(context.Background(), domain.RoutingKeyOrderCreated)
 }
 

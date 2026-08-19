@@ -37,7 +37,7 @@ func TestPSPConfigRepository_SaveConfig_Success(t *testing.T) {
 	pspConfigRepository := NewPSPConfigRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	masterKey := []byte("12345678901234567890123456789012") // 32 bytes
+	masterKey := []byte("12345678901234567890123456789012")
 	input := SaveConfigInput{
 		TenantID:        "tenant-psp-1",
 		PriorityChain:   []domain.ProviderType{domain.ProviderStripe, domain.ProviderXendit},

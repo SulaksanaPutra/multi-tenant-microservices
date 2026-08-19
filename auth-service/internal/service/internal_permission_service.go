@@ -104,17 +104,13 @@ func (internalPermissionService *InternalPermissionService) GetUserPermissionVer
 	return internalPermissionService.roleRepository.GetUserPermissionVersion(ctx, userID, tenantID)
 }
 
-// SeedDefaultRolesForTenant creates default system roles (admin, editor, viewer) for a tenant
-// and assigns adminUserID the "admin" role.
 func (internalPermissionService *InternalPermissionService) SeedDefaultRolesForTenant(ctx context.Context, tenantID string, adminUserID string) error {
 	if tenantID == "" {
 		return domain.ErrTenantIDRequired
 	}
 
-	// 1. Ensure admin role exists for this tenant
 	adminRole, err := internalPermissionService.roleRepository.FindRoleByName(ctx, &tenantID, "admin")
 	if err != nil {
-		// create tenant admin role
 		createdAdmin, createErr := internalPermissionService.roleRepository.CreateRole(ctx, repository.CreateRoleInput{
 			TenantID:    &tenantID,
 			Name:        "admin",
@@ -127,7 +123,6 @@ func (internalPermissionService *InternalPermissionService) SeedDefaultRolesForT
 		adminRole = createdAdmin
 	}
 
-	// 2. Attach all existing permissions to tenant admin role
 	allPerms, err := internalPermissionService.permissionRepository.ListAllPermissions(ctx)
 	if err == nil && len(allPerms) > 0 && adminRole != nil {
 		permIDs := make([]string, len(allPerms))
@@ -137,7 +132,6 @@ func (internalPermissionService *InternalPermissionService) SeedDefaultRolesForT
 		_ = internalPermissionService.roleRepository.UpdateRolePermissions(ctx, adminRole.ID, permIDs)
 	}
 
-	// 3. Ensure viewer role exists
 	_, _ = internalPermissionService.roleRepository.CreateRole(ctx, repository.CreateRoleInput{
 		TenantID:    &tenantID,
 		Name:        "viewer",
@@ -145,7 +139,6 @@ func (internalPermissionService *InternalPermissionService) SeedDefaultRolesForT
 		IsSystem:    true,
 	})
 
-	// 4. Assign adminUserID to admin role if specified
 	if adminUserID != "" && adminRole != nil {
 		if err := internalPermissionService.roleRepository.AssignUserRole(ctx, adminUserID, tenantID, adminRole.ID, nil); err != nil {
 			return fmt.Errorf("internal permission service: failed to assign admin role to registering user: %w", err)

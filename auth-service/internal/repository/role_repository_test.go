@@ -52,7 +52,6 @@ func TestRoleRepository_CreateRole(t *testing.T) {
 			t.Fatal("expected error on dummy scan, got nil")
 		}
 
-		// Direct test for pq error code conversion
 		var targetPqErr *pq.Error
 		if !errors.As(pqErr, &targetPqErr) || targetPqErr.Code != "23505" {
 			t.Fatalf("expected pq error code 23505, got %v", pqErr)
@@ -272,7 +271,6 @@ func TestRoleRepository_UpdateRolePermissions(t *testing.T) {
 			t.Fatalf("expected nil error, got %v", err)
 		}
 
-		// 1 DELETE + 2 upsert perms + 2 insert role_permissions + 1 UPDATE updated_at = 6 queries
 		if len(capturedQueries) != 6 {
 			t.Errorf("expected 6 exec queries, got %d: %v", len(capturedQueries), capturedQueries)
 		}

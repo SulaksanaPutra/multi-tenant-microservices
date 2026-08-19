@@ -209,7 +209,6 @@ func TestRoleService_CreateAndManageRole(t *testing.T) {
 		t.Errorf("expected role name 'custom_manager', got '%s'", role.Name)
 	}
 
-	// Fetch role by ID
 	fetched, err := roleService.GetRole(ctx, role.ID)
 	if err != nil {
 		t.Fatalf("GetRole failed: %v", err)
@@ -218,7 +217,6 @@ func TestRoleService_CreateAndManageRole(t *testing.T) {
 		t.Errorf("expected role ID '%s', got '%s'", role.ID, fetched.ID)
 	}
 
-	// Update role permissions
 	err = roleService.UpdateRolePermissions(ctx, service.UpdateRolePermissionsInput{
 		RoleID:        role.ID,
 		PermissionIDs: []string{"p1", "p2"},
@@ -227,7 +225,6 @@ func TestRoleService_CreateAndManageRole(t *testing.T) {
 		t.Fatalf("UpdateRolePermissions failed: %v", err)
 	}
 
-	// Assign role to user
 	err = roleService.AssignUserRole(ctx, service.AssignUserRoleInput{
 		UserID:   "usr_999",
 		TenantID: tenantID,
@@ -237,7 +234,6 @@ func TestRoleService_CreateAndManageRole(t *testing.T) {
 		t.Fatalf("AssignUserRole failed: %v", err)
 	}
 
-	// Fetch user role
 	userRole, err := roleService.GetUserRole(ctx, "usr_999", tenantID)
 	if err != nil {
 		t.Fatalf("GetUserRole failed: %v", err)
@@ -246,7 +242,6 @@ func TestRoleService_CreateAndManageRole(t *testing.T) {
 		t.Errorf("expected role ID '%s', got '%s'", role.ID, userRole.RoleID)
 	}
 
-	// List roles for tenant
 	roles, err := roleService.ListRolesForTenant(ctx, tenantID)
 	if err != nil {
 		t.Fatalf("ListRolesForTenant failed: %v", err)
@@ -255,7 +250,6 @@ func TestRoleService_CreateAndManageRole(t *testing.T) {
 		t.Errorf("expected 1 role for tenant, got %d", len(roles))
 	}
 
-	// Delete role
 	err = roleService.DeleteRole(ctx, role.ID)
 	if err != nil {
 		t.Fatalf("DeleteRole failed: %v", err)

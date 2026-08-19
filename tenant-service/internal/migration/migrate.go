@@ -1,4 +1,3 @@
-// Package migration applies the service's embedded goose migrations at boot.
 package migration
 
 import (
@@ -11,7 +10,6 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-// Run applies all pending goose migrations; safe to call on every boot.
 func Run(ctx context.Context, db *sql.DB) error {
 	goose.SetBaseFS(migrations.FS)
 	goose.SetLogger(goose.NopLogger())

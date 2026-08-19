@@ -183,7 +183,7 @@ func (userCreatedConsumer *UserCreatedConsumer) handleDelivery(ctx context.Conte
 
 	if err != nil {
 		log.Printf("UserCreatedConsumer Error: Failed to handle UserCreated for event '%s': %v", evt.EventID, err)
-		_ = d.Nack(false, true) // Requeue
+		_ = d.Nack(false, true)
 		return err
 	}
 

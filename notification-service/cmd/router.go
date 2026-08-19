@@ -5,13 +5,13 @@ import (
 	"os"
 
 	"notification-service/internal/handler"
+
 	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
 
 	"github.com/gin-gonic/gin"
 )
 
-// newRouter initializes HTTP routes and health endpoints for Notification Service.
 func newRouter(notificationHandler *handler.NotificationHandler) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()

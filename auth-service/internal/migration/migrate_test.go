@@ -9,8 +9,6 @@ import (
 	"auth-service/migrations"
 )
 
-// sqlFiles returns the embedded *.sql migration files, sorted by name (goose
-// applies them in lexical order, so 00001_* < 00002_* < ...).
 func sqlFiles(t *testing.T) []fs.DirEntry {
 	t.Helper()
 	entries, err := fs.ReadDir(migrations.FS, ".")

@@ -241,9 +241,6 @@ func TestOrderService_ListOrders(t *testing.T) {
 }
 
 func TestOrderService_ErrorContractInvariants(t *testing.T) {
-	// Sentinel errors were centralized into the domain package by the
-	// "centralize service errors" refactor; each message still carries the
-	// owning service/domain prefix.
 	knownPrefixes := []string{
 		"domain:",
 		"order service:",

@@ -113,8 +113,6 @@ func (tenantHandler *TenantHandler) UpdateTenantMe(c *gin.Context) {
 		return
 	}
 
-	// Return the persisted tenant as the response so clients can reset their
-	// local tenant state from the authoritative updated record.
 	tenant, err := tenantHandler.workspaceService.GetTenantByID(c.Request.Context(), tenantID)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, "tenant handler: failed to reload tenant after update: "+err.Error())

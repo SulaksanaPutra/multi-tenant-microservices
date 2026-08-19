@@ -39,7 +39,6 @@ func toOrderOutput(o domain.Order) OrderOutput {
 	}
 }
 
-// OrderRepository is the consumer-side interface expected by OrderService.
 type OrderRepository interface {
 	ListOrders(ctx context.Context) ([]domain.Order, error)
 	CreateOrder(ctx context.Context, input repository.CreateOrderInput) error

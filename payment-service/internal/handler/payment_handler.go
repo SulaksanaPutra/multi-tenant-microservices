@@ -173,7 +173,6 @@ func (paymentHandler *PaymentHandler) HandleWebhook(c *gin.Context) {
 		}
 	}
 
-	// 1. Verify Webhook Signature (External Provider Adapter)
 	webhookEvt, err := paymentHandler.paymentProviderService.VerifyWebhookSignature(c.Request.Context(), providerID, headers, body)
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidWebhookSignature) {
@@ -184,7 +183,6 @@ func (paymentHandler *PaymentHandler) HandleWebhook(c *gin.Context) {
 		return
 	}
 
-	// 2. Process Verified Webhook (Database Unit-of-Work & State Machine)
 	output, err := paymentHandler.paymentService.ProcessVerifiedWebhook(c.Request.Context(), service.ProcessVerifiedWebhookInput{
 		EventID:           webhookEvt.EventID,
 		EventType:         webhookEvt.EventType,
@@ -210,7 +208,6 @@ func (paymentHandler *PaymentHandler) HandleWebhook(c *gin.Context) {
 		return
 	}
 
-	// 3. Proactively Cancel Phantom Sessions on Secondary Gateways (Outside DB Transaction)
 	if output != nil && len(output.CancelledAttempts) > 0 {
 		for _, att := range output.CancelledAttempts {
 			_ = paymentHandler.paymentProviderService.CancelPaymentSession(c.Request.Context(), att.Provider, att.ExternalSessionID)
