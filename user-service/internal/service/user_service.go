@@ -46,8 +46,8 @@ func toUserOutput(u domain.User) UserOutput {
 
 type UserRepository interface {
 	CreateUser(ctx context.Context, input repository.CreateUserInput) error
-	GetUserByEmail(ctx context.Context, email string) (*domain.User, error)
-	GetUserByID(ctx context.Context, userID string) (*domain.User, error)
+	FindByEmail(ctx context.Context, email string) (*domain.User, error)
+	FindByID(ctx context.Context, userID string) (*domain.User, error)
 	UpdateUser(ctx context.Context, input repository.UpdateUserInput) error
 	ListUsers(ctx context.Context, tenantID string) ([]domain.User, error)
 	AddUserTenantMembership(ctx context.Context, userID, tenantID string) error
@@ -80,7 +80,7 @@ func (userService *UserService) CreateUserFromWorkspace(ctx context.Context, inp
 		return domain.ErrEmailRequired
 	}
 
-	existingUser, err := userService.userRepository.GetUserByEmail(ctx, input.OwnerEmail)
+	existingUser, err := userService.userRepository.FindByEmail(ctx, input.OwnerEmail)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		return fmt.Errorf("user service: failed to check existing user by email: %w", err)
 	}
@@ -171,7 +171,7 @@ func (userService *UserService) GetUserByID(ctx context.Context, userID string) 
 	if userID == "" {
 		return nil, domain.ErrUserIDRequired
 	}
-	user, err := userService.userRepository.GetUserByID(ctx, userID)
+	user, err := userService.userRepository.FindByID(ctx, userID)
 	if err != nil {
 		return nil, err
 	}

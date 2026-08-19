@@ -148,7 +148,7 @@ func (roleHandler *RoleHandler) CreateRole(c *gin.Context) {
 			httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if reloadedRole, err := roleHandler.roleService.GetRole(c.Request.Context(), role.ID); err == nil {
+		if reloadedRole, err := roleHandler.roleService.GetRoleByID(c.Request.Context(), role.ID); err == nil {
 			role = reloadedRole
 		}
 	}
@@ -156,14 +156,14 @@ func (roleHandler *RoleHandler) CreateRole(c *gin.Context) {
 	httputil.WriteSuccess(c, http.StatusCreated, "Role created successfully", toRoleResponse(*role))
 }
 
-func (roleHandler *RoleHandler) GetRole(c *gin.Context) {
+func (roleHandler *RoleHandler) GetRoleByID(c *gin.Context) {
 	roleID := c.Param("id")
 	if roleID == "" {
 		httputil.WriteError(c, http.StatusBadRequest, "role id parameter is required")
 		return
 	}
 
-	role, err := roleHandler.roleService.GetRole(c.Request.Context(), roleID)
+	role, err := roleHandler.roleService.GetRoleByID(c.Request.Context(), roleID)
 	if err != nil {
 		if errors.Is(err, domain.ErrRoleNotFound) {
 			httputil.WriteError(c, http.StatusNotFound, err.Error())
@@ -234,7 +234,7 @@ func (roleHandler *RoleHandler) UpdateRolePermissions(c *gin.Context) {
 		return
 	}
 
-	updatedRole, err := roleHandler.roleService.GetRole(c.Request.Context(), roleID)
+	updatedRole, err := roleHandler.roleService.GetRoleByID(c.Request.Context(), roleID)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return

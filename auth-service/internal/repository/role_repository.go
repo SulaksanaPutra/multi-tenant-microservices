@@ -59,7 +59,7 @@ func (roleRepository *RoleRepository) CreateRole(ctx context.Context, input Crea
 	return &created, nil
 }
 
-func (roleRepository *RoleRepository) FindRoleByID(ctx context.Context, id string) (*domain.Role, error) {
+func (roleRepository *RoleRepository) FindByID(ctx context.Context, id string) (*domain.Role, error) {
 	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 	query := `
 		SELECT id, tenant_id, name, COALESCE(description, ''), is_system, created_at, updated_at
@@ -87,7 +87,7 @@ func (roleRepository *RoleRepository) FindRoleByID(ctx context.Context, id strin
 	return &role, nil
 }
 
-func (roleRepository *RoleRepository) FindRoleByName(ctx context.Context, tenantID *string, name string) (*domain.Role, error) {
+func (roleRepository *RoleRepository) FindByName(ctx context.Context, tenantID *string, name string) (*domain.Role, error) {
 	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 	var query string
 	var args []any
@@ -131,7 +131,7 @@ func (roleRepository *RoleRepository) FindRoleByName(ctx context.Context, tenant
 	return &role, nil
 }
 
-func (roleRepository *RoleRepository) FindRolesByTenantID(ctx context.Context, tenantID string) ([]domain.Role, error) {
+func (roleRepository *RoleRepository) ListByTenantID(ctx context.Context, tenantID string) ([]domain.Role, error) {
 	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 	query := `
 		SELECT r.id, r.tenant_id, r.name, COALESCE(r.description, ''), r.is_system, r.created_at, r.updated_at,
@@ -355,7 +355,7 @@ func (roleRepository *RoleRepository) FindUserRole(ctx context.Context, userID, 
 	return &userRole, nil
 }
 
-func (roleRepository *RoleRepository) FindUserPermissions(ctx context.Context, userID, tenantID string) ([]string, int64, error) {
+func (roleRepository *RoleRepository) ListUserPermissions(ctx context.Context, userID, tenantID string) ([]string, int64, error) {
 	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 
 	query := `
@@ -423,7 +423,7 @@ func (roleRepository *RoleRepository) ListUserRolesByTenant(ctx context.Context,
 	return assignments, nil
 }
 
-func (roleRepository *RoleRepository) GetUserPermissionVersion(ctx context.Context, userID, tenantID string) (int64, error) {
+func (roleRepository *RoleRepository) FindUserPermissionVersion(ctx context.Context, userID, tenantID string) (int64, error) {
 	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 	var version int64 = 1
 	query := `SELECT version FROM public.user_permission_versions WHERE user_id = $1 AND tenant_id = $2;`

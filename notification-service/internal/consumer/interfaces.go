@@ -51,7 +51,7 @@ type OrderNotificationService interface {
 
 // AuthClient is the consumer-side interface for auth token retrieval.
 type AuthClient interface {
-	FetchSetupToken(ctx context.Context, userID, tenantID, email string) (string, error)
+	GetSetupToken(ctx context.Context, userID, tenantID, email string) (string, error)
 }
 
 // Mailer is the consumer-side interface for sending outbound email.

@@ -136,10 +136,10 @@ func TestTenantInfrastructureRepository_UpsertServiceInfrastructure_ExecError(t 
 	}
 }
 
-func TestTenantInfrastructureRepository_GetPendingServiceCount_EmptyRequiredServices(t *testing.T) {
+func TestTenantInfrastructureRepository_CountPendingServices_EmptyRequiredServices(t *testing.T) {
 	tenantInfrastructureRepository := NewTenantInfrastructureRepository(&postgres.Client{})
 
-	count, err := tenantInfrastructureRepository.GetPendingServiceCount(context.Background(), "tenant-100", nil)
+	count, err := tenantInfrastructureRepository.CountPendingServices(context.Background(), "tenant-100", nil)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -147,7 +147,7 @@ func TestTenantInfrastructureRepository_GetPendingServiceCount_EmptyRequiredServ
 		t.Errorf("expected count 0 for empty required services, got %d", count)
 	}
 
-	count, err = tenantInfrastructureRepository.GetPendingServiceCount(context.Background(), "tenant-100", []string{})
+	count, err = tenantInfrastructureRepository.CountPendingServices(context.Background(), "tenant-100", []string{})
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -156,7 +156,7 @@ func TestTenantInfrastructureRepository_GetPendingServiceCount_EmptyRequiredServ
 	}
 }
 
-func TestTenantInfrastructureRepository_GetPendingServiceCount_SuccessAndQueryBuild(t *testing.T) {
+func TestTenantInfrastructureRepository_CountPendingServices_SuccessAndQueryBuild(t *testing.T) {
 	var capturedQuery string
 	var capturedArgs []any
 
@@ -172,7 +172,7 @@ func TestTenantInfrastructureRepository_GetPendingServiceCount_SuccessAndQueryBu
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	required := []string{"order-service", "user-service"}
-	_, err := tenantInfrastructureRepository.GetPendingServiceCount(ctx, "tenant-100", required)
+	_, err := tenantInfrastructureRepository.CountPendingServices(ctx, "tenant-100", required)
 	// We expect Scan on dummy row to error, but capturedQuery and capturedArgs must be validated
 	if err == nil {
 		t.Fatal("expected error from scanning dummy row, got nil")
@@ -193,7 +193,7 @@ func TestTenantInfrastructureRepository_GetPendingServiceCount_SuccessAndQueryBu
 	}
 }
 
-func TestTenantInfrastructureRepository_GetPendingServiceCount_QueryError(t *testing.T) {
+func TestTenantInfrastructureRepository_CountPendingServices_QueryError(t *testing.T) {
 	mockExec := &testutil.MockDBExecutor{
 		QueryRowContextFn: func(ctx context.Context, query string, args ...any) *sql.Row {
 			return testutil.GetDummyRow(ctx)
@@ -203,7 +203,7 @@ func TestTenantInfrastructureRepository_GetPendingServiceCount_QueryError(t *tes
 	tenantInfrastructureRepository := NewTenantInfrastructureRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	_, err := tenantInfrastructureRepository.GetPendingServiceCount(ctx, "tenant-err", []string{"order-service"})
+	_, err := tenantInfrastructureRepository.CountPendingServices(ctx, "tenant-err", []string{"order-service"})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -212,7 +212,7 @@ func TestTenantInfrastructureRepository_GetPendingServiceCount_QueryError(t *tes
 	}
 }
 
-func TestTenantInfrastructureRepository_GetServiceInfrastructure_Query(t *testing.T) {
+func TestTenantInfrastructureRepository_FindByServiceName_Query(t *testing.T) {
 	var capturedQuery string
 	var capturedArgs []any
 
@@ -227,7 +227,7 @@ func TestTenantInfrastructureRepository_GetServiceInfrastructure_Query(t *testin
 	tenantInfrastructureRepository := NewTenantInfrastructureRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	_, err := tenantInfrastructureRepository.GetServiceInfrastructure(ctx, "tenant-100", "order-service")
+	_, err := tenantInfrastructureRepository.FindByServiceName(ctx, "tenant-100", "order-service")
 	if err == nil {
 		t.Fatal("expected scan error on dummy row, got nil")
 	}

@@ -124,7 +124,7 @@ func NewPaymentHandler(
 	}
 }
 
-func (paymentHandler *PaymentHandler) GetAvailablePaymentMethods(c *gin.Context) {
+func (paymentHandler *PaymentHandler) ListAvailablePaymentMethods(c *gin.Context) {
 	rawTenantID, exists := c.Get(middleware.ContextKeyTenantID)
 	if !exists {
 		httputil.WriteError(c, http.StatusUnauthorized, "unauthorized: tenant_id missing from context")
@@ -132,7 +132,7 @@ func (paymentHandler *PaymentHandler) GetAvailablePaymentMethods(c *gin.Context)
 	}
 	tenantID := rawTenantID.(string)
 
-	methods, err := paymentHandler.paymentProviderService.GetAvailablePaymentMethods(c.Request.Context(), tenantID)
+	methods, err := paymentHandler.paymentProviderService.ListAvailablePaymentMethods(c.Request.Context(), tenantID)
 	if err != nil {
 		httputil.WriteError(c, http.StatusInternalServerError, err.Error())
 		return

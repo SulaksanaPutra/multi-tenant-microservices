@@ -18,7 +18,7 @@ paths:
             x-category: jwt
             x-service: payment-service
             x-source:
-                - payment-service/cmd/router.go:28
+                - payment-service/cmd/router.go:30
             security:
                 - BearerAuth: []
             parameters:
@@ -40,7 +40,7 @@ paths:
             x-category: jwt
             x-service: payment-service
             x-source:
-                - payment-service/cmd/router.go:29
+                - payment-service/cmd/router.go:31
             security:
                 - BearerAuth: []
             parameters:
@@ -62,7 +62,7 @@ paths:
             x-category: jwt
             x-service: payment-service
             x-source:
-                - payment-service/cmd/router.go:31
+                - payment-service/cmd/router.go:34
             security:
                 - BearerAuth: []
             responses:
@@ -76,7 +76,59 @@ paths:
             x-category: jwt
             x-service: payment-service
             x-source:
-                - payment-service/cmd/router.go:30
+                - payment-service/cmd/router.go:33
+            security:
+                - BearerAuth: []
+            responses:
+                "200":
+                    description: Successful response
+    /api/payments/debt/{orderID}:
+        get:
+            tags:
+                - payment-service
+            summary: ApiPaymentsDebt
+            operationId: ApiPaymentsDebt
+            x-category: jwt
+            x-service: payment-service
+            x-source:
+                - payment-service/cmd/router.go:32
+            security:
+                - BearerAuth: []
+            parameters:
+                - name: orderID
+                  in: path
+                  required: true
+                  description: Path parameter orderID
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Successful response
+    /api/payments/initiate:
+        post:
+            tags:
+                - payment-service
+            summary: ApiPaymentsInitiate
+            operationId: ApiPaymentsInitiate
+            x-category: jwt
+            x-service: payment-service
+            x-source:
+                - payment-service/cmd/router.go:29
+            security:
+                - BearerAuth: []
+            responses:
+                "200":
+                    description: Successful response
+    /api/payments/methods:
+        get:
+            tags:
+                - payment-service
+            summary: ApiPaymentsMethods
+            operationId: ApiPaymentsMethods
+            x-category: jwt
+            x-service: payment-service
+            x-source:
+                - payment-service/cmd/router.go:28
             security:
                 - BearerAuth: []
             responses:
@@ -92,7 +144,7 @@ paths:
             x-service: payment-service
             x-source:
                 - payment-service/cmd/router.go:23
-                - payment-service/internal/handler/payment_handler.go:155
+                - payment-service/internal/handler/payment_handler.go:337
             security:
                 - BearerAuth: []
             parameters:

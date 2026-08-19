@@ -12,13 +12,13 @@ func TestCircuitBreaker_TripsAndResets(t *testing.T) {
 		t.Fatalf("expected initial state CLOSED, got %s", cb.State())
 	}
 
-	cb.RecordFailure()
-	cb.RecordFailure()
+	cb.OnFailure()
+	cb.OnFailure()
 	if !cb.Allow() || cb.State() != StateClosed {
 		t.Fatalf("expected CLOSED state after 2 failures, got %s", cb.State())
 	}
 
-	cb.RecordFailure()
+	cb.OnFailure()
 	if cb.Allow() || cb.State() != StateOpen {
 		t.Fatalf("expected OPEN state after 3 failures, got %s", cb.State())
 	}
@@ -29,7 +29,7 @@ func TestCircuitBreaker_TripsAndResets(t *testing.T) {
 		t.Fatalf("expected Allow() to return true in HALF_OPEN state")
 	}
 
-	cb.RecordSuccess()
+	cb.OnSuccess()
 	if cb.State() != StateClosed {
 		t.Fatalf("expected CLOSED state after success, got %s", cb.State())
 	}

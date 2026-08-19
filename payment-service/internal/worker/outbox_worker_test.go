@@ -16,7 +16,7 @@ type mockWorkerOutboxRepository struct {
 	markPublishedFn      func(ctx context.Context, eventID string) error
 }
 
-func (m *mockWorkerOutboxRepository) FetchPending(ctx context.Context, limit int) ([]*domain.OutboxMessage, error) {
+func (m *mockWorkerOutboxRepository) ListPending(ctx context.Context, limit int) ([]*domain.OutboxMessage, error) {
 	if m.fetchPendingFn != nil {
 		return m.fetchPendingFn(ctx, limit)
 	}

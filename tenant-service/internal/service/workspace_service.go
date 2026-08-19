@@ -66,7 +66,7 @@ func toTenantOutput(t domain.Tenant) TenantOutput {
 
 type TenantRepository interface {
 	CreateTenant(ctx context.Context, input repository.CreateTenantInput) error
-	GetTenantByID(ctx context.Context, tenantID string) (*domain.Tenant, error)
+	FindByID(ctx context.Context, tenantID string) (*domain.Tenant, error)
 	ActivateTenant(ctx context.Context, tenantID string) error
 	UpdateTenant(ctx context.Context, input repository.UpdateTenantInput) error
 	UpdateTenantPlan(ctx context.Context, input repository.UpdateTenantPlanInput) error
@@ -167,7 +167,7 @@ func (workspaceService *WorkspaceService) ActivateWorkspace(ctx context.Context,
 		return domain.ErrTenantIDRequired
 	}
 
-	tenant, err := workspaceService.tenantRepository.GetTenantByID(ctx, tenantID)
+	tenant, err := workspaceService.tenantRepository.FindByID(ctx, tenantID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return fmt.Errorf("%w: %s", domain.ErrTenantNotFound, tenantID)
@@ -236,7 +236,7 @@ func (workspaceService *WorkspaceService) GetTenantByID(ctx context.Context, ten
 	if strings.TrimSpace(tenantID) == "" {
 		return nil, domain.ErrTenantIDRequired
 	}
-	tenant, err := workspaceService.tenantRepository.GetTenantByID(ctx, tenantID)
+	tenant, err := workspaceService.tenantRepository.FindByID(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -310,7 +310,7 @@ func (workspaceService *WorkspaceService) ChangeTenantPlan(ctx context.Context, 
 		return fmt.Errorf("%w: '%s' (must be '%s' or '%s')", domain.ErrInvalidPlan, input.Plan, domain.PlanShared, domain.PlanDedicated)
 	}
 
-	tenant, err := workspaceService.tenantRepository.GetTenantByID(ctx, input.TenantID)
+	tenant, err := workspaceService.tenantRepository.FindByID(ctx, input.TenantID)
 	if err != nil {
 		return fmt.Errorf("workspace service: failed to get tenant: %w", err)
 	}

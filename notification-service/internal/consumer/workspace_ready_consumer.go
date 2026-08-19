@@ -187,7 +187,7 @@ func (workspaceReadyConsumer *WorkspaceReadyConsumer) handleDelivery(ctx context
 	}
 
 	if sendDetails != nil {
-		setupToken, fetchErr := workspaceReadyConsumer.authClient.FetchSetupToken(ctx, sendDetails.UserID, sendDetails.TenantID, sendDetails.RecipientEmail)
+		setupToken, fetchErr := workspaceReadyConsumer.authClient.GetSetupToken(ctx, sendDetails.UserID, sendDetails.TenantID, sendDetails.RecipientEmail)
 		if fetchErr != nil {
 			log.Printf("WorkspaceReadyConsumer: Failed to fetch setup token from auth-service for tenant='%s': %v — NACKing for retry.", sendDetails.TenantID, fetchErr)
 			_ = d.Nack(false, true)

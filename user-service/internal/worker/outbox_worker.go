@@ -92,7 +92,7 @@ func (outboxWorker *OutboxWorker) recoverAndProcess(ctx context.Context) {
 }
 
 func (outboxWorker *OutboxWorker) processBatch(ctx context.Context, eventType string) {
-	messages, err := outboxWorker.outboxRepository.FetchAndClaimBatch(ctx, eventType, outboxWorker.batchSize)
+	messages, err := outboxWorker.outboxRepository.ListAndClaimBatch(ctx, eventType, outboxWorker.batchSize)
 	if err != nil {
 		log.Printf("OutboxWorker Error: Failed to claim outbox batch for '%s': %v", eventType, err)
 		return

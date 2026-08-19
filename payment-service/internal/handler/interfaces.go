@@ -18,7 +18,7 @@ type PaymentService interface {
 	InitiatePaymentSession(ctx context.Context, input service.InitiatePaymentSessionInput) (*service.InitiatePaymentSessionOutput, error)
 	CompleteInstructionGeneration(ctx context.Context, input service.CompleteInstructionInput) error
 	FailInstructionGeneration(ctx context.Context, input service.FailInstructionInput) error
-	FindAttemptsByPaymentID(ctx context.Context, paymentID string) ([]*domain.PaymentAttempt, error)
+	ListAttemptsByPaymentID(ctx context.Context, paymentID string) ([]*service.PaymentAttemptOutput, error)
 	ProcessVerifiedWebhook(ctx context.Context, input service.ProcessVerifiedWebhookInput) (*service.ProcessWebhookOutput, error)
 }
 
@@ -29,7 +29,7 @@ type DebtService interface {
 }
 
 type PaymentProviderService interface {
-	GetAvailablePaymentMethods(ctx context.Context, tenantID string) ([]service.PaymentMethodOutput, error)
+	ListAvailablePaymentMethods(ctx context.Context, tenantID string) ([]service.PaymentMethodOutput, error)
 	ExecuteFallback(ctx context.Context, input service.ExecuteFallbackInput) (*service.ExecuteFallbackOutput, error)
 	VerifyWebhookSignature(ctx context.Context, providerID domain.ProviderType, headers map[string]string, body []byte) (*service.VerifyWebhookOutput, error)
 	CancelPaymentSession(ctx context.Context, providerID domain.ProviderType, externalSessionID string) error

@@ -7,8 +7,8 @@ import (
 )
 
 func TestDebtRepository_New(t *testing.T) {
-	repo := NewDebtRepository(&postgres.Client{})
-	if repo == nil {
+	debtRepository := NewDebtRepository(&postgres.Client{})
+	if debtRepository == nil {
 		t.Fatal("expected non-nil DebtRepository")
 	}
 }

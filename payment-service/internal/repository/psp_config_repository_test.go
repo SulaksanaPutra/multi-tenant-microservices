@@ -14,7 +14,7 @@ import (
 	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
-func TestPSPConfigRepository_SaveAndGetConfig(t *testing.T) {
+func TestPSPConfigRepository_SaveAndFindByTenantID(t *testing.T) {
 	client := &postgres.Client{}
 	pspConfigRepository := NewPSPConfigRepository(client)
 	if pspConfigRepository == nil || pspConfigRepository.dbClient != client {
@@ -109,7 +109,7 @@ func TestPSPConfigRepository_SaveConfig_DBError(t *testing.T) {
 	}
 }
 
-func TestPSPConfigRepository_GetConfig_DBError(t *testing.T) {
+func TestPSPConfigRepository_FindByTenantID_DBError(t *testing.T) {
 	mockExec := &testutil.MockDBExecutor{
 		QueryRowContextFn: func(ctx context.Context, query string, args ...any) *sql.Row {
 			return testutil.GetDummyRow(ctx)
@@ -120,7 +120,7 @@ func TestPSPConfigRepository_GetConfig_DBError(t *testing.T) {
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
 	masterKey := []byte("12345678901234567890123456789012")
-	_, err := pspConfigRepository.GetConfig(ctx, "tenant-err", masterKey)
+	_, err := pspConfigRepository.FindByTenantID(ctx, "tenant-err", masterKey)
 	if err == nil {
 		t.Fatal("expected error on row scan failure, got nil")
 	}

@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 	"tenant-service/internal/domain"
 	"tenant-service/internal/infrastructure/postgres"
-	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 type UpsertServiceInfrastructureInput struct {
@@ -59,7 +59,7 @@ func (tenantInfrastructureRepository *TenantInfrastructureRepository) UpsertServ
 	return nil
 }
 
-func (tenantInfrastructureRepository *TenantInfrastructureRepository) GetPendingServiceCount(ctx context.Context, tenantID string, requiredServices []string) (int, error) {
+func (tenantInfrastructureRepository *TenantInfrastructureRepository) CountPendingServices(ctx context.Context, tenantID string, requiredServices []string) (int, error) {
 	if len(requiredServices) == 0 {
 		return 0, nil
 	}
@@ -92,7 +92,7 @@ func (tenantInfrastructureRepository *TenantInfrastructureRepository) GetPending
 	return count, nil
 }
 
-func (tenantInfrastructureRepository *TenantInfrastructureRepository) GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*domain.TenantInfra, error) {
+func (tenantInfrastructureRepository *TenantInfrastructureRepository) FindByServiceName(ctx context.Context, tenantID, serviceName string) (*domain.TenantInfra, error) {
 	exec := txcontext.GetExecutor(ctx, tenantInfrastructureRepository.dbClient)
 	const query = `
 		SELECT db_host, db_port, db_name, db_user, COALESCE(schema_name, '')

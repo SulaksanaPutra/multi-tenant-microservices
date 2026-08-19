@@ -87,7 +87,7 @@ type FallbackExecutionOutput struct {
 	AttemptErrors  map[domain.ProviderType]error
 }
 
-func (r *ProviderRegistry) GetAvailableMethods(ctx context.Context, tenantID string) ([]domain.PaymentMethodConfig, error) {
+func (r *ProviderRegistry) ListAvailableMethods(ctx context.Context, tenantID string) ([]domain.PaymentMethodConfig, error) {
 	cfg, err := r.resolver.ResolveConfig(ctx, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve tenant PSP config: %w", err)
@@ -183,7 +183,7 @@ func (r *ProviderRegistry) ExecuteFallbackChain(ctx context.Context, req domain.
 		session, err := p.CreatePaymentSession(ctx, reqWithCreds)
 		if err != nil {
 			if breaker != nil {
-				breaker.RecordFailure()
+				breaker.OnFailure()
 			}
 			res.FailedAttempts = append(res.FailedAttempts, providerID)
 			res.AttemptErrors[providerID] = err
@@ -191,7 +191,7 @@ func (r *ProviderRegistry) ExecuteFallbackChain(ctx context.Context, req domain.
 		}
 
 		if breaker != nil {
-			breaker.RecordSuccess()
+			breaker.OnSuccess()
 		}
 
 		res.Provider = providerID

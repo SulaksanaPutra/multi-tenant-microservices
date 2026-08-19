@@ -26,7 +26,7 @@ func (m *mockRegistry) ExecuteFallbackChain(ctx context.Context, req domain.Crea
 	}, nil
 }
 
-func (m *mockRegistry) GetAvailableMethods(ctx context.Context, tenantID string) ([]domain.PaymentMethodConfig, error) {
+func (m *mockRegistry) ListAvailableMethods(ctx context.Context, tenantID string) ([]domain.PaymentMethodConfig, error) {
 	return []domain.PaymentMethodConfig{
 		{ID: "mock_checkout", Name: "Mock", Type: domain.InstructionRedirectURL, Enabled: true, PriorityChain: []domain.ProviderType{domain.ProviderMock}},
 	}, nil

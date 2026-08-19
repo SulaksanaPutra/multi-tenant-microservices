@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 	"payment-service/internal/crypto"
 	"payment-service/internal/domain"
 	"payment-service/internal/infrastructure/postgres"
-	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 type PSPConfigRepository struct {
@@ -64,7 +64,7 @@ func (pspConfigRepository *PSPConfigRepository) SaveConfig(ctx context.Context, 
 	return nil
 }
 
-func (pspConfigRepository *PSPConfigRepository) GetConfig(ctx context.Context, tenantID string, masterKey []byte) (*domain.TenantPSPConfig, error) {
+func (pspConfigRepository *PSPConfigRepository) FindByTenantID(ctx context.Context, tenantID string, masterKey []byte) (*domain.TenantPSPConfig, error) {
 	exec := txcontext.GetExecutor(ctx, pspConfigRepository.dbClient)
 
 	query := `

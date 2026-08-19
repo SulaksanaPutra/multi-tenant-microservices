@@ -9,16 +9,16 @@ import (
 	"testing"
 
 	"auth-service/internal/domain"
+	"auth-service/internal/service"
 	"github.com/SulaksanaPutra/go-microservice-commons/httputil"
 	"github.com/SulaksanaPutra/go-microservice-commons/middleware"
-	"auth-service/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
 type mockRoleService struct {
 	CreateRoleFn             func(ctx context.Context, input service.CreateRoleInput) (*service.RoleOutput, error)
-	GetRoleFn                func(ctx context.Context, roleID string) (*service.RoleOutput, error)
+	GetRoleByIDFn            func(ctx context.Context, roleID string) (*service.RoleOutput, error)
 	ListRolesForTenantFn     func(ctx context.Context, tenantID string) ([]service.RoleOutput, error)
 	UpdateRolePermissionsFn  func(ctx context.Context, input service.UpdateRolePermissionsInput) error
 	DeleteRoleFn             func(ctx context.Context, roleID string) error
@@ -34,9 +34,9 @@ func (m *mockRoleService) CreateRole(ctx context.Context, input service.CreateRo
 	return &service.RoleOutput{ID: "role_1", Name: input.Name}, nil
 }
 
-func (m *mockRoleService) GetRole(ctx context.Context, roleID string) (*service.RoleOutput, error) {
-	if m.GetRoleFn != nil {
-		return m.GetRoleFn(ctx, roleID)
+func (m *mockRoleService) GetRoleByID(ctx context.Context, roleID string) (*service.RoleOutput, error) {
+	if m.GetRoleByIDFn != nil {
+		return m.GetRoleByIDFn(ctx, roleID)
 	}
 	return &service.RoleOutput{ID: roleID, Name: "role_name"}, nil
 }
@@ -162,7 +162,7 @@ func TestRoleHandler_CreateRole(t *testing.T) {
 	})
 }
 
-func TestRoleHandler_GetRole(t *testing.T) {
+func TestRoleHandler_GetRoleByIDByIDByIDByIDByIDByIDByIDByID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	t.Run("not found -> 404 Not Found", func(t *testing.T) {
@@ -170,12 +170,12 @@ func TestRoleHandler_GetRole(t *testing.T) {
 		_, router := gin.CreateTestContext(w)
 
 		mockRoleService := &mockRoleService{
-			GetRoleFn: func(_ context.Context, _ string) (*service.RoleOutput, error) {
+			GetRoleByIDFn: func(_ context.Context, _ string) (*service.RoleOutput, error) {
 				return nil, domain.ErrRoleNotFound
 			},
 		}
 		roleHandler := NewRoleHandler(mockRoleService)
-		router.GET("/roles/:id", roleHandler.GetRole)
+		router.GET("/roles/:id", roleHandler.GetRoleByID)
 
 		req := httptest.NewRequest(http.MethodGet, "/roles/non_existent", nil)
 		router.ServeHTTP(w, req)
@@ -189,12 +189,12 @@ func TestRoleHandler_GetRole(t *testing.T) {
 		_, router := gin.CreateTestContext(w)
 
 		mockRoleService := &mockRoleService{
-			GetRoleFn: func(_ context.Context, roleID string) (*service.RoleOutput, error) {
+			GetRoleByIDFn: func(_ context.Context, roleID string) (*service.RoleOutput, error) {
 				return &service.RoleOutput{ID: roleID, Name: "manager"}, nil
 			},
 		}
 		roleHandler := NewRoleHandler(mockRoleService)
-		router.GET("/roles/:id", roleHandler.GetRole)
+		router.GET("/roles/:id", roleHandler.GetRoleByID)
 
 		req := httptest.NewRequest(http.MethodGet, "/roles/role_123", nil)
 		router.ServeHTTP(w, req)

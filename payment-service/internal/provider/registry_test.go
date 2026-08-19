@@ -53,9 +53,9 @@ func TestProviderRegistry_FallbackChain(t *testing.T) {
 		t.Fatalf("expected mock_primary in failed attempts, got: %v", res.FailedAttempts)
 	}
 
-	methods, err := registry.GetAvailableMethods(context.Background(), "tenant_test")
+	methods, err := registry.ListAvailableMethods(context.Background(), "tenant_test")
 	if err != nil {
-		t.Fatalf("expected GetAvailableMethods to succeed, got err: %v", err)
+		t.Fatalf("expected ListAvailableMethods to succeed, got err: %v", err)
 	}
 	if len(methods) != 1 || methods[0].ID != "bca_va" {
 		t.Fatalf("unexpected available methods: %v", methods)
@@ -66,7 +66,7 @@ func TestProviderRegistry_UnconfiguredTenant_EmptyMethods(t *testing.T) {
 	resolver := NewDefaultTenantPSPResolver(nil)
 	registry := NewProviderRegistry(resolver)
 
-	methods, err := registry.GetAvailableMethods(context.Background(), "unconfigured_tenant")
+	methods, err := registry.ListAvailableMethods(context.Background(), "unconfigured_tenant")
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}

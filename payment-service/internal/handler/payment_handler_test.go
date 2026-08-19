@@ -16,13 +16,13 @@ import (
 )
 
 type mockPaymentService struct {
-	getByIDFn        func(ctx context.Context, id string) (*service.PaymentOutput, error)
-	getByOrderIDFn   func(ctx context.Context, tenantID, orderID string) (*service.PaymentOutput, error)
+	getByIDFn         func(ctx context.Context, id string) (*service.PaymentOutput, error)
+	getByOrderIDFn    func(ctx context.Context, tenantID, orderID string) (*service.PaymentOutput, error)
 	initiateSessionFn func(ctx context.Context, input service.InitiatePaymentSessionInput) (*service.InitiatePaymentSessionOutput, error)
-	completeFn       func(ctx context.Context, input service.CompleteInstructionInput) error
-	failFn           func(ctx context.Context, input service.FailInstructionInput) error
-	findAttemptsFn   func(ctx context.Context, paymentID string) ([]*domain.PaymentAttempt, error)
-	processWebhookFn func(ctx context.Context, input service.ProcessVerifiedWebhookInput) (*service.ProcessWebhookOutput, error)
+	completeFn        func(ctx context.Context, input service.CompleteInstructionInput) error
+	failFn            func(ctx context.Context, input service.FailInstructionInput) error
+	listAttemptsFn    func(ctx context.Context, paymentID string) ([]*service.PaymentAttemptOutput, error)
+	processWebhookFn  func(ctx context.Context, input service.ProcessVerifiedWebhookInput) (*service.ProcessWebhookOutput, error)
 }
 
 func (m *mockPaymentService) GetPaymentByID(ctx context.Context, id string) (*service.PaymentOutput, error) {
@@ -65,9 +65,9 @@ func (m *mockPaymentService) FailInstructionGeneration(ctx context.Context, inpu
 	return nil
 }
 
-func (m *mockPaymentService) FindAttemptsByPaymentID(ctx context.Context, paymentID string) ([]*domain.PaymentAttempt, error) {
-	if m.findAttemptsFn != nil {
-		return m.findAttemptsFn(ctx, paymentID)
+func (m *mockPaymentService) ListAttemptsByPaymentID(ctx context.Context, paymentID string) ([]*service.PaymentAttemptOutput, error) {
+	if m.listAttemptsFn != nil {
+		return m.listAttemptsFn(ctx, paymentID)
 	}
 	return nil, nil
 }
@@ -105,7 +105,7 @@ type mockPaymentProviderService struct {
 	cancelFn          func(ctx context.Context, providerID domain.ProviderType, externalSessionID string) error
 }
 
-func (m *mockPaymentProviderService) GetAvailablePaymentMethods(ctx context.Context, tenantID string) ([]service.PaymentMethodOutput, error) {
+func (m *mockPaymentProviderService) ListAvailablePaymentMethods(ctx context.Context, tenantID string) ([]service.PaymentMethodOutput, error) {
 	if m.getMethodsFn != nil {
 		return m.getMethodsFn(ctx, tenantID)
 	}
@@ -194,7 +194,7 @@ func setupTestRouter(
 		c.Next()
 	})
 	{
-		api.GET("/methods", paymentHandler.GetAvailablePaymentMethods)
+		api.GET("/methods", paymentHandler.ListAvailablePaymentMethods)
 		api.POST("/initiate", paymentHandler.InitiatePayment)
 		api.GET("/:id", paymentHandler.GetPaymentByID)
 		api.GET("/by-order/:orderID", paymentHandler.GetPaymentByOrderID)
@@ -205,7 +205,7 @@ func setupTestRouter(
 	return router
 }
 
-func TestPaymentHandler_GetAvailablePaymentMethods(t *testing.T) {
+func TestPaymentHandler_ListAvailablePaymentMethods(t *testing.T) {
 	router := setupTestRouter(&mockPaymentService{}, &mockDebtService{}, &mockPaymentProviderService{}, &mockPSPConfigService{})
 
 	req, _ := http.NewRequest(http.MethodGet, "/api/payments/methods", nil)

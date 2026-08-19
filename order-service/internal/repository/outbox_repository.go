@@ -81,7 +81,7 @@ func (outboxRepository *OutboxRepository) CreateOutboxMessage(ctx context.Contex
 	return nil
 }
 
-func (outboxRepository *OutboxRepository) FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
+func (outboxRepository *OutboxRepository) ListAndClaimBatch(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
 	exec := txcontext.GetExecutor(ctx, outboxRepository.config.DB)
 	schema := pq.QuoteIdentifier(outboxRepository.schemaName())
 	query := fmt.Sprintf(`

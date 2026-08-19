@@ -22,7 +22,7 @@ type PaymentRepository interface {
 	FindByIDForUpdate(ctx context.Context, id string) (*domain.Payment, error)
 	CreateAttempt(ctx context.Context, input repository.CreateAttemptInput) error
 	UpdateAttempt(ctx context.Context, input repository.UpdateAttemptInput) error
-	FindAttemptsByPaymentID(ctx context.Context, paymentID string) ([]*domain.PaymentAttempt, error)
+	ListAttemptsByPaymentID(ctx context.Context, paymentID string) ([]*domain.PaymentAttempt, error)
 	Update(ctx context.Context, input repository.UpdatePaymentInput) error
 	FindExpiredPayments(ctx context.Context, ttlDuration time.Duration, limit int) ([]*domain.Payment, error)
 }
@@ -87,6 +87,35 @@ type InitiatePaymentSessionOutput struct {
 	Debt              *PayableDebtOutput
 	Payment           *PaymentOutput
 	CancelledSessions []CancelledSession
+}
+
+type PaymentAttemptOutput struct {
+	ID                string
+	PaymentID         string
+	TenantID          string
+	Provider          domain.ProviderType
+	ExternalSessionID string
+	Status            domain.AttemptStatus
+	ErrorMessage      string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+func toPaymentAttemptOutput(a *domain.PaymentAttempt) *PaymentAttemptOutput {
+	if a == nil {
+		return nil
+	}
+	return &PaymentAttemptOutput{
+		ID:                a.ID,
+		PaymentID:         a.PaymentID,
+		TenantID:          a.TenantID,
+		Provider:          a.Provider,
+		ExternalSessionID: a.ExternalSessionID,
+		Status:            a.Status,
+		ErrorMessage:      a.ErrorMessage,
+		CreatedAt:         a.CreatedAt,
+		UpdatedAt:         a.UpdatedAt,
+	}
 }
 
 type PaymentOutput struct {
@@ -541,7 +570,7 @@ func (paymentService *PaymentService) ProcessVerifiedWebhook(ctx context.Context
 				}
 			}
 
-			attempts, _ := paymentService.paymentRepository.FindAttemptsByPaymentID(txCtx, p.ID)
+			attempts, _ := paymentService.paymentRepository.ListAttemptsByPaymentID(txCtx, p.ID)
 			for _, att := range attempts {
 				if att.Provider != p.Provider && att.ExternalSessionID != "" && att.Status != domain.AttemptStatusCancelled {
 					att.Status = domain.AttemptStatusCancelled
@@ -629,8 +658,16 @@ func (paymentService *PaymentService) GetPaymentByOrderID(ctx context.Context, t
 	return toPaymentOutput(p), err
 }
 
-func (paymentService *PaymentService) FindAttemptsByPaymentID(ctx context.Context, paymentID string) ([]*domain.PaymentAttempt, error) {
-	return paymentService.paymentRepository.FindAttemptsByPaymentID(ctx, paymentID)
+func (paymentService *PaymentService) ListAttemptsByPaymentID(ctx context.Context, paymentID string) ([]*PaymentAttemptOutput, error) {
+	attempts, err := paymentService.paymentRepository.ListAttemptsByPaymentID(ctx, paymentID)
+	if err != nil {
+		return nil, err
+	}
+	outputs := make([]*PaymentAttemptOutput, len(attempts))
+	for i, a := range attempts {
+		outputs[i] = toPaymentAttemptOutput(a)
+	}
+	return outputs, nil
 }
 
 func (paymentService *PaymentService) SweepExpiredPayments(ctx context.Context, ttlDuration time.Duration) (int, error) {

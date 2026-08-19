@@ -30,8 +30,8 @@ type RoutingOutput struct {
 
 type TenantInfrastructureRepository interface {
 	UpsertServiceInfrastructure(ctx context.Context, input repository.UpsertServiceInfrastructureInput) error
-	GetPendingServiceCount(ctx context.Context, tenantID string, requiredServices []string) (int, error)
-	GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*domain.TenantInfra, error)
+	CountPendingServices(ctx context.Context, tenantID string, requiredServices []string) (int, error)
+	FindByServiceName(ctx context.Context, tenantID, serviceName string) (*domain.TenantInfra, error)
 }
 
 type WorkspaceActivator interface {
@@ -85,7 +85,7 @@ func (tenantInfrastructureService *TenantInfrastructureService) HandleInfrastruc
 	log.Printf("TenantInfrastructureService: Infrastructure routing updated for tenant_id='%s' service='%s' host='%s'",
 		input.TenantID, input.ServiceName, input.DBHost)
 
-	pendingCount, err := tenantInfrastructureService.infrastructureRepository.GetPendingServiceCount(ctx, input.TenantID, tenantInfrastructureService.requiredServices)
+	pendingCount, err := tenantInfrastructureService.infrastructureRepository.CountPendingServices(ctx, input.TenantID, tenantInfrastructureService.requiredServices)
 	if err != nil {
 		return fmt.Errorf("failed to check pending service count: %w", err)
 	}
@@ -112,7 +112,7 @@ func (tenantInfrastructureService *TenantInfrastructureService) GetServiceInfras
 		return nil, domain.ErrServiceNameRequired
 	}
 
-	infra, err := tenantInfrastructureService.infrastructureRepository.GetServiceInfrastructure(ctx, tenantID, serviceName)
+	infra, err := tenantInfrastructureService.infrastructureRepository.FindByServiceName(ctx, tenantID, serviceName)
 	if err != nil {
 		return nil, err
 	}

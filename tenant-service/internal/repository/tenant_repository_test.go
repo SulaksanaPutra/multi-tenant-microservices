@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 	"tenant-service/internal/infrastructure/postgres"
 	"tenant-service/internal/testutil"
-	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 func TestTenantRepository_Constructor(t *testing.T) {
@@ -145,7 +145,7 @@ func TestTenantRepository_ActivateTenant_ExecError(t *testing.T) {
 	}
 }
 
-func TestTenantRepository_GetTenantByID_Query(t *testing.T) {
+func TestTenantRepository_FindByID_Query(t *testing.T) {
 	var capturedQuery string
 	var capturedArgs []any
 
@@ -160,7 +160,7 @@ func TestTenantRepository_GetTenantByID_Query(t *testing.T) {
 	tenantRepository := NewTenantRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	_, err := tenantRepository.GetTenantByID(ctx, "t-100")
+	_, err := tenantRepository.FindByID(ctx, "t-100")
 	if err == nil {
 		t.Fatal("expected scan error on dummy row, got nil")
 	}

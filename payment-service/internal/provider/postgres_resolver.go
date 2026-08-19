@@ -44,7 +44,7 @@ func (r *PostgresTenantPSPResolver) ResolveConfig(ctx context.Context, tenantID 
 	}
 
 	if r.pspConfigRepository != nil {
-		cfg, err := r.pspConfigRepository.GetConfig(ctx, tenantID, r.masterKey)
+		cfg, err := r.pspConfigRepository.FindByTenantID(ctx, tenantID, r.masterKey)
 		if err == nil && cfg != nil {
 			if cfg.Methods == nil {
 				cfg.Methods = []domain.PaymentMethodConfig{}

@@ -80,7 +80,7 @@ type mockAuthClient struct {
 	fetchSetupTokenFunc func(ctx context.Context, userID, tenantID, email string) (string, error)
 }
 
-func (m *mockAuthClient) FetchSetupToken(ctx context.Context, userID, tenantID, email string) (string, error) {
+func (m *mockAuthClient) GetSetupToken(ctx context.Context, userID, tenantID, email string) (string, error) {
 	if m.fetchSetupTokenFunc != nil {
 		return m.fetchSetupTokenFunc(ctx, userID, tenantID, email)
 	}

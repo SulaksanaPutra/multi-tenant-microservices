@@ -30,7 +30,7 @@ func (m *mockTenantRepository) CreateTenant(ctx context.Context, input repositor
 	return nil
 }
 
-func (m *mockTenantRepository) GetTenantByID(ctx context.Context, tenantID string) (*domain.Tenant, error) {
+func (m *mockTenantRepository) FindByID(ctx context.Context, tenantID string) (*domain.Tenant, error) {
 	if m.getTenantByIDFunc != nil {
 		return m.getTenantByIDFunc(ctx, tenantID)
 	}

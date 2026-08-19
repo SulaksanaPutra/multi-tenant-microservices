@@ -44,7 +44,7 @@ func (m *mockNotificationRepository) HasSentNotification(ctx context.Context, te
 	return false, nil
 }
 
-func (m *mockNotificationRepository) GetPendingNotification(ctx context.Context, tenantID string) (*domain.NotificationLog, error) {
+func (m *mockNotificationRepository) FindPendingNotification(ctx context.Context, tenantID string) (*domain.NotificationLog, error) {
 	if m.getPendingNotificationFunc != nil {
 		return m.getPendingNotificationFunc(ctx, tenantID)
 	}

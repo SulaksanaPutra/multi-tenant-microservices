@@ -41,7 +41,7 @@ func (m *mockOutboxRepository) RecoverStuckClaims(ctx context.Context, eventType
 	return nil
 }
 
-func (m *mockOutboxRepository) FetchAndClaimBatch(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
+func (m *mockOutboxRepository) ListAndClaimBatch(ctx context.Context, eventType string, limit int) ([]domain.OutboxMessage, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

@@ -79,7 +79,7 @@ func TestRoleRepository_CreateRole(t *testing.T) {
 	})
 }
 
-func TestRoleRepository_FindRoleByID(t *testing.T) {
+func TestRoleRepository_FindByID(t *testing.T) {
 	var capturedQuery string
 	var capturedArgs []any
 
@@ -94,7 +94,7 @@ func TestRoleRepository_FindRoleByID(t *testing.T) {
 	roleRepository := NewRoleRepository(&postgres.Client{})
 	ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-	role, err := roleRepository.FindRoleByID(ctxWithExec, "role_123")
+	role, err := roleRepository.FindByID(ctxWithExec, "role_123")
 	if role != nil {
 		t.Errorf("expected nil role on dummy scan error, got %+v", role)
 	}
@@ -110,7 +110,7 @@ func TestRoleRepository_FindRoleByID(t *testing.T) {
 	}
 }
 
-func TestRoleRepository_FindRoleByName(t *testing.T) {
+func TestRoleRepository_FindByName(t *testing.T) {
 	t.Run("system role path (tenantID == nil)", func(t *testing.T) {
 		var capturedQuery string
 		var capturedArgs []any
@@ -126,7 +126,7 @@ func TestRoleRepository_FindRoleByName(t *testing.T) {
 		roleRepository := NewRoleRepository(&postgres.Client{})
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-		_, err := roleRepository.FindRoleByName(ctxWithExec, nil, "SuperAdmin")
+		_, err := roleRepository.FindByName(ctxWithExec, nil, "SuperAdmin")
 		if err == nil {
 			t.Fatal("expected scan error, got nil")
 		}
@@ -155,7 +155,7 @@ func TestRoleRepository_FindRoleByName(t *testing.T) {
 		ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
 		tenantID := "tnt_123"
-		_, err := roleRepository.FindRoleByName(ctxWithExec, &tenantID, "TenantAdmin")
+		_, err := roleRepository.FindByName(ctxWithExec, &tenantID, "TenantAdmin")
 		if err == nil {
 			t.Fatal("expected scan error, got nil")
 		}
@@ -169,7 +169,7 @@ func TestRoleRepository_FindRoleByName(t *testing.T) {
 	})
 }
 
-func TestRoleRepository_FindRolesByTenantID(t *testing.T) {
+func TestRoleRepository_ListByTenantID(t *testing.T) {
 	var capturedQuery string
 	var capturedArgs []any
 	dbErr := errors.New("list roles error")
@@ -184,7 +184,7 @@ func TestRoleRepository_FindRolesByTenantID(t *testing.T) {
 	roleRepository := NewRoleRepository(&postgres.Client{})
 	ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-	roles, err := roleRepository.FindRolesByTenantID(ctxWithExec, "tnt_123")
+	roles, err := roleRepository.ListByTenantID(ctxWithExec, "tnt_123")
 	if roles != nil {
 		t.Errorf("expected nil roles on query error, got %v", roles)
 	}
@@ -350,7 +350,7 @@ func TestRoleRepository_FindUserRole(t *testing.T) {
 	}
 }
 
-func TestRoleRepository_FindUserPermissions(t *testing.T) {
+func TestRoleRepository_ListUserPermissions(t *testing.T) {
 	dbErr := errors.New("fetch permissions error")
 	mockExec := &testutil.MockDBExecutor{
 		QueryContextFn: func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
@@ -361,7 +361,7 @@ func TestRoleRepository_FindUserPermissions(t *testing.T) {
 	roleRepository := NewRoleRepository(&postgres.Client{})
 	ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-	perms, version, err := roleRepository.FindUserPermissions(ctxWithExec, "usr_100", "tnt_123")
+	perms, version, err := roleRepository.ListUserPermissions(ctxWithExec, "usr_100", "tnt_123")
 	if perms != nil {
 		t.Errorf("expected nil perms on query error, got %v", perms)
 	}
@@ -373,7 +373,7 @@ func TestRoleRepository_FindUserPermissions(t *testing.T) {
 	}
 }
 
-func TestRoleRepository_GetUserPermissionVersion(t *testing.T) {
+func TestRoleRepository_FindUserPermissionVersion(t *testing.T) {
 	var capturedQuery string
 
 	mockExec := &testutil.MockDBExecutor{
@@ -386,7 +386,7 @@ func TestRoleRepository_GetUserPermissionVersion(t *testing.T) {
 	roleRepository := NewRoleRepository(&postgres.Client{})
 	ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
 
-	version, err := roleRepository.GetUserPermissionVersion(ctxWithExec, "usr_100", "tnt_123")
+	version, err := roleRepository.FindUserPermissionVersion(ctxWithExec, "usr_100", "tnt_123")
 	if version != 1 {
 		t.Errorf("expected fallback version 1 on scan error, got %d", version)
 	}

@@ -321,7 +321,7 @@ func (paymentRepository *PaymentRepository) UpdateAttempt(ctx context.Context, i
 	return nil
 }
 
-func (paymentRepository *PaymentRepository) FindAttemptsByPaymentID(ctx context.Context, paymentID string) ([]*domain.PaymentAttempt, error) {
+func (paymentRepository *PaymentRepository) ListAttemptsByPaymentID(ctx context.Context, paymentID string) ([]*domain.PaymentAttempt, error) {
 	exec := txcontext.GetExecutor(ctx, paymentRepository.dbClient)
 	query := `
 		SELECT id, payment_id, tenant_id, provider, external_session_id,

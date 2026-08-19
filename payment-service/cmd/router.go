@@ -25,7 +25,7 @@ func newRouter(paymentHandler *handler.PaymentHandler, jwtPubKeyPEM string) http
 	api := r.Group("/api/payments")
 	api.Use(middleware.RequireJWT(jwtPubKeyPEM))
 	{
-		api.GET("/methods", middleware.RequirePermission(domain.PermissionPaymentsRead), paymentHandler.GetAvailablePaymentMethods)
+		api.GET("/methods", middleware.RequirePermission(domain.PermissionPaymentsRead), paymentHandler.ListAvailablePaymentMethods)
 		api.POST("/initiate", middleware.RequirePermission(domain.PermissionPaymentsCreate), paymentHandler.InitiatePayment)
 		api.GET("/:id", middleware.RequirePermission(domain.PermissionPaymentsRead), paymentHandler.GetPaymentByID)
 		api.GET("/by-order/:orderID", middleware.RequirePermission(domain.PermissionPaymentsRead), paymentHandler.GetPaymentByOrderID)

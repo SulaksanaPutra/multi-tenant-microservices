@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 	"payment-service/internal/domain"
 	"payment-service/internal/infrastructure/postgres"
-	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 const (
@@ -70,7 +70,7 @@ func (outboxRepository *OutboxRepository) SaveOutboxEvent(ctx context.Context, e
 	return nil
 }
 
-func (outboxRepository *OutboxRepository) FetchPending(ctx context.Context, limit int) ([]*domain.OutboxMessage, error) {
+func (outboxRepository *OutboxRepository) ListPending(ctx context.Context, limit int) ([]*domain.OutboxMessage, error) {
 	exec := txcontext.GetExecutor(ctx, outboxRepository.dbClient)
 
 	query := `

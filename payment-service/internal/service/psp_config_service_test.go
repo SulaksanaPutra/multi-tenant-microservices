@@ -21,7 +21,7 @@ func (m *mockPSPConfigRepository) SaveConfig(ctx context.Context, input reposito
 	return nil
 }
 
-func (m *mockPSPConfigRepository) GetConfig(ctx context.Context, tenantID string, masterKey []byte) (*domain.TenantPSPConfig, error) {
+func (m *mockPSPConfigRepository) FindByTenantID(ctx context.Context, tenantID string, masterKey []byte) (*domain.TenantPSPConfig, error) {
 	if m.getFn != nil {
 		return m.getFn(ctx, tenantID, masterKey)
 	}

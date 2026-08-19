@@ -101,7 +101,7 @@ func (internalPermissionService *InternalPermissionService) GetUserPermissionVer
 	if tenantID == "" {
 		return 1, domain.ErrTenantIDRequired
 	}
-	return internalPermissionService.roleRepository.GetUserPermissionVersion(ctx, userID, tenantID)
+	return internalPermissionService.roleRepository.FindUserPermissionVersion(ctx, userID, tenantID)
 }
 
 func (internalPermissionService *InternalPermissionService) SeedDefaultRolesForTenant(ctx context.Context, tenantID string, adminUserID string) error {
@@ -109,7 +109,7 @@ func (internalPermissionService *InternalPermissionService) SeedDefaultRolesForT
 		return domain.ErrTenantIDRequired
 	}
 
-	adminRole, err := internalPermissionService.roleRepository.FindRoleByName(ctx, &tenantID, "admin")
+	adminRole, err := internalPermissionService.roleRepository.FindByName(ctx, &tenantID, "admin")
 	if err != nil {
 		createdAdmin, createErr := internalPermissionService.roleRepository.CreateRole(ctx, repository.CreateRoleInput{
 			TenantID:    &tenantID,

@@ -132,7 +132,7 @@ func TestOutboxRepository_CreateOutboxMessage_Error(t *testing.T) {
 	}
 }
 
-func TestOutboxRepository_FetchAndClaimBatch_QueryError(t *testing.T) {
+func TestOutboxRepository_ListAndClaimBatch_QueryError(t *testing.T) {
 	dbErr := errors.New("query failure")
 	mockExec := &testutil.MockDBExecutor{
 		QueryContextFn: func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
@@ -143,7 +143,7 @@ func TestOutboxRepository_FetchAndClaimBatch_QueryError(t *testing.T) {
 	outboxRepository := NewOutboxRepository(tenantdb.Config{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	_, err := outboxRepository.FetchAndClaimBatch(ctx, "order.created", 10)
+	_, err := outboxRepository.ListAndClaimBatch(ctx, "order.created", 10)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

@@ -11,7 +11,7 @@ import (
 
 type PSPConfigRepository interface {
 	SaveConfig(ctx context.Context, input repository.SaveConfigInput, masterKey []byte) error
-	GetConfig(ctx context.Context, tenantID string, masterKey []byte) (*domain.TenantPSPConfig, error)
+	FindByTenantID(ctx context.Context, tenantID string, masterKey []byte) (*domain.TenantPSPConfig, error)
 }
 
 type TenantPSPResolver interface {
@@ -102,7 +102,7 @@ func (pspConfigService *PSPConfigService) GetConfig(ctx context.Context, tenantI
 		return toPSPConfigOutput(cfg), nil
 	}
 
-	cfg, err := pspConfigService.pspConfigRepository.GetConfig(ctx, tenantID, pspConfigService.masterKey)
+	cfg, err := pspConfigService.pspConfigRepository.FindByTenantID(ctx, tenantID, pspConfigService.masterKey)
 	if err != nil {
 		return nil, err
 	}

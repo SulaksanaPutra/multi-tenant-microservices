@@ -29,14 +29,14 @@ func (m *mockUserRepository) CreateUser(ctx context.Context, input repository.Cr
 	return nil
 }
 
-func (m *mockUserRepository) GetUserByEmail(ctx context.Context, email string) (*domain.User, error) {
+func (m *mockUserRepository) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
 	if m.getUserByEmailFunc != nil {
 		return m.getUserByEmailFunc(ctx, email)
 	}
 	return nil, domain.ErrNotFound
 }
 
-func (m *mockUserRepository) GetUserByID(ctx context.Context, userID string) (*domain.User, error) {
+func (m *mockUserRepository) FindByID(ctx context.Context, userID string) (*domain.User, error) {
 	if m.getUserByIDFunc != nil {
 		return m.getUserByIDFunc(ctx, userID)
 	}

@@ -60,7 +60,7 @@ type NotificationRepository interface {
 	CreateNotificationLog(ctx context.Context, input repository.CreateNotificationLogInput) (string, error)
 	UpdateNotificationStatus(ctx context.Context, id string, status string) error
 	HasSentNotification(ctx context.Context, tenantID string) (bool, error)
-	GetPendingNotification(ctx context.Context, tenantID string) (*domain.NotificationLog, error)
+	FindPendingNotification(ctx context.Context, tenantID string) (*domain.NotificationLog, error)
 	ListNotifications(ctx context.Context, tenantID string) ([]domain.NotificationLog, error)
 }
 
@@ -230,7 +230,7 @@ func (notificationService *NotificationService) ProcessEventAndTrySendWelcome(
 		return nil, nil
 	}
 
-	existingPending, err := notificationService.notificationRepository.GetPendingNotification(ctx, input.TenantID)
+	existingPending, err := notificationService.notificationRepository.FindPendingNotification(ctx, input.TenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed checking pending notification for tenant_id='%s': %w", input.TenantID, err)
 	}

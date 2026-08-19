@@ -23,14 +23,14 @@ func (m *mockInfrastructureRepository) UpsertServiceInfrastructure(ctx context.C
 	return nil
 }
 
-func (m *mockInfrastructureRepository) GetPendingServiceCount(ctx context.Context, tenantID string, requiredServices []string) (int, error) {
+func (m *mockInfrastructureRepository) CountPendingServices(ctx context.Context, tenantID string, requiredServices []string) (int, error) {
 	if m.getPendingCountFunc != nil {
 		return m.getPendingCountFunc(ctx, tenantID, requiredServices)
 	}
 	return 0, nil
 }
 
-func (m *mockInfrastructureRepository) GetServiceInfrastructure(ctx context.Context, tenantID, serviceName string) (*domain.TenantInfra, error) {
+func (m *mockInfrastructureRepository) FindByServiceName(ctx context.Context, tenantID, serviceName string) (*domain.TenantInfra, error) {
 	if m.getInfraFunc != nil {
 		return m.getInfraFunc(ctx, tenantID, serviceName)
 	}

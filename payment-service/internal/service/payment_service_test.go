@@ -109,7 +109,7 @@ func (m *mockPaymentRepository) UpdateAttempt(ctx context.Context, input reposit
 	return nil
 }
 
-func (m *mockPaymentRepository) FindAttemptsByPaymentID(ctx context.Context, paymentID string) ([]*domain.PaymentAttempt, error) {
+func (m *mockPaymentRepository) ListAttemptsByPaymentID(ctx context.Context, paymentID string) ([]*domain.PaymentAttempt, error) {
 	return nil, nil
 }
 

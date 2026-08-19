@@ -14,11 +14,11 @@ const (
 )
 
 type CircuitBreaker struct {
-	mu           sync.RWMutex
-	state        State
-	failures     int
-	maxFailures  int
-	cooldown     time.Duration
+	mu              sync.RWMutex
+	state           State
+	failures        int
+	maxFailures     int
+	cooldown        time.Duration
 	lastStateChange time.Time
 }
 
@@ -60,7 +60,7 @@ func (cb *CircuitBreaker) Allow() bool {
 	}
 }
 
-func (cb *CircuitBreaker) RecordSuccess() {
+func (cb *CircuitBreaker) OnSuccess() {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 
@@ -69,7 +69,7 @@ func (cb *CircuitBreaker) RecordSuccess() {
 	cb.lastStateChange = time.Now()
 }
 
-func (cb *CircuitBreaker) RecordFailure() {
+func (cb *CircuitBreaker) OnFailure() {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 

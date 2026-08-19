@@ -126,7 +126,7 @@ func TestPaymentOutboxRepository_MarkFailed(t *testing.T) {
 	}
 }
 
-func TestPaymentOutboxRepository_FetchPending_QueryCheck(t *testing.T) {
+func TestPaymentOutboxRepository_ListPending_QueryCheck(t *testing.T) {
 	var capturedQuery string
 	var capturedArgs []any
 
@@ -141,7 +141,7 @@ func TestPaymentOutboxRepository_FetchPending_QueryCheck(t *testing.T) {
 	outboxRepository := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	_, _ = outboxRepository.FetchPending(ctx, 25)
+	_, _ = outboxRepository.ListPending(ctx, 25)
 
 	if !strings.Contains(capturedQuery, "FOR UPDATE SKIP LOCKED") {
 		t.Errorf("expected query to contain 'FOR UPDATE SKIP LOCKED', got: %s", capturedQuery)

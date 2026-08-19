@@ -46,7 +46,7 @@ type createSetupTokenResponse struct {
 	} `json:"data"`
 }
 
-func (c *AuthClient) FetchSetupToken(ctx context.Context, userID, tenantID, email string) (string, error) {
+func (c *AuthClient) GetSetupToken(ctx context.Context, userID, tenantID, email string) (string, error) {
 	reqBody, err := json.Marshal(createSetupTokenRequest{
 		UserID:   userID,
 		TenantID: tenantID,

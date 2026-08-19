@@ -26,7 +26,7 @@ func TestAuthClient_Constructor(t *testing.T) {
 	}
 }
 
-func TestAuthClient_FetchSetupToken_Success(t *testing.T) {
+func TestAuthClient_GetSetupToken_Success(t *testing.T) {
 	var capturedTokenHeader string
 	var capturedReq createSetupTokenRequest
 
@@ -49,7 +49,7 @@ func TestAuthClient_FetchSetupToken_Success(t *testing.T) {
 	client := NewAuthClient(ts.URL, "secret_internal_token")
 	ctx := context.Background()
 
-	token, err := client.FetchSetupToken(ctx, "usr_100", "tnt_200", "user@example.com")
+	token, err := client.GetSetupToken(ctx, "usr_100", "tnt_200", "user@example.com")
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -65,7 +65,7 @@ func TestAuthClient_FetchSetupToken_Success(t *testing.T) {
 	}
 }
 
-func TestAuthClient_FetchSetupToken_Errors(t *testing.T) {
+func TestAuthClient_GetSetupToken_Errors(t *testing.T) {
 	t.Run("server error status", func(t *testing.T) {
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -73,7 +73,7 @@ func TestAuthClient_FetchSetupToken_Errors(t *testing.T) {
 		defer ts.Close()
 
 		client := NewAuthClient(ts.URL, "token")
-		_, err := client.FetchSetupToken(context.Background(), "u1", "t1", "e1")
+		_, err := client.GetSetupToken(context.Background(), "u1", "t1", "e1")
 		if err == nil {
 			t.Fatal("expected error on 500 status code, got nil")
 		}
@@ -88,7 +88,7 @@ func TestAuthClient_FetchSetupToken_Errors(t *testing.T) {
 		defer ts.Close()
 
 		client := NewAuthClient(ts.URL, "token")
-		_, err := client.FetchSetupToken(context.Background(), "u1", "t1", "e1")
+		_, err := client.GetSetupToken(context.Background(), "u1", "t1", "e1")
 		if err == nil {
 			t.Fatal("expected error on empty token in response, got nil")
 		}

@@ -36,7 +36,7 @@ type SetupTokenRepository interface {
 }
 
 type UserPermissionProvider interface {
-	FindUserPermissions(ctx context.Context, userID, tenantID string) ([]string, int64, error)
+	ListUserPermissions(ctx context.Context, userID, tenantID string) ([]string, int64, error)
 }
 
 type RoleSeeder interface {
@@ -308,7 +308,7 @@ func (authService *AuthService) issuePair(ctx context.Context, userID, tenantID,
 	var permVersion int64 = 1
 
 	if authService.permissionProvider != nil && userID != "" && tenantID != "" {
-		perms, ver, err := authService.permissionProvider.FindUserPermissions(ctx, userID, tenantID)
+		perms, ver, err := authService.permissionProvider.ListUserPermissions(ctx, userID, tenantID)
 		if err == nil {
 			permissions = perms
 			permVersion = ver

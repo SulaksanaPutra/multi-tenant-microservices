@@ -188,7 +188,7 @@ func (userCreatedConsumer *UserCreatedConsumer) handleDelivery(ctx context.Conte
 	}
 
 	if sendDetails != nil {
-		setupToken, fetchErr := userCreatedConsumer.authClient.FetchSetupToken(ctx, sendDetails.UserID, sendDetails.TenantID, sendDetails.RecipientEmail)
+		setupToken, fetchErr := userCreatedConsumer.authClient.GetSetupToken(ctx, sendDetails.UserID, sendDetails.TenantID, sendDetails.RecipientEmail)
 		if fetchErr != nil {
 			log.Printf("UserCreatedConsumer: Failed to fetch setup token from auth-service for tenant='%s': %v — NACKing for retry.", sendDetails.TenantID, fetchErr)
 			_ = d.Nack(false, true)

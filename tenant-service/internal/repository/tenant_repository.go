@@ -70,7 +70,7 @@ func (tenantRepository *TenantRepository) ActivateTenant(ctx context.Context, te
 	return nil
 }
 
-func (tenantRepository *TenantRepository) GetTenantByID(ctx context.Context, tenantID string) (*domain.Tenant, error) {
+func (tenantRepository *TenantRepository) FindByID(ctx context.Context, tenantID string) (*domain.Tenant, error) {
 	exec := txcontext.GetExecutor(ctx, tenantRepository.dbClient)
 	const query = `
 		SELECT id, name, slug, owner_email, owner_name, plan, status, created_at, updated_at

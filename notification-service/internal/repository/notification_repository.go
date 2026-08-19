@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 	"notification-service/internal/domain"
 	"notification-service/internal/infrastructure/postgres"
-	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 type CreateNotificationLogInput struct {
@@ -78,7 +78,7 @@ func (notificationRepository *NotificationRepository) HasSentNotification(ctx co
 	return count > 0, nil
 }
 
-func (notificationRepository *NotificationRepository) GetPendingNotification(ctx context.Context, tenantID string) (*domain.NotificationLog, error) {
+func (notificationRepository *NotificationRepository) FindPendingNotification(ctx context.Context, tenantID string) (*domain.NotificationLog, error) {
 	exec := txcontext.GetExecutor(ctx, notificationRepository.dbClient)
 	const query = `
 		SELECT id, user_id, tenant_id, description, body, status, created_at, updated_at

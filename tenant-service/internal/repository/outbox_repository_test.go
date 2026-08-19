@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 	"tenant-service/internal/infrastructure/postgres"
 	"tenant-service/internal/testutil"
-	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 func TestSanitizeError(t *testing.T) {
@@ -130,7 +130,7 @@ func TestOutboxRepository_CreateOutboxMessage_Error(t *testing.T) {
 	}
 }
 
-func TestOutboxRepository_FetchAndClaimBatch_QueryError(t *testing.T) {
+func TestOutboxRepository_ListAndClaimBatch_QueryError(t *testing.T) {
 	dbErr := errors.New("query error")
 	mockExec := &testutil.MockDBExecutor{
 		QueryContextFn: func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
@@ -140,7 +140,7 @@ func TestOutboxRepository_FetchAndClaimBatch_QueryError(t *testing.T) {
 	outboxRepository := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	_, err := outboxRepository.FetchAndClaimBatch(ctx, "workspace.initiated", 10)
+	_, err := outboxRepository.ListAndClaimBatch(ctx, "workspace.initiated", 10)
 	if err == nil {
 		t.Fatal("expected error when QueryContext returns nil rows/error, got nil")
 	}
@@ -152,7 +152,7 @@ func TestOutboxRepository_FetchAndClaimBatch_QueryError(t *testing.T) {
 	}
 }
 
-func TestOutboxRepository_FetchAndClaimBatch_EmptyResult(t *testing.T) {
+func TestOutboxRepository_ListAndClaimBatch_EmptyResult(t *testing.T) {
 	mockDB, _ := sql.Open("postgres", "host=localhost port=1 user=dummy dbname=dummy sslmode=disable")
 	_ = mockDB.Close()
 
@@ -166,7 +166,7 @@ func TestOutboxRepository_FetchAndClaimBatch_EmptyResult(t *testing.T) {
 	outboxRepository := NewOutboxRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	list, err := outboxRepository.FetchAndClaimBatch(ctx, "workspace.initiated", 10)
+	list, err := outboxRepository.ListAndClaimBatch(ctx, "workspace.initiated", 10)
 	if err != nil {
 		t.Fatalf("expected nil error on empty batch result, got %v", err)
 	}

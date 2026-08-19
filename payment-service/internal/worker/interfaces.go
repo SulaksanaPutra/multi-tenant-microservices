@@ -13,7 +13,7 @@ import (
 
 // OutboxRepository is the worker-side interface for outbox claim and persistence operations.
 type OutboxRepository interface {
-	FetchPending(ctx context.Context, limit int) ([]*domain.OutboxMessage, error)
+	ListPending(ctx context.Context, limit int) ([]*domain.OutboxMessage, error)
 	RecoverStuckClaims(ctx context.Context) error
 	MarkFailed(ctx context.Context, eventID string, reason string) error
 	MarkPublished(ctx context.Context, eventID string) error

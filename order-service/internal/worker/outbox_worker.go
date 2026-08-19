@@ -134,7 +134,7 @@ func (outboxWorker *OutboxWorker) forEachActiveTenant(ctx context.Context, fn fu
 }
 
 func (outboxWorker *OutboxWorker) processTenantBatch(ctx context.Context, outboxRepository OutboxRepository, eventType string) {
-	messages, err := outboxRepository.FetchAndClaimBatch(ctx, eventType, outboxWorker.batchSize)
+	messages, err := outboxRepository.ListAndClaimBatch(ctx, eventType, outboxWorker.batchSize)
 	if err != nil {
 		log.Printf("OutboxWorker Error: Failed to claim outbox batch for '%s': %v", eventType, err)
 		return

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 	"notification-service/internal/infrastructure/postgres"
 	"notification-service/internal/testutil"
-	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 func TestNotificationRepository_Constructor(t *testing.T) {
@@ -187,13 +187,13 @@ func TestNotificationRepository_UpdateNotificationStatus_RowsAffectedError(t *te
 	}
 }
 
-func TestNotificationRepository_GetPendingNotification_Error(t *testing.T) {
+func TestNotificationRepository_FindPendingNotification_Error(t *testing.T) {
 	mockExec := &testutil.MockDBExecutor{}
 
 	notificationRepository := NewNotificationRepository(&postgres.Client{})
 	ctx := txcontext.WithExecutor(context.Background(), mockExec)
 
-	pendingLog, err := notificationRepository.GetPendingNotification(ctx, "tenant-1")
+	pendingLog, err := notificationRepository.FindPendingNotification(ctx, "tenant-1")
 	if err == nil {
 		t.Fatal("expected error from QueryRowContext Scan on nil Row, got nil")
 	}

@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 	"user-service/internal/domain"
 	"user-service/internal/infrastructure/postgres"
-	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
 
 type CreateUserInput struct {
@@ -55,7 +55,7 @@ func (userRepository *UserRepository) AddUserTenantMembership(ctx context.Contex
 	return nil
 }
 
-func (userRepository *UserRepository) GetUserByEmail(ctx context.Context, email string) (*domain.User, error) {
+func (userRepository *UserRepository) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
 	exec := txcontext.GetExecutor(ctx, userRepository.dbClient)
 	const query = `
 		SELECT id, email, name, created_at, updated_at
@@ -73,7 +73,7 @@ func (userRepository *UserRepository) GetUserByEmail(ctx context.Context, email 
 	return &user, nil
 }
 
-func (userRepository *UserRepository) GetUserByID(ctx context.Context, userID string) (*domain.User, error) {
+func (userRepository *UserRepository) FindByID(ctx context.Context, userID string) (*domain.User, error) {
 	if userID == "" {
 		return nil, errors.New("user repository: user_id is required to fetch user")
 	}

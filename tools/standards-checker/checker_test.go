@@ -761,6 +761,80 @@ func (r *UserRepository) FindUser() {}
 	}
 }
 
+func TestCheckFile_Rule3_3_RepoSingleRowNaming(t *testing.T) {
+	src := `package repository
+
+type UserRepository struct{}
+
+func (userRepository *UserRepository) GetUserByID(ctx context.Context, id string) (*User, error) {
+	return nil, nil
+}
+
+func (userRepository *UserRepository) FindRoleByID(ctx context.Context, id string) (*Role, error) {
+	return nil, nil
+}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "user_repository.go", src, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse Go source: %v", err)
+	}
+
+	violations := checkFile(fset, file, "user-service", "internal/repository/user_repository.go", false, false)
+	var hasGet, hasStutter bool
+	for _, v := range violations {
+		if v.ID == "repo-get-method" {
+			hasGet = true
+		}
+		if v.ID == "repo-entity-stutter" {
+			hasStutter = true
+		}
+	}
+	if !hasGet {
+		t.Errorf("Expected violation 'repo-get-method', got: %+v", violations)
+	}
+	if !hasStutter {
+		t.Errorf("Expected violation 'repo-entity-stutter', got: %+v", violations)
+	}
+}
+
+func TestCheckFile_Rule3_5_ServiceSingleRowNaming(t *testing.T) {
+	src := `package service
+
+type RoleService struct{}
+
+func (roleService *RoleService) FindByID(ctx context.Context, id string) (*RoleOutput, error) {
+	return nil, nil
+}
+
+func (roleService *RoleService) GetRole(ctx context.Context, id string) (*RoleOutput, error) {
+	return nil, nil
+}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "role_service.go", src, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse Go source: %v", err)
+	}
+
+	violations := checkFile(fset, file, "auth-service", "internal/service/role_service.go", false, false)
+	var hasFind, hasMissingCriteria bool
+	for _, v := range violations {
+		if v.ID == "service-find-method" {
+			hasFind = true
+		}
+		if v.ID == "service-query-missing-criteria" {
+			hasMissingCriteria = true
+		}
+	}
+	if !hasFind {
+		t.Errorf("Expected violation 'service-find-method', got: %+v", violations)
+	}
+	if !hasMissingCriteria {
+		t.Errorf("Expected violation 'service-query-missing-criteria', got: %+v", violations)
+	}
+}
+
 
 
 

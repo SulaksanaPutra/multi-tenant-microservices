@@ -22,7 +22,7 @@ type AuthService interface {
 // RoleService is the handler-side interface for RBAC role and permission management.
 type RoleService interface {
 	CreateRole(ctx context.Context, input service.CreateRoleInput) (*service.RoleOutput, error)
-	GetRole(ctx context.Context, roleID string) (*service.RoleOutput, error)
+	GetRoleByID(ctx context.Context, roleID string) (*service.RoleOutput, error)
 	ListRolesForTenant(ctx context.Context, tenantID string) ([]service.RoleOutput, error)
 	UpdateRolePermissions(ctx context.Context, input service.UpdateRolePermissionsInput) error
 	DeleteRole(ctx context.Context, roleID string) error

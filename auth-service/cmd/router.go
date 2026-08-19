@@ -52,7 +52,7 @@ func newRouter(
 		// Read-only RBAC endpoints (auth:roles:read)
 		api.GET("/permissions", middleware.RequirePermission("auth:roles:read"), permissionHandler.ListPermissions)
 		api.GET("/roles", middleware.RequirePermission("auth:roles:read"), roleHandler.ListRoles)
-		api.GET("/roles/:id", middleware.RequirePermission("auth:roles:read"), roleHandler.GetRole)
+		api.GET("/roles/:id", middleware.RequirePermission("auth:roles:read"), roleHandler.GetRoleByID)
 
 		// Static bulk assignment lookup — registered before the parameterized
 		// :userID route; Gin radix tree gives static segments precedence.

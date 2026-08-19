@@ -12,7 +12,7 @@ import (
 
 type ProviderRegistry interface {
 	ExecuteFallbackChain(ctx context.Context, req domain.CreateSessionRequest, methodID string) (*provider.FallbackExecutionOutput, error)
-	GetAvailableMethods(ctx context.Context, tenantID string) ([]domain.PaymentMethodConfig, error)
+	ListAvailableMethods(ctx context.Context, tenantID string) ([]domain.PaymentMethodConfig, error)
 	GetProvider(providerID domain.ProviderType) (domain.PaymentProvider, bool)
 }
 
@@ -35,9 +35,9 @@ func NewPaymentProviderService(
 }
 
 type PaymentMethodOutput struct {
-	ID   string                 `json:"id"`
-	Name string                 `json:"name"`
-	Type domain.InstructionType `json:"type"`
+	ID   string
+	Name string
+	Type domain.InstructionType
 }
 
 type ExecuteFallbackInput struct {
@@ -73,8 +73,8 @@ type VerifyWebhookOutput struct {
 	RawPayload        map[string]any
 }
 
-func (paymentProviderService *PaymentProviderService) GetAvailablePaymentMethods(ctx context.Context, tenantID string) ([]PaymentMethodOutput, error) {
-	methods, err := paymentProviderService.registry.GetAvailableMethods(ctx, tenantID)
+func (paymentProviderService *PaymentProviderService) ListAvailablePaymentMethods(ctx context.Context, tenantID string) ([]PaymentMethodOutput, error) {
+	methods, err := paymentProviderService.registry.ListAvailableMethods(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}

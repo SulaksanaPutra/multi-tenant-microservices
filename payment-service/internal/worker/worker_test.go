@@ -10,7 +10,7 @@ import (
 
 type mockOutboxRepository struct{}
 
-func (m *mockOutboxRepository) FetchPending(ctx context.Context, limit int) ([]*domain.OutboxMessage, error) {
+func (m *mockOutboxRepository) ListPending(ctx context.Context, limit int) ([]*domain.OutboxMessage, error) {
 	return nil, nil
 }
 
