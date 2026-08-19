@@ -392,13 +392,7 @@ func (roleRepository *RoleRepository) FindUserPermissions(ctx context.Context, u
 	return permissions, version, nil
 }
 
-type UserRoleBrief struct {
-	UserID   string `json:"user_id"`
-	RoleID   string `json:"role_id"`
-	RoleName string `json:"role_name"`
-}
-
-func (roleRepository *RoleRepository) ListUserRolesByTenant(ctx context.Context, tenantID string, userIDs []string) ([]UserRoleBrief, error) {
+func (roleRepository *RoleRepository) ListUserRolesByTenant(ctx context.Context, tenantID string, userIDs []string) ([]domain.UserRoleAssignment, error) {
 	exec := txcontext.GetExecutor(ctx, roleRepository.dbClient)
 	query := `
 		SELECT ur.user_id, r.id, r.name
@@ -415,13 +409,13 @@ func (roleRepository *RoleRepository) ListUserRolesByTenant(ctx context.Context,
 	}
 	defer func() { _ = rows.Close() }()
 
-	var assignments []UserRoleBrief
+	var assignments []domain.UserRoleAssignment
 	for rows.Next() {
-		var brief UserRoleBrief
-		if err := rows.Scan(&brief.UserID, &brief.RoleID, &brief.RoleName); err != nil {
-			return nil, fmt.Errorf("role repository: failed to scan user role brief: %w", err)
+		var assignment domain.UserRoleAssignment
+		if err := rows.Scan(&assignment.UserID, &assignment.RoleID, &assignment.RoleName); err != nil {
+			return nil, fmt.Errorf("role repository: failed to scan user role assignment: %w", err)
 		}
-		assignments = append(assignments, brief)
+		assignments = append(assignments, assignment)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("role repository: rows error: %w", err)

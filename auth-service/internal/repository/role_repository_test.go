@@ -428,3 +428,36 @@ func TestRoleRepository_BumpUserPermissionVersionsForRole(t *testing.T) {
 		t.Errorf("unexpected query args: %v", capturedArgs)
 	}
 }
+
+func TestRoleRepository_ListUserRolesByTenant_QueryError(t *testing.T) {
+	var capturedQuery string
+	var capturedArgs []any
+	dbErr := errors.New("list user roles error")
+	mockExec := &testutil.MockDBExecutor{
+		QueryContextFn: func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+			capturedQuery = query
+			capturedArgs = args
+			return nil, dbErr
+		},
+	}
+
+	roleRepository := NewRoleRepository(&postgres.Client{})
+	ctxWithExec := txcontext.WithExecutor(context.Background(), mockExec)
+
+	assignments, err := roleRepository.ListUserRolesByTenant(ctxWithExec, "tnt_123", []string{"usr_1", "usr_2"})
+	if assignments != nil {
+		t.Errorf("expected nil assignments on query error, got %v", assignments)
+	}
+	if err == nil || !errors.Is(err, dbErr) {
+		t.Errorf("expected wrapped db error, got %v", err)
+	}
+
+	if !strings.Contains(capturedQuery, "FROM public.user_roles ur") ||
+		!strings.Contains(capturedQuery, "JOIN public.roles r ON r.id = ur.role_id") {
+		t.Errorf("unexpected query string: %s", capturedQuery)
+	}
+
+	if len(capturedArgs) != 2 || capturedArgs[0] != "tnt_123" {
+		t.Errorf("unexpected query args: %v", capturedArgs)
+	}
+}

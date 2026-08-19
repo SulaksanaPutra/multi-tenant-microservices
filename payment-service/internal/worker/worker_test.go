@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"payment-service/internal/repository"
+	"payment-service/internal/domain"
 )
 
 type mockOutboxRepository struct{}
 
-func (m *mockOutboxRepository) FetchPending(ctx context.Context, limit int) ([]*repository.OutboxMessage, error) {
+func (m *mockOutboxRepository) FetchPending(ctx context.Context, limit int) ([]*domain.OutboxMessage, error) {
 	return nil, nil
 }
 

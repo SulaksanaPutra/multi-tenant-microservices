@@ -102,6 +102,86 @@ type CreateUserDTO struct {
 	}
 }
 
+func TestCheckFile_Rule6_1_JSONTagInRepository(t *testing.T) {
+	src := `package repository
+
+type UserRoleBrief struct {
+	UserID string ` + "`json:\"user_id\"`" + `
+}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "role_repository.go", src, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse Go source: %v", err)
+	}
+
+	violations := checkFile(fset, file, "auth-service", "internal/repository/role_repository.go", false, false)
+	hasJSONViolation := false
+	for _, v := range violations {
+		if v.ID == "json-tag-in-repository" {
+			hasJSONViolation = true
+			break
+		}
+	}
+	if !hasJSONViolation {
+		t.Fatalf("Expected violation for json-tag-in-repository, got violations: %+v", violations)
+	}
+}
+
+func TestCheckFile_Rule6_1_RepoInvalidStructNaming(t *testing.T) {
+	src := `package repository
+
+type UserRoleBrief struct {
+	UserID string
+}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "role_repository.go", src, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse Go source: %v", err)
+	}
+
+	violations := checkFile(fset, file, "auth-service", "internal/repository/role_repository.go", false, false)
+	hasNamingViolation := false
+	for _, v := range violations {
+		if v.ID == "repo-invalid-struct-naming" {
+			hasNamingViolation = true
+			break
+		}
+	}
+	if !hasNamingViolation {
+		t.Fatalf("Expected violation for repo-invalid-struct-naming, got violations: %+v", violations)
+	}
+}
+
+func TestCheckFile_Rule2_2_WorkerImportsRepository(t *testing.T) {
+	src := `package worker
+
+import "payment-service/internal/repository"
+
+type OutboxRepository interface {
+	FetchPending() ([]*repository.OutboxMessage, error)
+}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "interfaces.go", src, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse Go source: %v", err)
+	}
+
+	violations := checkFile(fset, file, "payment-service", "internal/worker/interfaces.go", false, false)
+	hasViolation := false
+	for _, v := range violations {
+		if v.ID == "layer-imports-repository" {
+			hasViolation = true
+			break
+		}
+	}
+	if !hasViolation {
+		t.Fatalf("Expected violation for layer-imports-repository in worker, got violations: %+v", violations)
+	}
+}
+
 func TestCheckFile_Rule4_1_SentinelOutsideDomain(t *testing.T) {
 	src := `package service
 

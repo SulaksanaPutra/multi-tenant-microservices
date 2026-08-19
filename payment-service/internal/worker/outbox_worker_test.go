@@ -6,17 +6,17 @@ import (
 	"testing"
 	"time"
 
-	"payment-service/internal/repository"
+	"payment-service/internal/domain"
 )
 
 type mockWorkerOutboxRepository struct {
-	fetchPendingFn       func(ctx context.Context, limit int) ([]*repository.OutboxMessage, error)
+	fetchPendingFn       func(ctx context.Context, limit int) ([]*domain.OutboxMessage, error)
 	recoverStuckClaimsFn func(ctx context.Context) error
 	markFailedFn         func(ctx context.Context, eventID string, reason string) error
 	markPublishedFn      func(ctx context.Context, eventID string) error
 }
 
-func (m *mockWorkerOutboxRepository) FetchPending(ctx context.Context, limit int) ([]*repository.OutboxMessage, error) {
+func (m *mockWorkerOutboxRepository) FetchPending(ctx context.Context, limit int) ([]*domain.OutboxMessage, error) {
 	if m.fetchPendingFn != nil {
 		return m.fetchPendingFn(ctx, limit)
 	}
@@ -74,8 +74,8 @@ func TestOutboxWorker_ConstructorDefaults(t *testing.T) {
 func TestOutboxWorker_ProcessOutboxBatch_Success(t *testing.T) {
 	publishedID := ""
 	outboxRepository := &mockWorkerOutboxRepository{
-		fetchPendingFn: func(ctx context.Context, limit int) ([]*repository.OutboxMessage, error) {
-			return []*repository.OutboxMessage{
+		fetchPendingFn: func(ctx context.Context, limit int) ([]*domain.OutboxMessage, error) {
+			return []*domain.OutboxMessage{
 				{
 					EventID:    "evt-999",
 					RoutingKey: "payment.created",
@@ -102,8 +102,8 @@ func TestOutboxWorker_ProcessOutboxBatch_Success(t *testing.T) {
 func TestOutboxWorker_ProcessOutboxBatch_PublishFailure(t *testing.T) {
 	failedID := ""
 	outboxRepository := &mockWorkerOutboxRepository{
-		fetchPendingFn: func(ctx context.Context, limit int) ([]*repository.OutboxMessage, error) {
-			return []*repository.OutboxMessage{
+		fetchPendingFn: func(ctx context.Context, limit int) ([]*domain.OutboxMessage, error) {
+			return []*domain.OutboxMessage{
 				{
 					EventID:    "evt-888",
 					RoutingKey: "payment.failed",

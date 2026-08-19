@@ -31,6 +31,12 @@ type UserRole struct {
 	Role       *Role     `json:"role,omitempty"`
 }
 
+type UserRoleAssignment struct {
+	UserID   string
+	RoleID   string
+	RoleName string
+}
+
 type UserPermissionVersion struct {
 	UserID    string    `json:"user_id"`
 	TenantID  string    `json:"tenant_id"`

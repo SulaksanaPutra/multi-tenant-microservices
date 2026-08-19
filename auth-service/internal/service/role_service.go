@@ -23,7 +23,7 @@ type RoleRepository interface {
 	UserHasMembership(ctx context.Context, userID, tenantID string) (bool, error)
 	GetUserPermissionVersion(ctx context.Context, userID, tenantID string) (int64, error)
 	BumpUserPermissionVersionsForRole(ctx context.Context, roleID string) error
-	ListUserRolesByTenant(ctx context.Context, tenantID string, userIDs []string) ([]repository.UserRoleBrief, error)
+	ListUserRolesByTenant(ctx context.Context, tenantID string, userIDs []string) ([]domain.UserRoleAssignment, error)
 }
 
 type CreateRoleInput struct {
@@ -275,17 +275,17 @@ func (roleService *RoleService) ListUserRolesForTenant(ctx context.Context, tena
 		return []UserRoleAssignmentOutput{}, nil
 	}
 
-	briefs, err := roleService.roleRepository.ListUserRolesByTenant(ctx, tenantID, userIDs)
+	assignments, err := roleService.roleRepository.ListUserRolesByTenant(ctx, tenantID, userIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	outputs := make([]UserRoleAssignmentOutput, len(briefs))
-	for i, brief := range briefs {
+	outputs := make([]UserRoleAssignmentOutput, len(assignments))
+	for i, assignment := range assignments {
 		outputs[i] = UserRoleAssignmentOutput{
-			UserID:   brief.UserID,
-			RoleID:   brief.RoleID,
-			RoleName: brief.RoleName,
+			UserID:   assignment.UserID,
+			RoleID:   assignment.RoleID,
+			RoleName: assignment.RoleName,
 		}
 	}
 	return outputs, nil

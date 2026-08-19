@@ -104,3 +104,15 @@ func TestUserPermissionVersion_Struct(t *testing.T) {
 		t.Errorf("unexpected UserPermissionVersion state: %+v", upv)
 	}
 }
+
+func TestUserRoleAssignment_Struct(t *testing.T) {
+	assignment := UserRoleAssignment{
+		UserID:   "usr_100",
+		RoleID:   "role_admin",
+		RoleName: "Admin",
+	}
+
+	if assignment.UserID != "usr_100" || assignment.RoleID != "role_admin" || assignment.RoleName != "Admin" {
+		t.Errorf("unexpected UserRoleAssignment state: %+v", assignment)
+	}
+}

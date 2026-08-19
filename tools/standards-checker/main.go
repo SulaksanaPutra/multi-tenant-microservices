@@ -391,10 +391,10 @@ func checkFile(fset *token.FileSet, file *ast.File, service, relPath string, isT
 			}
 		}
 
-		// Rule 2.2 — Layer 1 (consumer/handler) importing Layer 3 (repository/publisher)
-		if (strings.Contains(relPath, "/consumer/") || strings.Contains(relPath, "/handler/")) && !isTest {
+		// Rule 2.2 — Layer 1 (consumer/handler/worker) importing Layer 3 (repository/publisher)
+		if (strings.Contains(relPath, "/consumer/") || strings.Contains(relPath, "/handler/") || strings.Contains(relPath, "/worker/")) && !isTest {
 			if strings.HasSuffix(pathVal, "internal/repository") || strings.HasSuffix(pathVal, "internal/publisher") {
-				add(imp.Pos(), "2.2", "layer-imports-repository", "imports Layer 3 (`internal/repository`/`internal/publisher`) from Layer 1 — depend on Layer 2 (service) via interface instead")
+				add(imp.Pos(), "2.2", "layer-imports-repository", "imports Layer 3 (`internal/repository`/`internal/publisher`) from Layer 1 — depend on Layer 2 (service) or domain via interface instead")
 			}
 		}
 
@@ -526,6 +526,16 @@ func checkFile(fset *token.FileSet, file *ast.File, service, relPath string, isT
 				}
 			}
 
+			// Rule 6.1 — Structs declared in internal/repository must be *Repository, *Input, or *Item
+			if strings.Contains(relPath, "/repository/") && !isTest {
+				name := fn.Name.Name
+				if _, isStruct := fn.Type.(*ast.StructType); isStruct && ast.IsExported(name) {
+					if !strings.HasSuffix(name, "Repository") && !strings.HasSuffix(name, "Input") && !strings.HasSuffix(name, "Item") {
+						add(fn.Pos(), "6.1", "repo-invalid-struct-naming", fmt.Sprintf("repository defines non-input struct `%s` — repositories must only define `*Repository` or `{Action}{Entity}Input` DTOs (return domain entities instead)", name))
+					}
+				}
+			}
+
 		case *ast.StructType:
 			if !isTest {
 				for _, field := range fn.Fields.List {
@@ -550,6 +560,13 @@ func checkFile(fset *token.FileSet, file *ast.File, service, relPath string, isT
 					if strings.Contains(relPath, "/service/") {
 						if field.Tag != nil && strings.Contains(field.Tag.Value, `json:"`) {
 							add(field.Pos(), "6.1", "json-tag-in-service", "`json:\"...\"` tag found in the service layer — JSON belongs in handler DTOs only")
+						}
+					}
+
+					// Rule 6.1 — Repository DTOs carrying json tags
+					if strings.Contains(relPath, "/repository/") {
+						if field.Tag != nil && strings.Contains(field.Tag.Value, `json:"`) {
+							add(field.Pos(), "6.1", "json-tag-in-repository", "`json:\"...\"` tag found in the repository layer — JSON belongs in handler DTOs only")
 						}
 					}
 				}

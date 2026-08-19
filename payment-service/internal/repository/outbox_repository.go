@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"payment-service/internal/domain"
 	"payment-service/internal/infrastructure/postgres"
 	"github.com/SulaksanaPutra/go-microservice-commons/txcontext"
 )
@@ -40,17 +41,6 @@ func sanitizeError(err error) string {
 	return msg
 }
 
-type OutboxMessage struct {
-	EventID     string
-	RoutingKey  string
-	Payload     []byte
-	Status      string
-	RetryCount  int
-	LastError   string
-	CreatedAt   time.Time
-	PublishedAt *time.Time
-}
-
 type OutboxRepository struct {
 	dbClient *postgres.Client
 }
@@ -80,7 +70,7 @@ func (outboxRepository *OutboxRepository) SaveOutboxEvent(ctx context.Context, e
 	return nil
 }
 
-func (outboxRepository *OutboxRepository) FetchPending(ctx context.Context, limit int) ([]*OutboxMessage, error) {
+func (outboxRepository *OutboxRepository) FetchPending(ctx context.Context, limit int) ([]*domain.OutboxMessage, error) {
 	exec := txcontext.GetExecutor(ctx, outboxRepository.dbClient)
 
 	query := `
@@ -110,9 +100,9 @@ func (outboxRepository *OutboxRepository) FetchPending(ctx context.Context, limi
 	}
 	defer func() { _ = rows.Close() }()
 
-	var messages []*OutboxMessage
+	var messages []*domain.OutboxMessage
 	for rows.Next() {
-		var msg OutboxMessage
+		var msg domain.OutboxMessage
 		err := rows.Scan(
 			&msg.EventID, &msg.RoutingKey, &msg.Payload, &msg.Status,
 			&msg.RetryCount, &msg.LastError, &msg.CreatedAt, &msg.PublishedAt,

@@ -139,8 +139,8 @@ func (m *mockRoleRepository) BumpUserPermissionVersionsForRole(_ context.Context
 	return nil
 }
 
-func (m *mockRoleRepository) ListUserRolesByTenant(_ context.Context, tenantID string, userIDs []string) ([]repository.UserRoleBrief, error) {
-	var briefs []repository.UserRoleBrief
+func (m *mockRoleRepository) ListUserRolesByTenant(_ context.Context, tenantID string, userIDs []string) ([]domain.UserRoleAssignment, error) {
+	var assignments []domain.UserRoleAssignment
 	for _, uid := range userIDs {
 		userRole := m.userRoles[uid+"_"+tenantID]
 		if userRole == nil {
@@ -151,13 +151,13 @@ func (m *mockRoleRepository) ListUserRolesByTenant(_ context.Context, tenantID s
 		if role != nil {
 			name = role.Name
 		}
-		briefs = append(briefs, repository.UserRoleBrief{
+		assignments = append(assignments, domain.UserRoleAssignment{
 			UserID:   userRole.UserID,
 			RoleID:   userRole.RoleID,
 			RoleName: name,
 		})
 	}
-	return briefs, nil
+	return assignments, nil
 }
 
 func TestRoleService_AssignUserRole_RejectsNonMember(t *testing.T) {
