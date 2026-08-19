@@ -66,6 +66,7 @@ func main() {
 
 	// 2. Initialize Repositories & TxManager
 	txManager := txcontext.NewTxManager(dbClient.DB)
+	debtRepository := repository.NewDebtRepository(dbClient)
 	paymentRepository := repository.NewPaymentRepository(dbClient)
 	inboxRepository := repository.NewInboxRepository(dbClient)
 	outboxRepository := repository.NewOutboxRepository(dbClient)
@@ -74,7 +75,6 @@ func main() {
 	postgresResolver := provider.NewPostgresTenantPSPResolver(
 		pspConfigRepository,
 		masterEncryptionKey,
-		[]domain.ProviderType{domain.ProviderMock, domain.ProviderDirectBank},
 	)
 
 	registry := provider.NewProviderRegistry(postgresResolver)
@@ -90,6 +90,12 @@ func main() {
 		logger,
 	)
 
+	debtService := service.NewDebtService(
+		txManager,
+		debtRepository,
+		logger,
+	)
+
 	paymentProviderService := service.NewPaymentProviderService(
 		registry,
 		logger,
@@ -97,6 +103,7 @@ func main() {
 
 	paymentService := service.NewPaymentService(
 		txManager,
+		debtRepository,
 		paymentRepository,
 		inboxRepository,
 		outboxRepository,
@@ -140,7 +147,7 @@ func main() {
 
 	inboxService := service.NewInboxService(inboxRepository)
 
-	consumerRunner, err := registerConsumers(rmqClient, txManager, inboxService, paymentService, paymentProviderService, logger)
+	consumerRunner, err := registerConsumers(rmqClient, txManager, inboxService, debtService, logger)
 	if err != nil {
 		log.Fatalf("Failed to register consumers: %v", err)
 	}
@@ -149,7 +156,7 @@ func main() {
 	}
 
 	// 6. Register HTTP Router & Handlers
-	paymentHandler := handler.NewPaymentHandler(paymentService, paymentProviderService, pspConfigService)
+	paymentHandler := handler.NewPaymentHandler(paymentService, debtService, paymentProviderService, pspConfigService)
 
 	srv := &http.Server{
 		Addr:    ":" + port,

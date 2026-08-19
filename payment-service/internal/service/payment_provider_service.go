@@ -11,7 +11,8 @@ import (
 )
 
 type ProviderRegistry interface {
-	ExecuteFallbackChain(ctx context.Context, req domain.CreateSessionRequest) (*provider.FallbackExecutionOutput, error)
+	ExecuteFallbackChain(ctx context.Context, req domain.CreateSessionRequest, methodID string) (*provider.FallbackExecutionOutput, error)
+	GetAvailableMethods(ctx context.Context, tenantID string) ([]domain.PaymentMethodConfig, error)
 	GetProvider(providerID domain.ProviderType) (domain.PaymentProvider, bool)
 }
 
@@ -33,18 +34,26 @@ func NewPaymentProviderService(
 	}
 }
 
+type PaymentMethodOutput struct {
+	ID   string                 `json:"id"`
+	Name string                 `json:"name"`
+	Type domain.InstructionType `json:"type"`
+}
+
 type ExecuteFallbackInput struct {
-	TenantID    string
-	PaymentID   string
-	OrderID     string
-	Amount      float64
-	Currency    string
-	Description string
-	ReturnURL   string
+	TenantID      string
+	PaymentID     string
+	OrderID       string
+	Amount        float64
+	Currency      string
+	Description   string
+	ReturnURL     string
+	PaymentMethod string
 }
 
 type ExecuteFallbackOutput struct {
 	Provider       domain.ProviderType
+	PaymentMethod  string
 	Session        *domain.PaymentSessionOutput
 	FailedAttempts []domain.ProviderType
 	AttemptErrors  map[domain.ProviderType]error
@@ -64,24 +73,43 @@ type VerifyWebhookOutput struct {
 	RawPayload        map[string]any
 }
 
-func (paymentProviderService *PaymentProviderService) ExecuteFallback(ctx context.Context, input ExecuteFallbackInput) (*ExecuteFallbackOutput, error) {
-	req := domain.CreateSessionRequest{
-		TenantID:    input.TenantID,
-		PaymentID:   input.PaymentID,
-		OrderID:     input.OrderID,
-		Amount:      input.Amount,
-		Currency:    input.Currency,
-		Description: input.Description,
-		ReturnURL:   input.ReturnURL,
+func (paymentProviderService *PaymentProviderService) GetAvailablePaymentMethods(ctx context.Context, tenantID string) ([]PaymentMethodOutput, error) {
+	methods, err := paymentProviderService.registry.GetAvailableMethods(ctx, tenantID)
+	if err != nil {
+		return nil, err
 	}
 
-	execOut, err := paymentProviderService.registry.ExecuteFallbackChain(ctx, req)
+	outputs := make([]PaymentMethodOutput, len(methods))
+	for i, m := range methods {
+		outputs[i] = PaymentMethodOutput{
+			ID:   m.ID,
+			Name: m.Name,
+			Type: m.Type,
+		}
+	}
+	return outputs, nil
+}
+
+func (paymentProviderService *PaymentProviderService) ExecuteFallback(ctx context.Context, input ExecuteFallbackInput) (*ExecuteFallbackOutput, error) {
+	req := domain.CreateSessionRequest{
+		TenantID:      input.TenantID,
+		PaymentID:     input.PaymentID,
+		OrderID:       input.OrderID,
+		Amount:        input.Amount,
+		Currency:      input.Currency,
+		Description:   input.Description,
+		ReturnURL:     input.ReturnURL,
+		PaymentMethod: input.PaymentMethod,
+	}
+
+	execOut, err := paymentProviderService.registry.ExecuteFallbackChain(ctx, req, input.PaymentMethod)
 	if execOut == nil {
 		return nil, err
 	}
 
 	out := &ExecuteFallbackOutput{
 		Provider:       execOut.Provider,
+		PaymentMethod:  execOut.PaymentMethod,
 		Session:        execOut.Session,
 		FailedAttempts: execOut.FailedAttempts,
 		AttemptErrors:  execOut.AttemptErrors,

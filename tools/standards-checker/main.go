@@ -478,6 +478,29 @@ func checkFile(fset *token.FileSet, file *ast.File, service, relPath string, isT
 				}
 			}
 
+			// Rule 3.2 — Non-standard CRUD verb prefixes
+			if (!isTest || strict) && (strings.Contains(relPath, "/repository/") || strings.Contains(relPath, "/service/") || strings.Contains(relPath, "/handler/")) {
+				name := fn.Name.Name
+				if strings.HasPrefix(name, "Record") || strings.HasPrefix(name, "Fetch") || strings.HasPrefix(name, "Retrieve") || strings.HasPrefix(name, "Store") || strings.HasPrefix(name, "Modify") {
+					add(fn.Pos(), "3.2", "nonstandard-crud-verb", fmt.Sprintf("method `%s` uses non-standard action verb prefix — standard CRUD prefixes are `Create*`, `Update*`, `Get*`, `List*`, `Find*`, `Delete*`", name))
+				}
+			}
+
+			// Rule 2.5 — Subdomain entity lifecycle isolation in service layer
+			if strings.Contains(relPath, "/service/") && !isTest && fn.Recv != nil && len(fn.Recv.List) > 0 {
+				recvTypeName := ""
+				if star, ok := fn.Recv.List[0].Type.(*ast.StarExpr); ok {
+					if ident, ok := star.X.(*ast.Ident); ok {
+						recvTypeName = ident.Name
+					}
+				} else if ident, ok := fn.Recv.List[0].Type.(*ast.Ident); ok {
+					recvTypeName = ident.Name
+				}
+				if recvTypeName == "PaymentService" && (strings.HasPrefix(fn.Name.Name, "CreatePayableDebt") || strings.HasPrefix(fn.Name.Name, "GetPayableDebt") || strings.HasPrefix(fn.Name.Name, "RecordPayableDebt") || strings.HasPrefix(fn.Name.Name, "UpdatePayableDebt")) {
+					add(fn.Pos(), "2.5", "cross-subdomain-method", fmt.Sprintf("method `%s` on `%s` manages debt entity lifecycle directly — isolate into dedicated `*DebtService`", fn.Name.Name, recvTypeName))
+				}
+			}
+
 			// Rule 6.1 — Repository write methods must accept DTOs
 			if strings.Contains(relPath, "/repository/") && isWriteMethod(fn.Name.Name) {
 				if fn.Type.Params != nil {
@@ -515,6 +538,21 @@ func checkFile(fset *token.FileSet, file *ast.File, service, relPath string, isT
 				if filepath.Base(relPath) != "interfaces.go" {
 					if _, isIface := fn.Type.(*ast.InterfaceType); isIface {
 						add(fn.Pos(), "2.3", "inline-layer1-interface", fmt.Sprintf("Layer 1 driving package declares inline interface `%s` in `%s` — Rule 2.3 mandates all outbound contracts must be declared in `interfaces.go`", fn.Name.Name, filepath.Base(relPath)))
+					}
+				}
+			}
+
+			// Rule 2.3 — Interface Segregation: Avoid bundling cross-subdomain operations in driving layer interfaces
+			if (strings.Contains(relPath, "/consumer/interfaces.go") || strings.Contains(relPath, "/handler/interfaces.go")) && !isTest {
+				if iface, ok := fn.Type.(*ast.InterfaceType); ok {
+					if fn.Name.Name == "PaymentService" && iface.Methods != nil {
+						for _, field := range iface.Methods.List {
+							for _, mName := range field.Names {
+								if strings.Contains(mName.Name, "Debt") {
+									add(mName.Pos(), "2.3", "monolithic-service-interface", fmt.Sprintf("interface `PaymentService` declares `%s` — segregate cross-subdomain operations into a dedicated `DebtService` interface", mName.Name))
+								}
+							}
+						}
 					}
 				}
 			}

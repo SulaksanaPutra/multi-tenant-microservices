@@ -34,14 +34,7 @@ type InboxService interface {
 // Domain Service Contracts
 // =============================================================================
 
-// PaymentService is the consumer-side interface for payment DB lifecycle operations.
-type PaymentService interface {
-	InitiatePayment(ctx context.Context, input service.InitiatePaymentInput) (*service.PaymentOutput, error)
-	CompleteInstructionGeneration(ctx context.Context, input service.CompleteInstructionInput) error
-	FailInstructionGeneration(ctx context.Context, input service.FailInstructionInput) error
-}
-
-// PaymentProviderService is the consumer-side interface for external gateway fallback execution.
-type PaymentProviderService interface {
-	ExecuteFallback(ctx context.Context, input service.ExecuteFallbackInput) (*service.ExecuteFallbackOutput, error)
+// DebtService is the consumer-side interface for payable debt lifecycle operations.
+type DebtService interface {
+	CreatePayableDebt(ctx context.Context, input service.CreatePayableDebtInput) (*service.PayableDebtOutput, error)
 }

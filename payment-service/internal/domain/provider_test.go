@@ -62,8 +62,16 @@ func TestProviderType_Constants(t *testing.T) {
 
 func TestTenantPSPConfig_Struct(t *testing.T) {
 	cfg := domain.TenantPSPConfig{
-		TenantID:      "tnt_1",
-		PriorityChain: []domain.ProviderType{domain.ProviderStripe, domain.ProviderXendit},
+		TenantID: "tnt_1",
+		Methods: []domain.PaymentMethodConfig{
+			{
+				ID:            "bca_va",
+				Name:          "BCA VA",
+				Type:          domain.InstructionVirtualAccount,
+				Enabled:       true,
+				PriorityChain: []domain.ProviderType{domain.ProviderStripe, domain.ProviderXendit},
+			},
+		},
 		ProviderConfigs: map[domain.ProviderType]domain.ProviderCredentials{
 			domain.ProviderStripe: {
 				APIKey: "sk_test_123",
@@ -74,8 +82,8 @@ func TestTenantPSPConfig_Struct(t *testing.T) {
 	if cfg.TenantID != "tnt_1" {
 		t.Errorf("Expected TenantID 'tnt_1', got '%s'", cfg.TenantID)
 	}
-	if len(cfg.PriorityChain) != 2 {
-		t.Errorf("Expected 2 providers in chain, got %d", len(cfg.PriorityChain))
+	if len(cfg.Methods) != 1 {
+		t.Errorf("Expected 1 method, got %d", len(cfg.Methods))
 	}
 	if cfg.ProviderConfigs[domain.ProviderStripe].APIKey != "sk_test_123" {
 		t.Errorf("Expected Stripe API key 'sk_test_123'")

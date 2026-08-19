@@ -17,6 +17,8 @@ type PaymentRepository interface {
 	Create(ctx context.Context, input repository.CreatePaymentInput) error
 	FindByID(ctx context.Context, id string) (*domain.Payment, error)
 	FindByOrderID(ctx context.Context, tenantID, orderID string) (*domain.Payment, error)
+	FindByExternalID(ctx context.Context, provider domain.ProviderType, externalID string) (*domain.Payment, error)
+	FindByDebtID(ctx context.Context, debtID string) ([]*domain.Payment, error)
 	FindByIDForUpdate(ctx context.Context, id string) (*domain.Payment, error)
 	CreateAttempt(ctx context.Context, input repository.CreateAttemptInput) error
 	UpdateAttempt(ctx context.Context, input repository.UpdateAttemptInput) error
@@ -40,6 +42,7 @@ type TxManager interface {
 
 type PaymentService struct {
 	txManager         TxManager
+	debtRepository    DebtRepository
 	paymentRepository PaymentRepository
 	inboxRepository   InboxRepository
 	outboxRepository  OutboxRepository
@@ -48,6 +51,7 @@ type PaymentService struct {
 
 func NewPaymentService(
 	txManager TxManager,
+	debtRepository DebtRepository,
 	paymentRepository PaymentRepository,
 	inboxRepository InboxRepository,
 	outboxRepository OutboxRepository,
@@ -58,6 +62,7 @@ func NewPaymentService(
 	}
 	return &PaymentService{
 		txManager:         txManager,
+		debtRepository:    debtRepository,
 		paymentRepository: paymentRepository,
 		inboxRepository:   inboxRepository,
 		outboxRepository:  outboxRepository,
@@ -65,21 +70,35 @@ func NewPaymentService(
 	}
 }
 
-type InitiatePaymentInput struct {
-	TenantID string
-	OrderID  string
-	Amount   float64
-	Currency string
+type InitiatePaymentSessionInput struct {
+	TenantID      string
+	OrderID       string
+	Amount        float64
+	PaymentMethod string
+}
+
+type CancelledSession struct {
+	PaymentID         string
+	Provider          domain.ProviderType
+	ExternalSessionID string
+}
+
+type InitiatePaymentSessionOutput struct {
+	Debt              *PayableDebtOutput
+	Payment           *PaymentOutput
+	CancelledSessions []CancelledSession
 }
 
 type PaymentOutput struct {
 	ID                string
+	DebtID            string
 	TenantID          string
 	OrderID           string
 	Amount            float64
 	Currency          string
 	Status            domain.PaymentStatus
 	Provider          domain.ProviderType
+	PaymentMethod     string
 	ExternalID        string
 	Instructions      domain.PaymentInstructions
 	RawWebhookPayload map[string]any
@@ -90,6 +109,7 @@ type PaymentOutput struct {
 type CompleteInstructionInput struct {
 	PaymentID         string
 	Provider          domain.ProviderType
+	PaymentMethod     string
 	ExternalSessionID string
 	Instructions      domain.PaymentInstructions
 	FailedAttempts    []domain.ProviderType
@@ -124,18 +144,21 @@ type CancelledAttemptOutput struct {
 type ProcessWebhookOutput struct {
 	PaymentID         string
 	Status            domain.PaymentStatus
+	DebtStatus        domain.DebtStatus
 	CancelledAttempts []CancelledAttemptOutput
 }
 
 func toUpdatePaymentInput(p *domain.Payment) repository.UpdatePaymentInput {
 	return repository.UpdatePaymentInput{
 		ID:                p.ID,
+		DebtID:            p.DebtID,
 		TenantID:          p.TenantID,
 		OrderID:           p.OrderID,
 		Amount:            p.Amount,
 		Currency:          p.Currency,
 		Status:            p.Status,
 		Provider:          p.Provider,
+		PaymentMethod:     p.PaymentMethod,
 		ExternalID:        p.ExternalID,
 		Instructions:      p.Instructions,
 		RawWebhookPayload: p.RawWebhookPayload,
@@ -150,12 +173,14 @@ func toPaymentOutput(p *domain.Payment) *PaymentOutput {
 	}
 	return &PaymentOutput{
 		ID:                p.ID,
+		DebtID:            p.DebtID,
 		TenantID:          p.TenantID,
 		OrderID:           p.OrderID,
 		Amount:            p.Amount,
 		Currency:          p.Currency,
 		Status:            p.Status,
 		Provider:          p.Provider,
+		PaymentMethod:     p.PaymentMethod,
 		ExternalID:        p.ExternalID,
 		Instructions:      p.Instructions,
 		RawWebhookPayload: p.RawWebhookPayload,
@@ -164,59 +189,96 @@ func toPaymentOutput(p *domain.Payment) *PaymentOutput {
 	}
 }
 
-func (paymentService *PaymentService) InitiatePayment(ctx context.Context, input InitiatePaymentInput) (*PaymentOutput, error) {
+func (paymentService *PaymentService) InitiatePaymentSession(ctx context.Context, input InitiatePaymentSessionInput) (*InitiatePaymentSessionOutput, error) {
 	if input.TenantID == "" || input.OrderID == "" {
 		return nil, errors.New("tenant_id and order_id are required")
 	}
 
-	currency := input.Currency
-	if currency == "" {
-		currency = "USD"
-	}
+	var output *InitiatePaymentSessionOutput
+	actionFn := func(txCtx context.Context) error {
+		debt, err := paymentService.debtRepository.FindByOrderIDForUpdate(txCtx, input.TenantID, input.OrderID)
+		if err != nil {
+			return err
+		}
 
-	paymentID := domain.GeneratePaymentID()
-	p := &domain.Payment{
-		ID:        paymentID,
-		TenantID:  input.TenantID,
-		OrderID:   input.OrderID,
-		Amount:    input.Amount,
-		Currency:  currency,
-		Status:    domain.PaymentStatusPending,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
+		if debt.Status == domain.DebtStatusPaid {
+			return domain.ErrDebtAlreadyPaid
+		}
+		if debt.Status == domain.DebtStatusExpired || debt.Status == domain.DebtStatusCancelled {
+			return domain.ErrInvalidStatusTransition
+		}
 
-	createInput := repository.CreatePaymentInput{
-		ID:                p.ID,
-		TenantID:          p.TenantID,
-		OrderID:           p.OrderID,
-		Amount:            p.Amount,
-		Currency:          p.Currency,
-		Status:            p.Status,
-		Provider:          p.Provider,
-		ExternalID:        p.ExternalID,
-		Instructions:      p.Instructions,
-		RawWebhookPayload: p.RawWebhookPayload,
-		CreatedAt:         p.CreatedAt,
-		UpdatedAt:         p.UpdatedAt,
-	}
+		existingPayments, _ := paymentService.paymentRepository.FindByDebtID(txCtx, debt.ID)
+		var cancelled []CancelledSession
+		for _, ep := range existingPayments {
+			if ep.Status == domain.PaymentStatusPending || ep.Status == domain.PaymentStatusInstructionsReady {
+				ep.Status = domain.PaymentStatusCancelled
+				_ = paymentService.paymentRepository.Update(txCtx, toUpdatePaymentInput(ep))
+				if ep.ExternalID != "" {
+					cancelled = append(cancelled, CancelledSession{
+						PaymentID:         ep.ID,
+						Provider:          ep.Provider,
+						ExternalSessionID: ep.ExternalID,
+					})
+				}
+			}
+		}
 
-	createFn := func(txCtx context.Context) error {
-		return paymentService.paymentRepository.Create(txCtx, createInput)
+		remaining := debt.TotalAmount - debt.PaidAmount
+		payAmount := remaining
+		if input.Amount > 0 && input.Amount <= remaining {
+			payAmount = input.Amount
+		}
+
+		now := time.Now()
+		p := &domain.Payment{
+			ID:            domain.GeneratePaymentID(),
+			DebtID:        debt.ID,
+			TenantID:      debt.TenantID,
+			OrderID:       debt.OrderID,
+			Amount:        payAmount,
+			Currency:      debt.Currency,
+			Status:        domain.PaymentStatusPending,
+			PaymentMethod: input.PaymentMethod,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+		}
+
+		if err := paymentService.paymentRepository.Create(txCtx, repository.CreatePaymentInput{
+			ID:                p.ID,
+			DebtID:            p.DebtID,
+			TenantID:          p.TenantID,
+			OrderID:           p.OrderID,
+			Amount:            p.Amount,
+			Currency:          p.Currency,
+			Status:            p.Status,
+			Provider:          p.Provider,
+			PaymentMethod:     p.PaymentMethod,
+			ExternalID:        p.ExternalID,
+			Instructions:      p.Instructions,
+			RawWebhookPayload: p.RawWebhookPayload,
+			CreatedAt:         p.CreatedAt,
+			UpdatedAt:         p.UpdatedAt,
+		}); err != nil {
+			return fmt.Errorf("failed to create payment session: %w", err)
+		}
+
+		output = &InitiatePaymentSessionOutput{
+			Debt:              toDebtOutput(debt),
+			Payment:           toPaymentOutput(p),
+			CancelledSessions: cancelled,
+		}
+		return nil
 	}
 
 	var err error
 	if paymentService.txManager != nil {
-		err = paymentService.txManager.WithTransaction(ctx, createFn)
+		err = paymentService.txManager.WithTransaction(ctx, actionFn)
 	} else {
-		err = createFn(ctx)
+		err = actionFn(ctx)
 	}
 
-	if err != nil {
-		return nil, fmt.Errorf("failed to initiate payment: %w", err)
-	}
-
-	return toPaymentOutput(p), nil
+	return output, err
 }
 
 func (paymentService *PaymentService) CompleteInstructionGeneration(ctx context.Context, input CompleteInstructionInput) error {
@@ -226,7 +288,7 @@ func (paymentService *PaymentService) CompleteInstructionGeneration(ctx context.
 			return err
 		}
 
-		if p.Status != domain.PaymentStatusPending {
+		if p.Status != domain.PaymentStatusPending && p.Status != domain.PaymentStatusInstructionsReady {
 			return nil
 		}
 
@@ -260,6 +322,9 @@ func (paymentService *PaymentService) CompleteInstructionGeneration(ctx context.
 
 		p.Status = domain.PaymentStatusInstructionsReady
 		p.Provider = input.Provider
+		if input.PaymentMethod != "" {
+			p.PaymentMethod = input.PaymentMethod
+		}
 		p.ExternalID = input.ExternalSessionID
 		p.Instructions = input.Instructions
 
@@ -268,14 +333,15 @@ func (paymentService *PaymentService) CompleteInstructionGeneration(ctx context.
 		}
 
 		outboxEvt := &domain.PaymentInstructionsGeneratedEvent{
-			EventID:      uuid.New().String(),
-			TenantID:     p.TenantID,
-			PaymentID:    p.ID,
-			OrderID:      p.OrderID,
-			Amount:       p.Amount,
-			Currency:     p.Currency,
-			Instructions: p.Instructions,
-			Provider:     p.Provider,
+			EventID:       uuid.New().String(),
+			TenantID:      p.TenantID,
+			PaymentID:     p.ID,
+			OrderID:       p.OrderID,
+			Amount:        p.Amount,
+			Currency:      p.Currency,
+			PaymentMethod: p.PaymentMethod,
+			Instructions:  p.Instructions,
+			Provider:      p.Provider,
 		}
 
 		return paymentService.outboxRepository.SaveOutboxEvent(txCtx, outboxEvt.EventID, domain.RoutingKeyPaymentInstructionsGenerated, outboxEvt)
@@ -354,6 +420,11 @@ func (paymentService *PaymentService) ProcessVerifiedWebhook(ctx context.Context
 		var err error
 		if input.PaymentID != "" {
 			p, err = paymentService.paymentRepository.FindByIDForUpdate(txCtx, input.PaymentID)
+		} else if input.ExternalSessionID != "" && input.Provider != "" {
+			p, err = paymentService.paymentRepository.FindByExternalID(txCtx, input.Provider, input.ExternalSessionID)
+			if err == nil && p != nil {
+				p, err = paymentService.paymentRepository.FindByIDForUpdate(txCtx, p.ID)
+			}
 		} else if input.OrderID != "" && input.TenantID != "" {
 			p, err = paymentService.paymentRepository.FindByOrderID(txCtx, input.TenantID, input.OrderID)
 			if err == nil && p != nil {
@@ -413,23 +484,61 @@ func (paymentService *PaymentService) ProcessVerifiedWebhook(ctx context.Context
 			return err
 		}
 
+		debt, err := paymentService.debtRepository.FindByIDForUpdate(txCtx, p.DebtID)
+		if err != nil && !errors.Is(err, domain.ErrDebtNotFound) {
+			return fmt.Errorf("failed to lock payable debt: %w", err)
+		}
+
 		var cancelled []CancelledAttemptOutput
 
 		switch targetStatus {
 		case domain.PaymentStatusSucceeded:
-			outboxEvt := &domain.PaymentSucceededEvent{
-				EventID:           uuid.New().String(),
-				TenantID:          p.TenantID,
-				PaymentID:         p.ID,
-				OrderID:           p.OrderID,
-				Amount:            p.Amount,
-				Currency:          p.Currency,
-				Provider:          p.Provider,
-				ExternalSessionID: p.ExternalID,
-				SucceededAt:       time.Now(),
-			}
-			if err := paymentService.outboxRepository.SaveOutboxEvent(txCtx, outboxEvt.EventID, domain.RoutingKeyPaymentSucceeded, outboxEvt); err != nil {
-				return err
+			if debt != nil {
+				debt.PaidAmount += p.Amount
+				if debt.PaidAmount >= debt.TotalAmount {
+					debt.Status = domain.DebtStatusPaid
+				} else {
+					debt.Status = domain.DebtStatusPartiallyPaid
+				}
+				debt.UpdatedAt = time.Now()
+				_ = paymentService.debtRepository.Update(txCtx, repository.UpdateDebtInput{
+					ID:         debt.ID,
+					PaidAmount: debt.PaidAmount,
+					Status:     debt.Status,
+					UpdatedAt:  debt.UpdatedAt,
+				})
+
+				if debt.Status == domain.DebtStatusPaid {
+					outboxEvt := &domain.PaymentSucceededEvent{
+						EventID:           uuid.New().String(),
+						TenantID:          p.TenantID,
+						PaymentID:         p.ID,
+						OrderID:           p.OrderID,
+						Amount:            debt.TotalAmount,
+						Currency:          p.Currency,
+						Provider:          p.Provider,
+						ExternalSessionID: p.ExternalID,
+						SucceededAt:       time.Now(),
+					}
+					if err := paymentService.outboxRepository.SaveOutboxEvent(txCtx, outboxEvt.EventID, domain.RoutingKeyPaymentSucceeded, outboxEvt); err != nil {
+						return err
+					}
+				}
+			} else {
+				outboxEvt := &domain.PaymentSucceededEvent{
+					EventID:           uuid.New().String(),
+					TenantID:          p.TenantID,
+					PaymentID:         p.ID,
+					OrderID:           p.OrderID,
+					Amount:            p.Amount,
+					Currency:          p.Currency,
+					Provider:          p.Provider,
+					ExternalSessionID: p.ExternalID,
+					SucceededAt:       time.Now(),
+				}
+				if err := paymentService.outboxRepository.SaveOutboxEvent(txCtx, outboxEvt.EventID, domain.RoutingKeyPaymentSucceeded, outboxEvt); err != nil {
+					return err
+				}
 			}
 
 			attempts, _ := paymentService.paymentRepository.FindAttemptsByPaymentID(txCtx, p.ID)
@@ -485,9 +594,15 @@ func (paymentService *PaymentService) ProcessVerifiedWebhook(ctx context.Context
 			}
 		}
 
+		debtStatus := domain.DebtStatusUnpaid
+		if debt != nil {
+			debtStatus = debt.Status
+		}
+
 		output = &ProcessWebhookOutput{
 			PaymentID:         p.ID,
 			Status:            p.Status,
+			DebtStatus:        debtStatus,
 			CancelledAttempts: cancelled,
 		}
 
@@ -512,6 +627,10 @@ func (paymentService *PaymentService) GetPaymentByID(ctx context.Context, id str
 func (paymentService *PaymentService) GetPaymentByOrderID(ctx context.Context, tenantID, orderID string) (*PaymentOutput, error) {
 	p, err := paymentService.paymentRepository.FindByOrderID(ctx, tenantID, orderID)
 	return toPaymentOutput(p), err
+}
+
+func (paymentService *PaymentService) FindAttemptsByPaymentID(ctx context.Context, paymentID string) ([]*domain.PaymentAttempt, error) {
+	return paymentService.paymentRepository.FindAttemptsByPaymentID(ctx, paymentID)
 }
 
 func (paymentService *PaymentService) SweepExpiredPayments(ctx context.Context, ttlDuration time.Duration) (int, error) {

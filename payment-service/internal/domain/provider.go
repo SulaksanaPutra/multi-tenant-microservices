@@ -16,14 +16,15 @@ const (
 )
 
 type CreateSessionRequest struct {
-	TenantID    string
-	PaymentID   string
-	OrderID     string
-	Amount      float64
-	Currency    string
-	Description string
-	ReturnURL   string
-	Credentials ProviderCredentials
+	TenantID      string
+	PaymentID     string
+	OrderID       string
+	Amount        float64
+	Currency      string
+	Description   string
+	ReturnURL     string
+	PaymentMethod string
+	Credentials   ProviderCredentials
 }
 
 type PaymentSessionOutput struct {

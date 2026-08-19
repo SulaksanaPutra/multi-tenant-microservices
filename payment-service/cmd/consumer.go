@@ -20,17 +20,15 @@ func registerConsumers(
 	rmqClient *rabbitmq.Client,
 	txManager *txcontext.SQLTxManager,
 	inboxService *service.InboxService,
-	paymentService *service.PaymentService,
-	paymentProviderService *service.PaymentProviderService,
+	debtService *service.DebtService,
 	logger *slog.Logger,
 ) (*consumerRunner, error) {
 	c := consumer.NewOrderCreatedConsumer(consumer.OrderCreatedConsumerParams{
-		Client:                 rmqClient,
-		TxManager:              txManager,
-		InboxService:           inboxService,
-		PaymentService:         paymentService,
-		PaymentProviderService: paymentProviderService,
-		Logger:                 logger,
+		Client:       rmqClient,
+		TxManager:    txManager,
+		InboxService: inboxService,
+		DebtService:  debtService,
+		Logger:       logger,
 	})
 
 	return &consumerRunner{

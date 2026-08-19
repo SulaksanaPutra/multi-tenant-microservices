@@ -48,13 +48,13 @@ func NewPSPConfigService(
 
 type SavePSPConfigInput struct {
 	TenantID        string
-	PriorityChain   []domain.ProviderType
+	Methods         []domain.PaymentMethodConfig
 	ProviderConfigs map[domain.ProviderType]domain.ProviderCredentials
 }
 
 type TenantPSPConfigOutput struct {
 	TenantID        string
-	PriorityChain   []domain.ProviderType
+	Methods         []domain.PaymentMethodConfig
 	ProviderConfigs map[domain.ProviderType]domain.ProviderCredentials
 }
 
@@ -66,7 +66,7 @@ func (pspConfigService *PSPConfigService) SaveConfig(ctx context.Context, input 
 	saveFn := func(txCtx context.Context) error {
 		return pspConfigService.pspConfigRepository.SaveConfig(txCtx, repository.SaveConfigInput{
 			TenantID:        input.TenantID,
-			PriorityChain:   input.PriorityChain,
+			Methods:         input.Methods,
 			ProviderConfigs: input.ProviderConfigs,
 		}, pspConfigService.masterKey)
 	}
@@ -115,7 +115,7 @@ func toPSPConfigOutput(cfg *domain.TenantPSPConfig) *TenantPSPConfigOutput {
 	}
 	return &TenantPSPConfigOutput{
 		TenantID:        cfg.TenantID,
-		PriorityChain:   cfg.PriorityChain,
+		Methods:         cfg.Methods,
 		ProviderConfigs: cfg.ProviderConfigs,
 	}
 }

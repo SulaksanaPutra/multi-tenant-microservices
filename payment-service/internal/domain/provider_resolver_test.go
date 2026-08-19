@@ -28,8 +28,16 @@ func TestProviderCredentials_JSON(t *testing.T) {
 
 func TestTenantPSPConfig_Validation(t *testing.T) {
 	cfg := domain.TenantPSPConfig{
-		TenantID:      "tnt_99",
-		PriorityChain: []domain.ProviderType{domain.ProviderStripe, domain.ProviderDirectBank},
+		TenantID: "tnt_99",
+		Methods: []domain.PaymentMethodConfig{
+			{
+				ID:            "bca_va",
+				Name:          "BCA Virtual Account",
+				Type:          domain.InstructionVirtualAccount,
+				Enabled:       true,
+				PriorityChain: []domain.ProviderType{domain.ProviderDirectBank, domain.ProviderMock},
+			},
+		},
 		ProviderConfigs: map[domain.ProviderType]domain.ProviderCredentials{
 			domain.ProviderStripe: {
 				APIKey: "sk_live_abc",
@@ -40,8 +48,8 @@ func TestTenantPSPConfig_Validation(t *testing.T) {
 	if cfg.TenantID != "tnt_99" {
 		t.Errorf("Expected TenantID 'tnt_99', got '%s'", cfg.TenantID)
 	}
-	if len(cfg.PriorityChain) != 2 {
-		t.Errorf("Expected PriorityChain length 2, got %d", len(cfg.PriorityChain))
+	if len(cfg.Methods) != 1 {
+		t.Errorf("Expected Methods length 1, got %d", len(cfg.Methods))
 	}
 	if cfg.ProviderConfigs[domain.ProviderStripe].APIKey != "sk_live_abc" {
 		t.Errorf("Expected Stripe API Key 'sk_live_abc'")

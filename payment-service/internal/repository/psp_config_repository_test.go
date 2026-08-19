@@ -39,8 +39,16 @@ func TestPSPConfigRepository_SaveConfig_Success(t *testing.T) {
 
 	masterKey := []byte("12345678901234567890123456789012")
 	input := SaveConfigInput{
-		TenantID:        "tenant-psp-1",
-		PriorityChain:   []domain.ProviderType{domain.ProviderStripe, domain.ProviderXendit},
+		TenantID: "tenant-psp-1",
+		Methods: []domain.PaymentMethodConfig{
+			{
+				ID:            "bca_va",
+				Name:          "BCA VA",
+				Type:          domain.InstructionVirtualAccount,
+				Enabled:       true,
+				PriorityChain: []domain.ProviderType{domain.ProviderStripe, domain.ProviderXendit},
+			},
+		},
 		ProviderConfigs: map[domain.ProviderType]domain.ProviderCredentials{},
 	}
 

@@ -24,16 +24,16 @@ func NewPSPConfigRepository(dbClient *postgres.Client) *PSPConfigRepository {
 
 type SaveConfigInput struct {
 	TenantID        string
-	PriorityChain   []domain.ProviderType
+	Methods         []domain.PaymentMethodConfig
 	ProviderConfigs map[domain.ProviderType]domain.ProviderCredentials
 }
 
 func (pspConfigRepository *PSPConfigRepository) SaveConfig(ctx context.Context, input SaveConfigInput, masterKey []byte) error {
 	exec := txcontext.GetExecutor(ctx, pspConfigRepository.dbClient)
 
-	chainJSON, err := json.Marshal(input.PriorityChain)
+	methodsJSON, err := json.Marshal(input.Methods)
 	if err != nil {
-		return fmt.Errorf("failed to marshal priority chain: %w", err)
+		return fmt.Errorf("failed to marshal payment methods: %w", err)
 	}
 
 	credsJSON, err := json.Marshal(input.ProviderConfigs)
@@ -48,15 +48,15 @@ func (pspConfigRepository *PSPConfigRepository) SaveConfig(ctx context.Context, 
 
 	now := time.Now()
 	query := `
-		INSERT INTO payment_tenant_configs (tenant_id, priority_chain, encrypted_credentials, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO payment_tenant_configs (tenant_id, priority_chain, encrypted_credentials, methods, created_at, updated_at)
+		VALUES ($1, '[]'::jsonb, $2, $3, $4, $5)
 		ON CONFLICT (tenant_id) DO UPDATE SET
-			priority_chain = EXCLUDED.priority_chain,
 			encrypted_credentials = EXCLUDED.encrypted_credentials,
+			methods = EXCLUDED.methods,
 			updated_at = EXCLUDED.updated_at
 	`
 
-	_, err = exec.ExecContext(ctx, query, input.TenantID, chainJSON, encryptedCreds, now, now)
+	_, err = exec.ExecContext(ctx, query, input.TenantID, encryptedCreds, methodsJSON, now, now)
 	if err != nil {
 		return fmt.Errorf("failed to save tenant PSP config: %w", err)
 	}
@@ -68,15 +68,15 @@ func (pspConfigRepository *PSPConfigRepository) GetConfig(ctx context.Context, t
 	exec := txcontext.GetExecutor(ctx, pspConfigRepository.dbClient)
 
 	query := `
-		SELECT tenant_id, priority_chain, encrypted_credentials
+		SELECT tenant_id, encrypted_credentials, COALESCE(methods, '[]'::jsonb)
 		FROM payment_tenant_configs
 		WHERE tenant_id = $1
 	`
 
 	var cfg domain.TenantPSPConfig
-	var chainBytes, encryptedCreds []byte
+	var encryptedCreds, methodsBytes []byte
 
-	err := exec.QueryRowContext(ctx, query, tenantID).Scan(&cfg.TenantID, &chainBytes, &encryptedCreds)
+	err := exec.QueryRowContext(ctx, query, tenantID).Scan(&cfg.TenantID, &encryptedCreds, &methodsBytes)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -84,8 +84,8 @@ func (pspConfigRepository *PSPConfigRepository) GetConfig(ctx context.Context, t
 		return nil, fmt.Errorf("failed to query tenant PSP config: %w", err)
 	}
 
-	if len(chainBytes) > 0 {
-		_ = json.Unmarshal(chainBytes, &cfg.PriorityChain)
+	if len(methodsBytes) > 0 {
+		_ = json.Unmarshal(methodsBytes, &cfg.Methods)
 	}
 
 	if len(encryptedCreds) > 0 {

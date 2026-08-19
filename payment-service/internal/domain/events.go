@@ -23,14 +23,15 @@ type OrderCreatedEvent struct {
 }
 
 type PaymentInstructionsGeneratedEvent struct {
-	EventID      string              `json:"event_id"`
-	TenantID     string              `json:"tenant_id"`
-	PaymentID    string              `json:"payment_id"`
-	OrderID      string              `json:"order_id"`
-	Amount       float64             `json:"amount"`
-	Currency     string              `json:"currency"`
-	Instructions PaymentInstructions `json:"instructions"`
-	Provider     ProviderType        `json:"provider"`
+	EventID       string              `json:"event_id"`
+	TenantID      string              `json:"tenant_id"`
+	PaymentID     string              `json:"payment_id"`
+	OrderID       string              `json:"order_id"`
+	Amount        float64             `json:"amount"`
+	Currency      string              `json:"currency"`
+	PaymentMethod string              `json:"payment_method,omitempty"`
+	Instructions  PaymentInstructions `json:"instructions"`
+	Provider      ProviderType        `json:"provider"`
 }
 
 type PaymentSucceededEvent struct {

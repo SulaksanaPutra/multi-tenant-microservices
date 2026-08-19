@@ -33,3 +33,10 @@ func TestPSPConfigRepository_Constructor(t *testing.T) {
 		t.Fatal("expected NewPSPConfigRepository to return non-nil struct pointer")
 	}
 }
+
+func TestDebtRepository_Constructor(t *testing.T) {
+	debtRepository := NewDebtRepository(&postgres.Client{})
+	if debtRepository == nil {
+		t.Fatal("expected NewDebtRepository to return non-nil struct pointer")
+	}
+}

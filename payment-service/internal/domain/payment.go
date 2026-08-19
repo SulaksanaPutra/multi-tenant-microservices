@@ -8,6 +8,16 @@ import (
 	"github.com/google/uuid"
 )
 
+type DebtStatus string
+
+const (
+	DebtStatusUnpaid        DebtStatus = "UNPAID"
+	DebtStatusPartiallyPaid DebtStatus = "PARTIALLY_PAID"
+	DebtStatusPaid          DebtStatus = "PAID"
+	DebtStatusExpired       DebtStatus = "EXPIRED"
+	DebtStatusCancelled     DebtStatus = "CANCELLED"
+)
+
 type PaymentStatus string
 
 const (
@@ -15,6 +25,7 @@ const (
 	PaymentStatusInstructionsReady     PaymentStatus = "PAYMENT_INSTRUCTIONS_READY"
 	PaymentStatusSucceeded             PaymentStatus = "SUCCEEDED"
 	PaymentStatusFailed                PaymentStatus = "FAILED"
+	PaymentStatusCancelled             PaymentStatus = "CANCELLED"
 	PaymentStatusFailedAmountMismatch  PaymentStatus = "FAILED_AMOUNT_MISMATCH"
 	PaymentStatusExpired               PaymentStatus = "EXPIRED"
 	PaymentStatusRequiresManualReview PaymentStatus = "REQUIRES_MANUAL_REVIEW"
@@ -50,19 +61,33 @@ type PaymentInstructions struct {
 	ExpiresAt    time.Time       `json:"expires_at"`
 }
 
+type PayableDebt struct {
+	ID          string
+	TenantID    string
+	OrderID     string
+	TotalAmount float64
+	PaidAmount  float64
+	Currency    string
+	Status      DebtStatus
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 type Payment struct {
-	ID                  string
-	TenantID            string
-	OrderID             string
-	Amount              float64
-	Currency            string
-	Status              PaymentStatus
-	Provider            ProviderType
-	ExternalID          string
-	Instructions        PaymentInstructions
-	RawWebhookPayload   map[string]any
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	ID                string
+	DebtID            string
+	TenantID          string
+	OrderID           string
+	Amount            float64
+	Currency          string
+	Status            PaymentStatus
+	Provider          ProviderType
+	PaymentMethod     string
+	ExternalID        string
+	Instructions      PaymentInstructions
+	RawWebhookPayload map[string]any
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 type PaymentAttempt struct {
@@ -78,9 +103,15 @@ type PaymentAttempt struct {
 }
 
 const (
+	PrefixDebt    = "debt_"
 	PrefixPayment = "pay_"
 	PrefixAttempt = "att_"
 )
+
+func GenerateDebtID() string {
+	raw := strings.ReplaceAll(uuid.New().String(), "-", "")
+	return fmt.Sprintf("%s%s", PrefixDebt, raw[:16])
+}
 
 func GeneratePaymentID() string {
 	raw := strings.ReplaceAll(uuid.New().String(), "-", "")

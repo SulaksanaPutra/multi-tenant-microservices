@@ -14,14 +14,21 @@ type mockRegistry struct {
 	mockProv *mock.MockProvider
 }
 
-func (m *mockRegistry) ExecuteFallbackChain(ctx context.Context, req domain.CreateSessionRequest) (*provider.FallbackExecutionOutput, error) {
+func (m *mockRegistry) ExecuteFallbackChain(ctx context.Context, req domain.CreateSessionRequest, methodID string) (*provider.FallbackExecutionOutput, error) {
 	session, err := m.mockProv.CreatePaymentSession(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 	return &provider.FallbackExecutionOutput{
-		Provider: domain.ProviderMock,
-		Session:  session,
+		Provider:      domain.ProviderMock,
+		PaymentMethod: methodID,
+		Session:       session,
+	}, nil
+}
+
+func (m *mockRegistry) GetAvailableMethods(ctx context.Context, tenantID string) ([]domain.PaymentMethodConfig, error) {
+	return []domain.PaymentMethodConfig{
+		{ID: "mock_checkout", Name: "Mock", Type: domain.InstructionRedirectURL, Enabled: true, PriorityChain: []domain.ProviderType{domain.ProviderMock}},
 	}, nil
 }
 

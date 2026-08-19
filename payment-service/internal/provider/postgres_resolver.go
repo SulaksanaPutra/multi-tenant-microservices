@@ -18,7 +18,6 @@ type PostgresTenantPSPResolver struct {
 	mu                  sync.RWMutex
 	pspConfigRepository *repository.PSPConfigRepository
 	masterKey           []byte
-	defaultChain        []domain.ProviderType
 	inMemoryCache       map[string]cachedPSPConfig
 	cacheTTL            time.Duration
 }
@@ -26,18 +25,10 @@ type PostgresTenantPSPResolver struct {
 func NewPostgresTenantPSPResolver(
 	pspConfigRepository *repository.PSPConfigRepository,
 	masterKey []byte,
-	defaultChain []domain.ProviderType,
 ) *PostgresTenantPSPResolver {
-	if len(defaultChain) == 0 {
-		defaultChain = []domain.ProviderType{
-			domain.ProviderMock,
-			domain.ProviderDirectBank,
-		}
-	}
 	return &PostgresTenantPSPResolver{
 		pspConfigRepository: pspConfigRepository,
 		masterKey:           masterKey,
-		defaultChain:        defaultChain,
 		inMemoryCache:       make(map[string]cachedPSPConfig),
 		cacheTTL:            30 * time.Second,
 	}
@@ -55,8 +46,11 @@ func (r *PostgresTenantPSPResolver) ResolveConfig(ctx context.Context, tenantID 
 	if r.pspConfigRepository != nil {
 		cfg, err := r.pspConfigRepository.GetConfig(ctx, tenantID, r.masterKey)
 		if err == nil && cfg != nil {
-			if len(cfg.PriorityChain) == 0 {
-				cfg.PriorityChain = r.defaultChain
+			if cfg.Methods == nil {
+				cfg.Methods = []domain.PaymentMethodConfig{}
+			}
+			if cfg.ProviderConfigs == nil {
+				cfg.ProviderConfigs = make(map[domain.ProviderType]domain.ProviderCredentials)
 			}
 			r.mu.Lock()
 			r.inMemoryCache[tenantID] = cachedPSPConfig{
@@ -68,20 +62,20 @@ func (r *PostgresTenantPSPResolver) ResolveConfig(ctx context.Context, tenantID 
 		}
 	}
 
-	defaultCfg := &domain.TenantPSPConfig{
+	emptyCfg := &domain.TenantPSPConfig{
 		TenantID:        tenantID,
-		PriorityChain:   r.defaultChain,
+		Methods:         []domain.PaymentMethodConfig{},
 		ProviderConfigs: make(map[domain.ProviderType]domain.ProviderCredentials),
 	}
 
 	r.mu.Lock()
 	r.inMemoryCache[tenantID] = cachedPSPConfig{
-		config:   defaultCfg,
+		config:   emptyCfg,
 		cachedAt: time.Now(),
 	}
 	r.mu.Unlock()
 
-	return defaultCfg, nil
+	return emptyCfg, nil
 }
 
 func (r *PostgresTenantPSPResolver) InvalidateCache(tenantID string) {

@@ -18,6 +18,10 @@ import (
 type mockPaymentService struct {
 	getByIDFn        func(ctx context.Context, id string) (*service.PaymentOutput, error)
 	getByOrderIDFn   func(ctx context.Context, tenantID, orderID string) (*service.PaymentOutput, error)
+	initiateSessionFn func(ctx context.Context, input service.InitiatePaymentSessionInput) (*service.InitiatePaymentSessionOutput, error)
+	completeFn       func(ctx context.Context, input service.CompleteInstructionInput) error
+	failFn           func(ctx context.Context, input service.FailInstructionInput) error
+	findAttemptsFn   func(ctx context.Context, paymentID string) ([]*domain.PaymentAttempt, error)
 	processWebhookFn func(ctx context.Context, input service.ProcessVerifiedWebhookInput) (*service.ProcessWebhookOutput, error)
 }
 
@@ -32,7 +36,40 @@ func (m *mockPaymentService) GetPaymentByOrderID(ctx context.Context, tenantID, 
 	if m.getByOrderIDFn != nil {
 		return m.getByOrderIDFn(ctx, tenantID, orderID)
 	}
-	return &service.PaymentOutput{ID: "pay_1", TenantID: tenantID, OrderID: orderID}, nil
+	return &service.PaymentOutput{ID: "pay_1", TenantID: tenantID, OrderID: orderID, Amount: 100.0, Currency: "USD", Status: domain.PaymentStatusPending}, nil
+}
+
+func (m *mockPaymentService) InitiatePaymentSession(ctx context.Context, input service.InitiatePaymentSessionInput) (*service.InitiatePaymentSessionOutput, error) {
+	if m.initiateSessionFn != nil {
+		return m.initiateSessionFn(ctx, input)
+	}
+	debt := &service.PayableDebtOutput{ID: "debt_1", TenantID: input.TenantID, OrderID: input.OrderID, TotalAmount: 100.0, Status: domain.DebtStatusUnpaid}
+	pay := &service.PaymentOutput{ID: "pay_1", DebtID: "debt_1", TenantID: input.TenantID, OrderID: input.OrderID, Amount: 100.0, Currency: "USD", Status: domain.PaymentStatusPending}
+	return &service.InitiatePaymentSessionOutput{
+		Debt:    debt,
+		Payment: pay,
+	}, nil
+}
+
+func (m *mockPaymentService) CompleteInstructionGeneration(ctx context.Context, input service.CompleteInstructionInput) error {
+	if m.completeFn != nil {
+		return m.completeFn(ctx, input)
+	}
+	return nil
+}
+
+func (m *mockPaymentService) FailInstructionGeneration(ctx context.Context, input service.FailInstructionInput) error {
+	if m.failFn != nil {
+		return m.failFn(ctx, input)
+	}
+	return nil
+}
+
+func (m *mockPaymentService) FindAttemptsByPaymentID(ctx context.Context, paymentID string) ([]*domain.PaymentAttempt, error) {
+	if m.findAttemptsFn != nil {
+		return m.findAttemptsFn(ctx, paymentID)
+	}
+	return nil, nil
 }
 
 func (m *mockPaymentService) ProcessVerifiedWebhook(ctx context.Context, input service.ProcessVerifiedWebhookInput) (*service.ProcessWebhookOutput, error) {
@@ -42,9 +79,58 @@ func (m *mockPaymentService) ProcessVerifiedWebhook(ctx context.Context, input s
 	return &service.ProcessWebhookOutput{PaymentID: input.PaymentID, Status: domain.PaymentStatusSucceeded}, nil
 }
 
+type mockDebtService struct {
+	getByOrderIDFn func(ctx context.Context, tenantID, orderID string) (*service.PayableDebtOutput, error)
+	getByIDFn      func(ctx context.Context, id string) (*service.PayableDebtOutput, error)
+}
+
+func (m *mockDebtService) GetPayableDebtByOrderID(ctx context.Context, tenantID, orderID string) (*service.PayableDebtOutput, error) {
+	if m.getByOrderIDFn != nil {
+		return m.getByOrderIDFn(ctx, tenantID, orderID)
+	}
+	return &service.PayableDebtOutput{ID: "debt_1", TenantID: tenantID, OrderID: orderID, TotalAmount: 100.0, PaidAmount: 0, Currency: "USD", Status: domain.DebtStatusUnpaid}, nil
+}
+
+func (m *mockDebtService) GetPayableDebtByID(ctx context.Context, id string) (*service.PayableDebtOutput, error) {
+	if m.getByIDFn != nil {
+		return m.getByIDFn(ctx, id)
+	}
+	return &service.PayableDebtOutput{ID: id, TenantID: "tnt_1", TotalAmount: 100.0, PaidAmount: 0, Currency: "USD", Status: domain.DebtStatusUnpaid}, nil
+}
+
 type mockPaymentProviderService struct {
-	verifyFn func(ctx context.Context, providerID domain.ProviderType, headers map[string]string, body []byte) (*service.VerifyWebhookOutput, error)
-	cancelFn func(ctx context.Context, providerID domain.ProviderType, externalSessionID string) error
+	getMethodsFn      func(ctx context.Context, tenantID string) ([]service.PaymentMethodOutput, error)
+	executeFallbackFn func(ctx context.Context, input service.ExecuteFallbackInput) (*service.ExecuteFallbackOutput, error)
+	verifyFn          func(ctx context.Context, providerID domain.ProviderType, headers map[string]string, body []byte) (*service.VerifyWebhookOutput, error)
+	cancelFn          func(ctx context.Context, providerID domain.ProviderType, externalSessionID string) error
+}
+
+func (m *mockPaymentProviderService) GetAvailablePaymentMethods(ctx context.Context, tenantID string) ([]service.PaymentMethodOutput, error) {
+	if m.getMethodsFn != nil {
+		return m.getMethodsFn(ctx, tenantID)
+	}
+	return []service.PaymentMethodOutput{
+		{ID: "bca_va", Name: "BCA Virtual Account", Type: domain.InstructionVirtualAccount},
+	}, nil
+}
+
+func (m *mockPaymentProviderService) ExecuteFallback(ctx context.Context, input service.ExecuteFallbackInput) (*service.ExecuteFallbackOutput, error) {
+	if m.executeFallbackFn != nil {
+		return m.executeFallbackFn(ctx, input)
+	}
+	return &service.ExecuteFallbackOutput{
+		Provider:      domain.ProviderDirectBank,
+		PaymentMethod: input.PaymentMethod,
+		Session: &domain.PaymentSessionOutput{
+			Provider:          domain.ProviderDirectBank,
+			ExternalSessionID: "ext_123",
+			Instructions: domain.PaymentInstructions{
+				Type:     domain.InstructionVirtualAccount,
+				VANumber: "880123",
+				BankCode: "BCA",
+			},
+		},
+	}, nil
 }
 
 func (m *mockPaymentProviderService) VerifyWebhookSignature(ctx context.Context, providerID domain.ProviderType, headers map[string]string, body []byte) (*service.VerifyWebhookOutput, error) {
@@ -92,12 +178,13 @@ func (m *mockPSPConfigService) GetConfig(ctx context.Context, tenantID string) (
 
 func setupTestRouter(
 	paymentService PaymentService,
+	debtService DebtService,
 	paymentProviderService PaymentProviderService,
 	pspConfigService PSPConfigService,
 ) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	paymentHandler := NewPaymentHandler(paymentService, paymentProviderService, pspConfigService)
+	paymentHandler := NewPaymentHandler(paymentService, debtService, paymentProviderService, pspConfigService)
 
 	router.POST("/api/payments/webhook/:provider", paymentHandler.HandleWebhook)
 
@@ -107,16 +194,50 @@ func setupTestRouter(
 		c.Next()
 	})
 	{
+		api.GET("/methods", paymentHandler.GetAvailablePaymentMethods)
+		api.POST("/initiate", paymentHandler.InitiatePayment)
 		api.GET("/:id", paymentHandler.GetPaymentByID)
 		api.GET("/by-order/:orderID", paymentHandler.GetPaymentByOrderID)
+		api.GET("/debt/:orderID", paymentHandler.GetPayableDebtByOrderID)
 		api.PUT("/config", paymentHandler.UpdatePSPConfig)
 		api.GET("/config", paymentHandler.GetPSPConfig)
 	}
 	return router
 }
 
+func TestPaymentHandler_GetAvailablePaymentMethods(t *testing.T) {
+	router := setupTestRouter(&mockPaymentService{}, &mockDebtService{}, &mockPaymentProviderService{}, &mockPSPConfigService{})
+
+	req, _ := http.NewRequest(http.MethodGet, "/api/payments/methods", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+}
+
+func TestPaymentHandler_InitiatePayment(t *testing.T) {
+	router := setupTestRouter(&mockPaymentService{}, &mockDebtService{}, &mockPaymentProviderService{}, &mockPSPConfigService{})
+
+	payload := InitiatePaymentSessionRequest{
+		OrderID:       "ord_123",
+		PaymentMethod: "bca_va",
+	}
+	body, _ := json.Marshal(payload)
+
+	req, _ := http.NewRequest(http.MethodPost, "/api/payments/initiate", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+}
+
 func TestPaymentHandler_GetPaymentByID(t *testing.T) {
-	router := setupTestRouter(&mockPaymentService{}, &mockPaymentProviderService{}, &mockPSPConfigService{})
+	router := setupTestRouter(&mockPaymentService{}, &mockDebtService{}, &mockPaymentProviderService{}, &mockPSPConfigService{})
 
 	req, _ := http.NewRequest(http.MethodGet, "/api/payments/pay_123", nil)
 	w := httptest.NewRecorder()
@@ -128,7 +249,7 @@ func TestPaymentHandler_GetPaymentByID(t *testing.T) {
 }
 
 func TestPaymentHandler_GetPaymentByOrderID(t *testing.T) {
-	router := setupTestRouter(&mockPaymentService{}, &mockPaymentProviderService{}, &mockPSPConfigService{})
+	router := setupTestRouter(&mockPaymentService{}, &mockDebtService{}, &mockPaymentProviderService{}, &mockPSPConfigService{})
 
 	req, _ := http.NewRequest(http.MethodGet, "/api/payments/by-order/ord_123", nil)
 	w := httptest.NewRecorder()
@@ -139,8 +260,20 @@ func TestPaymentHandler_GetPaymentByOrderID(t *testing.T) {
 	}
 }
 
+func TestPaymentHandler_GetPayableDebtByOrderID(t *testing.T) {
+	router := setupTestRouter(&mockPaymentService{}, &mockDebtService{}, &mockPaymentProviderService{}, &mockPSPConfigService{})
+
+	req, _ := http.NewRequest(http.MethodGet, "/api/payments/debt/ord_123", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+}
+
 func TestPaymentHandler_HandleWebhook(t *testing.T) {
-	router := setupTestRouter(&mockPaymentService{}, &mockPaymentProviderService{}, &mockPSPConfigService{})
+	router := setupTestRouter(&mockPaymentService{}, &mockDebtService{}, &mockPaymentProviderService{}, &mockPSPConfigService{})
 
 	body := []byte(`{"test": true}`)
 	req, _ := http.NewRequest(http.MethodPost, "/api/payments/webhook/mock", bytes.NewBuffer(body))
@@ -153,10 +286,18 @@ func TestPaymentHandler_HandleWebhook(t *testing.T) {
 }
 
 func TestPaymentHandler_UpdateAndGetPSPConfig(t *testing.T) {
-	router := setupTestRouter(&mockPaymentService{}, &mockPaymentProviderService{}, &mockPSPConfigService{})
+	router := setupTestRouter(&mockPaymentService{}, &mockDebtService{}, &mockPaymentProviderService{}, &mockPSPConfigService{})
 
 	payload := UpdatePSPConfigRequest{
-		PriorityChain: []domain.ProviderType{domain.ProviderMock},
+		Methods: []domain.PaymentMethodConfig{
+			{
+				ID:            "bca_va",
+				Name:          "BCA Virtual Account",
+				Type:          domain.InstructionVirtualAccount,
+				Enabled:       true,
+				PriorityChain: []domain.ProviderType{domain.ProviderDirectBank},
+			},
+		},
 	}
 	bodyBytes, _ := json.Marshal(payload)
 

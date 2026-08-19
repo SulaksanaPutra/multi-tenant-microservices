@@ -1,7 +1,5 @@
 package domain
 
-import "context"
-
 type ProviderCredentials struct {
 	APIKey        string            `json:"api_key"`
 	SecretKey     string            `json:"secret_key"`
@@ -9,12 +7,17 @@ type ProviderCredentials struct {
 	ExtraOptions  map[string]string `json:"extra_options,omitempty"`
 }
 
+type PaymentMethodConfig struct {
+	ID            string          `json:"id"`
+	Name          string          `json:"name"`
+	Type          InstructionType `json:"type"`
+	Enabled       bool            `json:"enabled"`
+	PriorityChain []ProviderType  `json:"priority_chain"`
+}
+
 type TenantPSPConfig struct {
 	TenantID        string
-	PriorityChain   []ProviderType
+	Methods         []PaymentMethodConfig
 	ProviderConfigs map[ProviderType]ProviderCredentials
 }
 
-type TenantPSPResolver interface {
-	ResolveConfig(ctx context.Context, tenantID string) (*TenantPSPConfig, error)
-}

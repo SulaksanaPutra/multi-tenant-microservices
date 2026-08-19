@@ -24,12 +24,14 @@ func NewPaymentRepository(dbClient *postgres.Client) *PaymentRepository {
 
 type CreatePaymentInput struct {
 	ID                string
+	DebtID            string
 	TenantID          string
 	OrderID           string
 	Amount            float64
 	Currency          string
 	Status            domain.PaymentStatus
 	Provider          domain.ProviderType
+	PaymentMethod     string
 	ExternalID        string
 	Instructions      domain.PaymentInstructions
 	RawWebhookPayload map[string]any
@@ -39,12 +41,14 @@ type CreatePaymentInput struct {
 
 type UpdatePaymentInput struct {
 	ID                string
+	DebtID            string
 	TenantID          string
 	OrderID           string
 	Amount            float64
 	Currency          string
 	Status            domain.PaymentStatus
 	Provider          domain.ProviderType
+	PaymentMethod     string
 	ExternalID        string
 	Instructions      domain.PaymentInstructions
 	RawWebhookPayload map[string]any
@@ -90,10 +94,10 @@ func (paymentRepository *PaymentRepository) Create(ctx context.Context, input Cr
 
 	query := `
 		INSERT INTO payments (
-			id, tenant_id, order_id, amount, currency, status,
-			provider, external_id, payment_instructions, raw_webhook_payload,
+			id, debt_id, tenant_id, order_id, amount, currency, status,
+			provider, payment_method, external_id, payment_instructions, raw_webhook_payload,
 			created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`
 
 	now := time.Now()
@@ -104,8 +108,8 @@ func (paymentRepository *PaymentRepository) Create(ctx context.Context, input Cr
 	updatedAt := now
 
 	_, err = exec.ExecContext(ctx, query,
-		input.ID, input.TenantID, input.OrderID, input.Amount, input.Currency, string(input.Status),
-		string(input.Provider), input.ExternalID, instructionsJSON, payloadJSON,
+		input.ID, input.DebtID, input.TenantID, input.OrderID, input.Amount, input.Currency, string(input.Status),
+		string(input.Provider), input.PaymentMethod, input.ExternalID, instructionsJSON, payloadJSON,
 		createdAt, updatedAt,
 	)
 	if err != nil {
@@ -132,17 +136,19 @@ func (paymentRepository *PaymentRepository) Update(ctx context.Context, input Up
 
 	query := `
 		UPDATE payments SET
-			status = $1,
-			provider = $2,
-			external_id = $3,
-			payment_instructions = $4,
-			raw_webhook_payload = $5,
-			updated_at = $6
-		WHERE id = $7
+			debt_id = $1,
+			status = $2,
+			provider = $3,
+			payment_method = $4,
+			external_id = $5,
+			payment_instructions = $6,
+			raw_webhook_payload = $7,
+			updated_at = $8
+		WHERE id = $9
 	`
 
 	res, err := exec.ExecContext(ctx, query,
-		string(input.Status), string(input.Provider), input.ExternalID,
+		input.DebtID, string(input.Status), string(input.Provider), input.PaymentMethod, input.ExternalID,
 		instructionsJSON, payloadJSON, updatedAt, input.ID,
 	)
 	if err != nil {
@@ -163,8 +169,8 @@ func (paymentRepository *PaymentRepository) Update(ctx context.Context, input Up
 func (paymentRepository *PaymentRepository) FindByID(ctx context.Context, id string) (*domain.Payment, error) {
 	exec := txcontext.GetExecutor(ctx, paymentRepository.dbClient)
 	query := `
-		SELECT id, tenant_id, order_id, amount, currency, status,
-		       provider, external_id, payment_instructions, raw_webhook_payload,
+		SELECT id, debt_id, tenant_id, order_id, amount, currency, status,
+		       provider, payment_method, external_id, payment_instructions, raw_webhook_payload,
 		       created_at, updated_at
 		FROM payments WHERE id = $1
 	`
@@ -174,8 +180,8 @@ func (paymentRepository *PaymentRepository) FindByID(ctx context.Context, id str
 func (paymentRepository *PaymentRepository) FindByIDForUpdate(ctx context.Context, id string) (*domain.Payment, error) {
 	exec := txcontext.GetExecutor(ctx, paymentRepository.dbClient)
 	query := `
-		SELECT id, tenant_id, order_id, amount, currency, status,
-		       provider, external_id, payment_instructions, raw_webhook_payload,
+		SELECT id, debt_id, tenant_id, order_id, amount, currency, status,
+		       provider, payment_method, external_id, payment_instructions, raw_webhook_payload,
 		       created_at, updated_at
 		FROM payments WHERE id = $1 FOR UPDATE
 	`
@@ -185,8 +191,8 @@ func (paymentRepository *PaymentRepository) FindByIDForUpdate(ctx context.Contex
 func (paymentRepository *PaymentRepository) FindByOrderID(ctx context.Context, tenantID, orderID string) (*domain.Payment, error) {
 	exec := txcontext.GetExecutor(ctx, paymentRepository.dbClient)
 	query := `
-		SELECT id, tenant_id, order_id, amount, currency, status,
-		       provider, external_id, payment_instructions, raw_webhook_payload,
+		SELECT id, debt_id, tenant_id, order_id, amount, currency, status,
+		       provider, payment_method, external_id, payment_instructions, raw_webhook_payload,
 		       created_at, updated_at
 		FROM payments WHERE tenant_id = $1 AND order_id = $2
 		ORDER BY created_at DESC LIMIT 1
@@ -194,13 +200,51 @@ func (paymentRepository *PaymentRepository) FindByOrderID(ctx context.Context, t
 	return paymentRepository.scanPayment(exec.QueryRowContext(ctx, query, tenantID, orderID))
 }
 
+func (paymentRepository *PaymentRepository) FindByExternalID(ctx context.Context, provider domain.ProviderType, externalID string) (*domain.Payment, error) {
+	exec := txcontext.GetExecutor(ctx, paymentRepository.dbClient)
+	query := `
+		SELECT id, debt_id, tenant_id, order_id, amount, currency, status,
+		       provider, payment_method, external_id, payment_instructions, raw_webhook_payload,
+		       created_at, updated_at
+		FROM payments WHERE provider = $1 AND external_id = $2
+		ORDER BY created_at DESC LIMIT 1
+	`
+	return paymentRepository.scanPayment(exec.QueryRowContext(ctx, query, string(provider), externalID))
+}
+
+func (paymentRepository *PaymentRepository) FindByDebtID(ctx context.Context, debtID string) ([]*domain.Payment, error) {
+	exec := txcontext.GetExecutor(ctx, paymentRepository.dbClient)
+	query := `
+		SELECT id, debt_id, tenant_id, order_id, amount, currency, status,
+		       provider, payment_method, external_id, payment_instructions, raw_webhook_payload,
+		       created_at, updated_at
+		FROM payments WHERE debt_id = $1
+		ORDER BY created_at ASC
+	`
+	rows, err := exec.QueryContext(ctx, query, debtID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query payments by debt id: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var payments []*domain.Payment
+	for rows.Next() {
+		p, err := paymentRepository.scanPaymentRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		payments = append(payments, p)
+	}
+	return payments, nil
+}
+
 func (paymentRepository *PaymentRepository) FindExpiredPayments(ctx context.Context, ttlDuration time.Duration, limit int) ([]*domain.Payment, error) {
 	exec := txcontext.GetExecutor(ctx, paymentRepository.dbClient)
 	cutoff := time.Now().Add(-ttlDuration)
 
 	query := `
-		SELECT id, tenant_id, order_id, amount, currency, status,
-		       provider, external_id, payment_instructions, raw_webhook_payload,
+		SELECT id, debt_id, tenant_id, order_id, amount, currency, status,
+		       provider, payment_method, external_id, payment_instructions, raw_webhook_payload,
 		       created_at, updated_at
 		FROM payments
 		WHERE status IN ('PENDING', 'PAYMENT_INSTRUCTIONS_READY') AND created_at <= $1
@@ -314,12 +358,12 @@ func (paymentRepository *PaymentRepository) FindAttemptsByPaymentID(ctx context.
 
 func (paymentRepository *PaymentRepository) scanPayment(row *sql.Row) (*domain.Payment, error) {
 	var p domain.Payment
-	var statusStr, provStr string
+	var statusStr, provStr, methodStr string
 	var instructionsBytes, payloadBytes []byte
 
 	err := row.Scan(
-		&p.ID, &p.TenantID, &p.OrderID, &p.Amount, &p.Currency, &statusStr,
-		&provStr, &p.ExternalID, &instructionsBytes, &payloadBytes,
+		&p.ID, &p.DebtID, &p.TenantID, &p.OrderID, &p.Amount, &p.Currency, &statusStr,
+		&provStr, &methodStr, &p.ExternalID, &instructionsBytes, &payloadBytes,
 		&p.CreatedAt, &p.UpdatedAt,
 	)
 	if err != nil {
@@ -331,6 +375,7 @@ func (paymentRepository *PaymentRepository) scanPayment(row *sql.Row) (*domain.P
 
 	p.Status = domain.PaymentStatus(statusStr)
 	p.Provider = domain.ProviderType(provStr)
+	p.PaymentMethod = methodStr
 
 	if len(instructionsBytes) > 0 {
 		_ = json.Unmarshal(instructionsBytes, &p.Instructions)
@@ -344,12 +389,12 @@ func (paymentRepository *PaymentRepository) scanPayment(row *sql.Row) (*domain.P
 
 func (paymentRepository *PaymentRepository) scanPaymentRow(rows *sql.Rows) (*domain.Payment, error) {
 	var p domain.Payment
-	var statusStr, provStr string
+	var statusStr, provStr, methodStr string
 	var instructionsBytes, payloadBytes []byte
 
 	err := rows.Scan(
-		&p.ID, &p.TenantID, &p.OrderID, &p.Amount, &p.Currency, &statusStr,
-		&provStr, &p.ExternalID, &instructionsBytes, &payloadBytes,
+		&p.ID, &p.DebtID, &p.TenantID, &p.OrderID, &p.Amount, &p.Currency, &statusStr,
+		&provStr, &methodStr, &p.ExternalID, &instructionsBytes, &payloadBytes,
 		&p.CreatedAt, &p.UpdatedAt,
 	)
 	if err != nil {
@@ -358,6 +403,7 @@ func (paymentRepository *PaymentRepository) scanPaymentRow(rows *sql.Rows) (*dom
 
 	p.Status = domain.PaymentStatus(statusStr)
 	p.Provider = domain.ProviderType(provStr)
+	p.PaymentMethod = methodStr
 
 	if len(instructionsBytes) > 0 {
 		_ = json.Unmarshal(instructionsBytes, &p.Instructions)
