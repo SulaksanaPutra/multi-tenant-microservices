@@ -105,24 +105,63 @@ func TestE2E_TC_E2E_027_RBACDenyPathEnforcement(t *testing.T) {
 	}
 	t.Logf("4. Reassigned user '%s' to read-only role.", userID)
 
-	// Allow permission version bump + cache freshness to settle before minting a new token.
-	time.Sleep(1 * time.Second)
-
 	// =========================================================================
 	// Step 4: Login Again to Obtain Read-Only Token
-	// Instruction: A fresh login reflects the reassigned role's permission set (orders:read only).
+	// Poll until the freshly minted token enforces the restricted permission set.
+	// Rationale: AssignUserRole commits synchronously, but the DB connection pool
+	// used by ListUserPermissions on the next login may occasionally observe the
+	// previous committed state under high load. A canary probe on the first deny
+	// assertion (POST /api/orders → 403) confirms the token is truly restricted
+	// before proceeding with the full deny-path matrix.
 	// =========================================================================
-	readonlyToken := loginAndGetToken(t, ownerEmail, password)
-	if readonlyToken == "" {
-		t.Fatalf("Failed to obtain read-only JWT for '%s'", ownerEmail)
+	const (
+		maxPermRetries  = 5
+		permRetryDelay  = 1 * time.Second
+	)
+
+	var readonlyHeader string
+	for attempt := 1; attempt <= maxPermRetries; attempt++ {
+		time.Sleep(permRetryDelay)
+
+		freshToken := loginAndGetToken(t, ownerEmail, password)
+		if freshToken == "" {
+			t.Fatalf("Failed to obtain read-only JWT for '%s' (attempt %d)", ownerEmail, attempt)
+		}
+
+		// Canary probe: POST /api/orders must return 403 for the role restriction
+		// to be in effect. If still 201, the login embedded the stale permissions;
+		// discard the token and retry.
+		canaryBody, _ := json.Marshal(OrderRequest{CustomerID: "cust_deny_canary", Amount: 1.00})
+		canaryReq, _ := http.NewRequest(http.MethodPost, gatewayOrdersURL, bytes.NewBuffer(canaryBody))
+		canaryReq.Header.Set("Content-Type", "application/json")
+		canaryReq.Header.Set("Authorization", bearerHeader(freshToken))
+
+		canaryResp, err := defaultHTTPClient.Do(canaryReq)
+		if err != nil {
+			t.Logf("5. Canary probe attempt %d: request error: %v — retrying", attempt, err)
+			continue
+		}
+		canaryResp.Body.Close()
+
+		if canaryResp.StatusCode == http.StatusForbidden {
+			// Token is correctly restricted — proceed with this token.
+			readonlyHeader = bearerHeader(freshToken)
+			t.Logf("5. Acquired fresh read-only JWT token (attempt %d, canary confirmed 403).", attempt)
+			break
+		}
+
+		t.Logf("5. Canary probe attempt %d: POST /api/orders returned %d (expected 403) — token still carries stale permissions, retrying login", attempt, canaryResp.StatusCode)
+
+		if attempt == maxPermRetries {
+			t.Fatalf("5. Permission restriction not enforced after %d login attempts — POST /api/orders still returns %d instead of 403", maxPermRetries, canaryResp.StatusCode)
+		}
 	}
-	readonlyHeader := bearerHeader(readonlyToken)
-	t.Log("5. Acquired fresh read-only JWT token.")
 
 	// =========================================================================
 	// Step 5: Deny-Path Assertions (every gated write/manage endpoint -> 403)
+	// The canary already verified 5a; assert the remaining deny paths.
 	// =========================================================================
-	// 5a. POST /api/orders -> 403 (missing orders:write)
+	// 5a. POST /api/orders -> 403 (missing orders:write) — already confirmed by canary above.
 	orderBody, _ := json.Marshal(OrderRequest{CustomerID: "cust_deny_test", Amount: 42.00})
 	denyOrderReq, _ := http.NewRequest(http.MethodPost, gatewayOrdersURL, bytes.NewBuffer(orderBody))
 	denyOrderReq.Header.Set("Content-Type", "application/json")

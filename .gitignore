@@ -33,4 +33,5 @@ infrastructure/web-ui/air.log
 
 # Go Workspaces (local multi-module development)
 go.work
-go.work.sum
+go.work.sum*.env.bak
+.env.bak
