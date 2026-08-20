@@ -137,7 +137,7 @@ func TestE2E_InfrastructureFanout_BroadcastPurge(t *testing.T) {
 	accessToken := loginAndGetToken(t, ownerEmail, e2ePassword)
 
 	// Issue order to warm PoolRegistry connection cache
-	orderBody, _ := json.Marshal(OrderRequest{CustomerID: "cust_fanout", Amount: 99.00})
+	orderBody, _ := json.Marshal(OrderRequest{CustomerID: "cust_fanout", Quantity: 1, Price: 99.00, Currency: "USD"})
 	orderReq, _ := http.NewRequest("POST", gatewayOrdersURL, bytes.NewBuffer(orderBody))
 	orderReq.Header.Set("Content-Type", "application/json")
 	orderReq.Header.Set("Authorization", bearerHeader(accessToken))

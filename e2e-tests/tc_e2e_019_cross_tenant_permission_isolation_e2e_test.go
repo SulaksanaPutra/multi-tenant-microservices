@@ -49,7 +49,9 @@ func TestE2E_CrossTenantPermissionIsolationBoundary(t *testing.T) {
 	// -------------------------------------------------------------------------
 	orderReqA := OrderRequest{
 		CustomerID: "cust_tenant_a_secret",
-		Amount:     499.50,
+		Quantity:   1,
+		Price:      499.50,
+		Currency:   "USD",
 	}
 	orderBodyA, _ := json.Marshal(orderReqA)
 

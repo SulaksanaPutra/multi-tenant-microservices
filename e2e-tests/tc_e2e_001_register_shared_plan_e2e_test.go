@@ -35,7 +35,9 @@ var (
 
 type OrderRequest struct {
 	CustomerID string  `json:"customer_id"`
-	Amount     float64 `json:"amount"`
+	Quantity   int     `json:"quantity"`
+	Price      float64 `json:"price"`
+	Currency   string  `json:"currency"`
 }
 
 type OrderResponseData struct {
@@ -43,7 +45,10 @@ type OrderResponseData struct {
 	TenantID   string    `json:"tenant_id"`
 	CustomerID string    `json:"customer_id"`
 	Status     string    `json:"status"`
+	Quantity   int       `json:"quantity"`
+	Price      string    `json:"price"`
 	Amount     string    `json:"amount"`
+	Currency   string    `json:"currency"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }
@@ -254,7 +259,9 @@ func TestE2E_SharedPlan_FullWorkflow(t *testing.T) {
 	custID := gofakeit.UUID()
 	orderBody, _ := json.Marshal(OrderRequest{
 		CustomerID: custID,
-		Amount:     149.99,
+		Quantity:   2,
+		Price:      74.995,
+		Currency:   "USD",
 	})
 
 	orderReq, _ := http.NewRequest("POST", gatewayOrdersURL, bytes.NewBuffer(orderBody))

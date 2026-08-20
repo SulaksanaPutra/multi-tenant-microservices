@@ -104,6 +104,7 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 		TenantID: "tnt_1",
 		OrderID:  "ord_99",
 		Amount:   50.0,
+		Currency: "EUR",
 	}
 	validBody, _ := json.Marshal(validEvt)
 
@@ -117,9 +118,11 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 			},
 		}
 		var createdOrder string
+		var createdCurrency string
 		debtService := &mockDebtService{
 			createDebtFn: func(ctx context.Context, input service.CreatePayableDebtInput) (*service.PayableDebtOutput, error) {
 				createdOrder = input.OrderID
+				createdCurrency = input.Currency
 				return &service.PayableDebtOutput{ID: "debt_99"}, nil
 			},
 		}
@@ -147,6 +150,9 @@ func TestOrderCreatedConsumer_HandleDelivery(t *testing.T) {
 		}
 		if createdOrder != "ord_99" {
 			t.Errorf("expected order 'ord_99' to be created, got '%s'", createdOrder)
+		}
+		if createdCurrency != "EUR" {
+			t.Errorf("expected currency 'EUR', got '%s'", createdCurrency)
 		}
 	})
 

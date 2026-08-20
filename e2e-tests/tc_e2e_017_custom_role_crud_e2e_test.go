@@ -125,7 +125,9 @@ func TestE2E_MultiTenant_CustomRoleCRUD_And_InstantPermissionInvalidation(t *tes
 	// Expect rejection (HTTP 401 Unauthorized) because the initial token version is superseded.
 	orderReq := OrderRequest{
 		CustomerID: "cust_stale_perm_test",
-		Amount:     199.99,
+		Quantity:   1,
+		Price:      199.99,
+		Currency:   "USD",
 	}
 	orderBody, _ := json.Marshal(orderReq)
 

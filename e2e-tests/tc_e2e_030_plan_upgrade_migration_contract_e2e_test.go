@@ -71,7 +71,9 @@ func TestE2E_TC_E2E_030_PlanUpgrade_MigrationContract(t *testing.T) {
 
 	seedCode := doOrderRequest(t, http.MethodPost, gatewayOrdersURL, authHeader, map[string]any{
 		"customer_id": "cust_pre_migration",
-		"amount":      125.50,
+		"quantity":    1,
+		"price":       125.50,
+		"currency":    "USD",
 	})
 	if seedCode != http.StatusCreated {
 		t.Fatalf("Seed order before plan upgrade: expected HTTP 201 Created, got %d", seedCode)
@@ -173,7 +175,9 @@ func TestE2E_TC_E2E_030_PlanUpgrade_MigrationContract(t *testing.T) {
 	for i := 0; i < 80; i++ {
 		code := doOrderRequest(t, http.MethodPost, gatewayOrdersURL, authHeader, map[string]any{
 			"customer_id": "cust_during_migration",
-			"amount":      10.00,
+			"quantity":    1,
+			"price":       10.00,
+			"currency":    "USD",
 		})
 		if code == http.StatusLocked {
 			lockObserved = true
@@ -299,7 +303,9 @@ func TestE2E_TC_E2E_030_PlanUpgrade_MigrationContract(t *testing.T) {
 	// =========================================================================
 	postCode := doOrderRequest(t, http.MethodPost, gatewayOrdersURL, authHeader, map[string]any{
 		"customer_id": "cust_post_cutover",
-		"amount":      42.00,
+		"quantity":    1,
+		"price":       42.00,
+		"currency":    "USD",
 	})
 	if postCode != http.StatusCreated {
 		t.Fatalf("POST /api/orders after cutover: expected HTTP 201, got %d", postCode)

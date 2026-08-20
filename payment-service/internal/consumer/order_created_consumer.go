@@ -156,7 +156,7 @@ func (orderCreatedConsumer *OrderCreatedConsumer) handleDelivery(ctx context.Con
 			TenantID: evt.TenantID,
 			OrderID:  evt.OrderID,
 			Amount:   evt.Amount,
-			Currency: "USD",
+			Currency: evt.Currency,
 		})
 		if createErr != nil {
 			return fmt.Errorf("failed to create payable debt: %w", createErr)

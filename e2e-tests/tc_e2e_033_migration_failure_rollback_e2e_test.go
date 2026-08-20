@@ -50,6 +50,17 @@ func TestE2E_TC_E2E_033_MigrationFailed_RollbackSaga(t *testing.T) {
 	authHeader := bearerHeader(accessToken)
 	t.Logf("1. Tenant '%s' active.", tenantID)
 
+	// Ensure order-service has finished provisioning and setting status active
+	baseline := doOrderRequest(t, http.MethodPost, gatewayOrdersURL, authHeader, map[string]any{
+		"customer_id": "cust_baseline",
+		"quantity":    1,
+		"price":       1.00,
+		"currency":    "USD",
+	})
+	if baseline != http.StatusCreated {
+		t.Fatalf("Baseline order before lock: expected HTTP 201, got %d", baseline)
+	}
+
 	// =========================================================================
 	// Step 2: Bind Exclusive Queue to Observe the Unfreeze Broadcast
 	// =========================================================================
@@ -104,7 +115,9 @@ func TestE2E_TC_E2E_033_MigrationFailed_RollbackSaga(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		if code := doOrderRequest(t, http.MethodPost, gatewayOrdersURL, authHeader, map[string]any{
 			"customer_id": "cust_pre_rollback",
-			"amount":      9.99,
+			"quantity":    1,
+			"price":       9.99,
+			"currency":    "USD",
 		}); code == http.StatusLocked {
 			shielded = true
 			break
@@ -165,7 +178,9 @@ func TestE2E_TC_E2E_033_MigrationFailed_RollbackSaga(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		if code := doOrderRequest(t, http.MethodPost, gatewayOrdersURL, authHeader, map[string]any{
 			"customer_id": "cust_post_rollback",
-			"amount":      21.00,
+			"quantity":    1,
+			"price":       21.00,
+			"currency":    "USD",
 		}); code == http.StatusCreated {
 			resumed = true
 			break

@@ -6,6 +6,9 @@ CREATE TABLE IF NOT EXISTS {{SCHEMA_NAME}}.orders (
     tenant_id   VARCHAR(36)    NOT NULL,
     customer_id VARCHAR(36)    NOT NULL,
     status      VARCHAR(50)    NOT NULL DEFAULT 'pending',
+    currency    VARCHAR(3)     NOT NULL DEFAULT 'USD',
+    quantity    INT            NOT NULL DEFAULT 1,
+    price       NUMERIC(12, 2) NOT NULL DEFAULT 0,
     amount      NUMERIC(12, 2) NOT NULL DEFAULT 0,
     created_at  TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ    NOT NULL DEFAULT NOW()

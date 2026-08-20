@@ -139,7 +139,10 @@ func TestOrderRepository_CreateOrder_NilDB(t *testing.T) {
 		TenantID:   "tenant-1",
 		CustomerID: "cust-1",
 		Status:     "PENDING",
+		Quantity:   1,
+		Price:      99.99,
 		Amount:     99.99,
+		Currency:   "USD",
 	}
 	err := orderRepository.CreateOrder(context.Background(), input)
 	if err == nil {
@@ -178,7 +181,10 @@ func TestOrderRepository_CreateOrder_Success(t *testing.T) {
 		TenantID:   "tenant-xyz",
 		CustomerID: "cust-888",
 		Status:     "PENDING",
+		Quantity:   2,
+		Price:      75.375,
 		Amount:     150.75,
+		Currency:   "USD",
 	}
 
 	err := orderRepository.CreateOrder(ctx, input)
@@ -198,13 +204,20 @@ func TestOrderRepository_CreateOrder_Success(t *testing.T) {
 		t.Errorf("expected second query to contain 'INSERT INTO \"tenant_xyz\".outbox', got: %s", capturedQueries[1])
 	}
 
-	if len(capturedOrdersArgs) != 5 {
-		t.Fatalf("expected 5 query arguments for orders insert, got %d", len(capturedOrdersArgs))
+	if len(capturedOrdersArgs) != 8 {
+		t.Fatalf("expected 8 query arguments for orders insert, got %d", len(capturedOrdersArgs))
 	}
 
-	if capturedOrdersArgs[0] != input.ID || capturedOrdersArgs[1] != input.TenantID || capturedOrdersArgs[2] != input.CustomerID || capturedOrdersArgs[3] != input.Status || capturedOrdersArgs[4] != input.Amount {
-		t.Errorf("unexpected query arguments: got %v, expected [%s, %s, %s, %s, %f]",
-			capturedOrdersArgs, input.ID, input.TenantID, input.CustomerID, input.Status, input.Amount)
+	if capturedOrdersArgs[0] != input.ID ||
+		capturedOrdersArgs[1] != input.TenantID ||
+		capturedOrdersArgs[2] != input.CustomerID ||
+		capturedOrdersArgs[3] != input.Status ||
+		capturedOrdersArgs[4] != input.Quantity ||
+		capturedOrdersArgs[5] != input.Price ||
+		capturedOrdersArgs[6] != input.Amount ||
+		capturedOrdersArgs[7] != input.Currency {
+		t.Errorf("unexpected query arguments: got %v, expected [%s, %s, %s, %s, %d, %f, %f, %s]",
+			capturedOrdersArgs, input.ID, input.TenantID, input.CustomerID, input.Status, input.Quantity, input.Price, input.Amount, input.Currency)
 	}
 }
 
@@ -231,7 +244,10 @@ func TestOrderRepository_CreateOrder_DefaultPublicSchema(t *testing.T) {
 		TenantID:   "tenant-def",
 		CustomerID: "cust-def",
 		Status:     "CREATED",
+		Quantity:   1,
+		Price:      50.00,
 		Amount:     50.00,
+		Currency:   "USD",
 	}
 
 	err := orderRepository.CreateOrder(ctx, input)

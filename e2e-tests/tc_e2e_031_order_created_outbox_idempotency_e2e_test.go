@@ -30,6 +30,7 @@ package e2e_test
 import (
 	"database/sql"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -53,7 +54,12 @@ func TestE2E_TC_E2E_031_OrderCreated_Outbox_ConsumerIdempotency(t *testing.T) {
 	// =========================================================================
 	// Step 2: Create an Order (Stages the order.created outbox row atomically)
 	// =========================================================================
-	orderBody, _ := json.Marshal(map[string]any{"customer_id": "cust_outbox_loop", "amount": 88.25})
+	orderBody, _ := json.Marshal(OrderRequest{
+		CustomerID: "cust_outbox_loop",
+		Quantity:   1,
+		Price:      88.25,
+		Currency:   "USD",
+	})
 	orderReq, _ := http.NewRequest(http.MethodPost, gatewayOrdersURL, strings.NewReader(string(orderBody)))
 	orderReq.Header.Set("Content-Type", "application/json")
 	orderReq.Header.Set("Authorization", authHeader)
@@ -63,7 +69,8 @@ func TestE2E_TC_E2E_031_OrderCreated_Outbox_ConsumerIdempotency(t *testing.T) {
 	}
 	defer orderResp.Body.Close()
 	if orderResp.StatusCode != http.StatusCreated {
-		t.Fatalf("Expected HTTP 201 Created, got %d", orderResp.StatusCode)
+		bodyBytes, _ := io.ReadAll(orderResp.Body)
+		t.Fatalf("Expected HTTP 201 Created, got %d: %s", orderResp.StatusCode, string(bodyBytes))
 	}
 	var created struct {
 		Data OrderResponseData `json:"data"`
@@ -164,8 +171,11 @@ func TestE2E_TC_E2E_031_OrderCreated_Outbox_ConsumerIdempotency(t *testing.T) {
 		"tenant_id":   tenantID,
 		"order_id":    orderID,
 		"customer_id": "cust_outbox_loop",
+		"quantity":    1,
+		"price":       88.25,
 		"amount":      88.25,
-		"status":      "pending",
+		"currency":    "USD",
+		"status":      "PENDING",
 	}
 	publishCompanyEvent(t, ch, "order.created", evt)
 	publishCompanyEvent(t, ch, "order.created", evt)

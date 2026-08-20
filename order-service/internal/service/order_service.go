@@ -13,8 +13,9 @@ import (
 type CreateOrderInput struct {
 	TenantID   string
 	CustomerID string
-	Amount     float64
-	Status     string
+	Quantity   int
+	Price      float64
+	Currency   string
 }
 
 type OrderOutput struct {
@@ -22,7 +23,10 @@ type OrderOutput struct {
 	TenantID   string
 	CustomerID string
 	Status     string
+	Quantity   int
+	Price      float64
 	Amount     float64
+	Currency   string
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }
@@ -32,8 +36,11 @@ func toOrderOutput(o domain.Order) OrderOutput {
 		ID:         o.ID,
 		TenantID:   o.TenantID,
 		CustomerID: o.CustomerID,
-		Status:     o.Status,
+		Status:     string(o.Status),
+		Quantity:   o.Quantity,
+		Price:      o.Price,
 		Amount:     o.Amount,
+		Currency:   o.Currency,
 		CreatedAt:  o.CreatedAt,
 		UpdatedAt:  o.UpdatedAt,
 	}
@@ -82,29 +89,38 @@ func (orderService *OrderService) CreateOrder(ctx context.Context, input CreateO
 	if input.CustomerID == "" {
 		return nil, domain.ErrCustomerIDRequired
 	}
-	if input.Amount <= 0 {
-		return nil, domain.ErrInvalidAmount
+	if input.Quantity <= 0 {
+		return nil, domain.ErrInvalidQuantity
+	}
+	if input.Price <= 0 {
+		return nil, domain.ErrInvalidPrice
+	}
+	if input.Currency == "" {
+		return nil, domain.ErrCurrencyRequired
 	}
 
-	status := input.Status
-	if status == "" {
-		status = "pending"
-	}
+	amount := float64(input.Quantity) * input.Price
 
 	order := domain.Order{
 		ID:         domain.GenerateOrderID(),
 		TenantID:   tenantID,
 		CustomerID: input.CustomerID,
-		Status:     status,
-		Amount:     input.Amount,
+		Status:     domain.StatusPending,
+		Quantity:   input.Quantity,
+		Price:      input.Price,
+		Amount:     amount,
+		Currency:   input.Currency,
 	}
 
 	repoInput := repository.CreateOrderInput{
 		ID:         order.ID,
 		TenantID:   order.TenantID,
 		CustomerID: order.CustomerID,
-		Status:     order.Status,
+		Status:     string(order.Status),
+		Quantity:   order.Quantity,
+		Price:      order.Price,
 		Amount:     order.Amount,
+		Currency:   order.Currency,
 	}
 
 	if err := orderService.orderRepository.CreateOrder(ctx, repoInput); err != nil {

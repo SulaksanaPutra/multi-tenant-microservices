@@ -52,7 +52,9 @@ func TestOrderService_CreateOrder_InputValidation(t *testing.T) {
 			input: CreateOrderInput{
 				TenantID:   "",
 				CustomerID: "cust-123",
-				Amount:     100.50,
+				Quantity:   2,
+				Price:      50.25,
+				Currency:   "USD",
 			},
 			wantErr: domain.ErrTenantIDRequired,
 		},
@@ -61,25 +63,53 @@ func TestOrderService_CreateOrder_InputValidation(t *testing.T) {
 			input: CreateOrderInput{
 				TenantID:   "tenant-test",
 				CustomerID: "",
-				Amount:     100.50,
+				Quantity:   2,
+				Price:      50.25,
+				Currency:   "USD",
 			},
 			wantErr: domain.ErrCustomerIDRequired,
 		},
 		{
-			name: "invalid amount zero or negative",
+			name: "invalid quantity zero or negative",
 			input: CreateOrderInput{
 				TenantID:   "tenant-test",
 				CustomerID: "cust-123",
-				Amount:     0,
+				Quantity:   0,
+				Price:      50.25,
+				Currency:   "USD",
 			},
-			wantErr: domain.ErrInvalidAmount,
+			wantErr: domain.ErrInvalidQuantity,
+		},
+		{
+			name: "invalid price zero or negative",
+			input: CreateOrderInput{
+				TenantID:   "tenant-test",
+				CustomerID: "cust-123",
+				Quantity:   2,
+				Price:      0,
+				Currency:   "USD",
+			},
+			wantErr: domain.ErrInvalidPrice,
+		},
+		{
+			name: "missing currency",
+			input: CreateOrderInput{
+				TenantID:   "tenant-test",
+				CustomerID: "cust-123",
+				Quantity:   2,
+				Price:      50.25,
+				Currency:   "",
+			},
+			wantErr: domain.ErrCurrencyRequired,
 		},
 		{
 			name: "valid input",
 			input: CreateOrderInput{
 				TenantID:   "tenant-test",
 				CustomerID: "cust-123",
-				Amount:     100.50,
+				Quantity:   2,
+				Price:      50.25,
+				Currency:   "USD",
 			},
 			wantErr: nil,
 		},
@@ -110,7 +140,9 @@ func TestOrderService_CreateOrder_TenantIDResolutionFromContext(t *testing.T) {
 		ctx := context.WithValue(context.Background(), "tenantID", "tenant-ctx-999")
 		input := CreateOrderInput{
 			CustomerID: "cust-1",
-			Amount:     50.0,
+			Quantity:   1,
+			Price:      50.0,
+			Currency:   "USD",
 		}
 		order, err := orderService.CreateOrder(ctx, input)
 		if err != nil {
@@ -126,7 +158,9 @@ func TestOrderService_CreateOrder_TenantIDResolutionFromContext(t *testing.T) {
 		ctx := tenantdb.WithConfig(context.Background(), cfg)
 		input := CreateOrderInput{
 			CustomerID: "cust-1",
-			Amount:     50.0,
+			Quantity:   1,
+			Price:      50.0,
+			Currency:   "USD",
 		}
 		order, err := orderService.CreateOrder(ctx, input)
 		if err != nil {
@@ -146,31 +180,16 @@ func TestOrderService_CreateOrder_DefaultStatus(t *testing.T) {
 		input := CreateOrderInput{
 			TenantID:   "t-1",
 			CustomerID: "c-1",
-			Amount:     25.0,
-			Status:     "",
+			Quantity:   1,
+			Price:      25.0,
+			Currency:   "USD",
 		}
 		order, err := orderService.CreateOrder(context.Background(), input)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if order.Status != "pending" {
-			t.Errorf("expected status 'pending', got '%s'", order.Status)
-		}
-	})
-
-	t.Run("preserves explicit status", func(t *testing.T) {
-		input := CreateOrderInput{
-			TenantID:   "t-1",
-			CustomerID: "c-1",
-			Amount:     25.0,
-			Status:     "completed",
-		}
-		order, err := orderService.CreateOrder(context.Background(), input)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if order.Status != "completed" {
-			t.Errorf("expected status 'completed', got '%s'", order.Status)
+		if order.Status != "PENDING" {
+			t.Errorf("expected status 'PENDING', got '%s'", order.Status)
 		}
 	})
 }
@@ -187,7 +206,9 @@ func TestOrderService_CreateOrder_RepoError(t *testing.T) {
 	input := CreateOrderInput{
 		TenantID:   "t-1",
 		CustomerID: "c-1",
-		Amount:     10.0,
+		Quantity:   1,
+		Price:      10.0,
+		Currency:   "USD",
 	}
 
 	order, err := orderService.CreateOrder(context.Background(), input)
@@ -202,14 +223,14 @@ func TestOrderService_CreateOrder_RepoError(t *testing.T) {
 func TestOrderService_ListOrders(t *testing.T) {
 	t.Run("returns list of orders", func(t *testing.T) {
 		expectedOrders := []OrderOutput{
-			{ID: "ord-1", TenantID: "t-1", Amount: 100},
-			{ID: "ord-2", TenantID: "t-1", Amount: 200},
+			{ID: "ord-1", TenantID: "t-1", Status: "pending", Quantity: 1, Price: 100, Amount: 100, Currency: "USD"},
+			{ID: "ord-2", TenantID: "t-1", Status: "pending", Quantity: 1, Price: 200, Amount: 200, Currency: "USD"},
 		}
 		orderRepository := &mockOrderRepository{
 			listOrdersFunc: func(ctx context.Context) ([]domain.Order, error) {
 				return []domain.Order{
-					{ID: "ord-1", TenantID: "t-1", Amount: 100},
-					{ID: "ord-2", TenantID: "t-1", Amount: 200},
+					{ID: "ord-1", TenantID: "t-1", Status: "pending", Quantity: 1, Price: 100, Amount: 100, Currency: "USD"},
+					{ID: "ord-2", TenantID: "t-1", Status: "pending", Quantity: 1, Price: 200, Amount: 200, Currency: "USD"},
 				}, nil
 			},
 		}

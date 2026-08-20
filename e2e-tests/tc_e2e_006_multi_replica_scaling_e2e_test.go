@@ -64,7 +64,7 @@ func TestE2E_MultiReplica_ScalingAndRouting(t *testing.T) {
 	successCount := 0
 	for i := 0; i < 5; i++ {
 		custID := gofakeit.UUID()
-		orderBody, _ := json.Marshal(OrderRequest{CustomerID: custID, Amount: 199.99})
+		orderBody, _ := json.Marshal(OrderRequest{CustomerID: custID, Quantity: 1, Price: 199.99, Currency: "USD"})
 
 		orderReq, _ := http.NewRequest("POST", gatewayOrdersURL, bytes.NewBuffer(orderBody))
 		orderReq.Header.Set("Content-Type", "application/json")

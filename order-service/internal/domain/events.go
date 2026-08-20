@@ -42,7 +42,10 @@ type OrderCreatedEvent struct {
 	TenantID   string  `json:"tenant_id"`
 	OrderID    string  `json:"order_id"`
 	CustomerID string  `json:"customer_id"`
+	Quantity   int     `json:"quantity"`
+	Price      float64 `json:"price"`
 	Amount     float64 `json:"amount"`
+	Currency   string  `json:"currency"`
 	Status     string  `json:"status"`
 }
 

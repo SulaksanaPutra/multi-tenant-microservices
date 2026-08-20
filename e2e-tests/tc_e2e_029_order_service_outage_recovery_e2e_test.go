@@ -149,7 +149,7 @@ func TestE2E_TC_E2E_029_OrderServiceOutage_Recovery(t *testing.T) {
 	setCredentials(t, userID, tenantID, ownerEmail, e2ePassword)
 	accessToken := loginAndGetToken(t, ownerEmail, e2ePassword)
 
-	orderBody, _ := json.Marshal(OrderRequest{CustomerID: "cust_post_recovery", Amount: 77.50})
+	orderBody, _ := json.Marshal(OrderRequest{CustomerID: "cust_post_recovery", Quantity: 1, Price: 77.50, Currency: "USD"})
 	orderReq, _ := http.NewRequest(http.MethodPost, gatewayOrdersURL, bytes.NewBuffer(orderBody))
 	orderReq.Header.Set("Content-Type", "application/json")
 	orderReq.Header.Set("Authorization", bearerHeader(accessToken))

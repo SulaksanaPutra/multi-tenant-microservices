@@ -20,8 +20,9 @@ import (
 
 type CreateOrderRequest struct {
 	CustomerID string  `json:"customer_id" binding:"required,max=255"`
-	Amount     float64 `json:"amount"      binding:"required,gt=0,lte=1000000"`
-	Status     string  `json:"status"      binding:"omitempty,oneof=pending completed cancelled"`
+	Quantity   int     `json:"quantity"    binding:"required,gt=0"`
+	Price      float64 `json:"price"       binding:"required,gt=0,lte=1000000"`
+	Currency   string  `json:"currency"    binding:"required,len=3"`
 }
 
 type OrderResponse struct {
@@ -29,7 +30,10 @@ type OrderResponse struct {
 	TenantID   string    `json:"tenant_id"`
 	CustomerID string    `json:"customer_id"`
 	Status     string    `json:"status"`
+	Quantity   int       `json:"quantity"`
+	Price      string    `json:"price"`
 	Amount     string    `json:"amount"`
+	Currency   string    `json:"currency"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }
@@ -40,7 +44,10 @@ func toOrderResponse(o service.OrderOutput) OrderResponse {
 		TenantID:   o.TenantID,
 		CustomerID: o.CustomerID,
 		Status:     o.Status,
+		Quantity:   o.Quantity,
+		Price:      strconv.FormatFloat(o.Price, 'f', 2, 64),
 		Amount:     strconv.FormatFloat(o.Amount, 'f', 2, 64),
+		Currency:   o.Currency,
 		CreatedAt:  o.CreatedAt,
 		UpdatedAt:  o.UpdatedAt,
 	}
@@ -138,8 +145,9 @@ func (orderHandler *OrderHandler) CreateOrder(c *gin.Context) {
 	input := service.CreateOrderInput{
 		TenantID:   tenantID,
 		CustomerID: req.CustomerID,
-		Amount:     req.Amount,
-		Status:     req.Status,
+		Quantity:   req.Quantity,
+		Price:      req.Price,
+		Currency:   req.Currency,
 	}
 
 	var order *service.OrderOutput
@@ -153,7 +161,10 @@ func (orderHandler *OrderHandler) CreateOrder(c *gin.Context) {
 	if err != nil {
 		if errors.Is(err, domain.ErrTenantIDRequired) ||
 			errors.Is(err, domain.ErrCustomerIDRequired) ||
-			errors.Is(err, domain.ErrInvalidAmount) {
+			errors.Is(err, domain.ErrInvalidAmount) ||
+			errors.Is(err, domain.ErrInvalidQuantity) ||
+			errors.Is(err, domain.ErrInvalidPrice) ||
+			errors.Is(err, domain.ErrCurrencyRequired) {
 			httputil.WriteError(c, http.StatusBadRequest, err.Error())
 			return
 		}

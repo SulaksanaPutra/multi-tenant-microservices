@@ -161,7 +161,9 @@ func TestE2E_DedicatedPlan_FullWorkflow(t *testing.T) {
 	custID := gofakeit.UUID()
 	orderBody, _ := json.Marshal(OrderRequest{
 		CustomerID: custID,
-		Amount:     499.99,
+		Quantity:   1,
+		Price:      499.99,
+		Currency:   "USD",
 	})
 
 	// Safely resolve the user ID via DB polling

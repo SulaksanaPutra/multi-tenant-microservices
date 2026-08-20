@@ -18,7 +18,10 @@ type CreateOrderInput struct {
 	TenantID   string
 	CustomerID string
 	Status     string
+	Quantity   int
+	Price      float64
 	Amount     float64
+	Currency   string
 }
 
 type OrderRepository struct {
@@ -42,7 +45,7 @@ func (orderRepository *OrderRepository) ListOrders(ctx context.Context) ([]domai
 	exec := txcontext.GetExecutor(ctx, orderRepository.config.DB)
 
 	query := fmt.Sprintf(`
-		SELECT id, tenant_id, customer_id, status, amount, created_at, updated_at
+		SELECT id, tenant_id, customer_id, status, quantity, price, amount, currency, created_at, updated_at
 		FROM %s.orders
 		ORDER BY created_at DESC
 		LIMIT 100;
@@ -57,7 +60,7 @@ func (orderRepository *OrderRepository) ListOrders(ctx context.Context) ([]domai
 	var orders []domain.Order
 	for rows.Next() {
 		var o domain.Order
-		if err := rows.Scan(&o.ID, &o.TenantID, &o.CustomerID, &o.Status, &o.Amount, &o.CreatedAt, &o.UpdatedAt); err != nil {
+		if err := rows.Scan(&o.ID, &o.TenantID, &o.CustomerID, &o.Status, &o.Quantity, &o.Price, &o.Amount, &o.Currency, &o.CreatedAt, &o.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan order row: %w", err)
 		}
 		orders = append(orders, o)
@@ -82,11 +85,11 @@ func (orderRepository *OrderRepository) CreateOrder(ctx context.Context, input C
 	quotedSchema := pq.QuoteIdentifier(schemaName)
 
 	orderQuery := fmt.Sprintf(`
-		INSERT INTO %s.orders (id, tenant_id, customer_id, status, amount, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+		INSERT INTO %s.orders (id, tenant_id, customer_id, status, quantity, price, amount, currency, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
 	`, quotedSchema)
 
-	if _, err := exec.ExecContext(ctx, orderQuery, input.ID, input.TenantID, input.CustomerID, input.Status, input.Amount); err != nil {
+	if _, err := exec.ExecContext(ctx, orderQuery, input.ID, input.TenantID, input.CustomerID, input.Status, input.Quantity, input.Price, input.Amount, input.Currency); err != nil {
 		return fmt.Errorf("failed to insert order into schema '%s': %w", schemaName, err)
 	}
 
@@ -96,7 +99,10 @@ func (orderRepository *OrderRepository) CreateOrder(ctx context.Context, input C
 		TenantID:   input.TenantID,
 		OrderID:    input.ID,
 		CustomerID: input.CustomerID,
+		Quantity:   input.Quantity,
+		Price:      input.Price,
 		Amount:     input.Amount,
+		Currency:   input.Currency,
 		Status:     input.Status,
 	}
 	payload, err := json.Marshal(evt)

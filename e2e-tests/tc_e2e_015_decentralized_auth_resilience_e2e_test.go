@@ -75,7 +75,9 @@ func TestE2E_TC_E2E_015_DecentralizedAuthorizationResilience(t *testing.T) {
 	// =========================================================================
 	orderBody, _ := json.Marshal(OrderRequest{
 		CustomerID: "cust_resilience_test",
-		Amount:     199.99,
+		Quantity:   1,
+		Price:      199.99,
+		Currency:   "USD",
 	})
 	orderReq, err := http.NewRequest(http.MethodPost, gatewayOrdersURL, bytes.NewBuffer(orderBody))
 	if err != nil {

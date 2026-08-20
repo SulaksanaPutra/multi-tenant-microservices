@@ -131,7 +131,7 @@ func TestE2E_TC_E2E_027_RBACDenyPathEnforcement(t *testing.T) {
 		// Canary probe: POST /api/orders must return 403 for the role restriction
 		// to be in effect. If still 201, the login embedded the stale permissions;
 		// discard the token and retry.
-		canaryBody, _ := json.Marshal(OrderRequest{CustomerID: "cust_deny_canary", Amount: 1.00})
+		canaryBody, _ := json.Marshal(OrderRequest{CustomerID: "cust_deny_canary", Quantity: 1, Price: 1.00, Currency: "USD"})
 		canaryReq, _ := http.NewRequest(http.MethodPost, gatewayOrdersURL, bytes.NewBuffer(canaryBody))
 		canaryReq.Header.Set("Content-Type", "application/json")
 		canaryReq.Header.Set("Authorization", bearerHeader(freshToken))
@@ -162,7 +162,7 @@ func TestE2E_TC_E2E_027_RBACDenyPathEnforcement(t *testing.T) {
 	// The canary already verified 5a; assert the remaining deny paths.
 	// =========================================================================
 	// 5a. POST /api/orders -> 403 (missing orders:write) — already confirmed by canary above.
-	orderBody, _ := json.Marshal(OrderRequest{CustomerID: "cust_deny_test", Amount: 42.00})
+	orderBody, _ := json.Marshal(OrderRequest{CustomerID: "cust_deny_test", Quantity: 1, Price: 42.00, Currency: "USD"})
 	denyOrderReq, _ := http.NewRequest(http.MethodPost, gatewayOrdersURL, bytes.NewBuffer(orderBody))
 	denyOrderReq.Header.Set("Content-Type", "application/json")
 	denyOrderReq.Header.Set("Authorization", readonlyHeader)

@@ -51,7 +51,9 @@ func TestE2E_TC_E2E_032_MigrationLock_APIShield(t *testing.T) {
 
 	baseline := doOrderRequest(t, http.MethodPost, gatewayOrdersURL, authHeader, map[string]any{
 		"customer_id": "cust_pre_lock",
-		"amount":      15.00,
+		"quantity":    1,
+		"price":       15.00,
+		"currency":    "USD",
 	})
 	if baseline != http.StatusCreated {
 		t.Fatalf("Baseline order before lock: expected HTTP 201, got %d", baseline)
@@ -101,7 +103,9 @@ func TestE2E_TC_E2E_032_MigrationLock_APIShield(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		code := doOrderRequest(t, http.MethodPost, gatewayOrdersURL, authHeader, map[string]any{
 			"customer_id": "cust_during_lock",
-			"amount":      5.00,
+			"quantity":    1,
+			"price":       5.00,
+			"currency":    "USD",
 		})
 		if code == http.StatusLocked {
 			shielded = true
@@ -137,7 +141,9 @@ func TestE2E_TC_E2E_032_MigrationLock_APIShield(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		code := doOrderRequest(t, http.MethodPost, gatewayOrdersURL, authHeader, map[string]any{
 			"customer_id": "cust_after_unlock",
-			"amount":      5.00,
+			"quantity":    1,
+			"price":       5.00,
+			"currency":    "USD",
 		})
 		if code == http.StatusCreated {
 			resumed = true

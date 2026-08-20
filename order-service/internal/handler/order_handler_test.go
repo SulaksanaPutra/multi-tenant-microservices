@@ -35,8 +35,8 @@ func (stubOrderService *stubOrderService) ListOrders(ctx context.Context) ([]ser
 }
 
 func (stubOrderService *stubOrderService) CreateOrder(ctx context.Context, input service.CreateOrderInput) (*service.OrderOutput, error) {
-	if input.Amount <= 0 {
-		return nil, domain.ErrInvalidAmount
+	if input.Quantity <= 0 {
+		return nil, domain.ErrInvalidQuantity
 	}
 	return nil, errors.New("no database in unit test")
 }
@@ -137,7 +137,7 @@ func TestCreateOrder_MissingAuthHeader(t *testing.T) {
 	_, pubKeyPEM := testKeyPair(t)
 	router := setupTestRouter(pubKeyPEM, &mockResolver{})
 
-	body := map[string]any{"customer_id": "cust-001", "amount": 99.99}
+	body := map[string]any{"customer_id": "cust-001", "quantity": 1, "price": 99.99, "currency": "USD"}
 	jsonBytes, _ := json.Marshal(body)
 
 	req, _ := http.NewRequest(http.MethodPost, "/api/orders", bytes.NewBuffer(jsonBytes))
@@ -151,11 +151,11 @@ func TestCreateOrder_MissingAuthHeader(t *testing.T) {
 	}
 }
 
-func TestCreateOrder_InvalidAmount(t *testing.T) {
+func TestCreateOrder_InvalidQuantity(t *testing.T) {
 	privateKey, pubKeyPEM := testKeyPair(t)
 	router := setupTestRouter(pubKeyPEM, &mockResolver{})
 
-	body := map[string]any{"customer_id": "cust-001", "amount": -10.0}
+	body := map[string]any{"customer_id": "cust-001", "quantity": 0, "price": 10.0, "currency": "USD"}
 	jsonBytes, _ := json.Marshal(body)
 
 	req, _ := http.NewRequest(http.MethodPost, "/api/orders", bytes.NewBuffer(jsonBytes))
@@ -166,7 +166,7 @@ func TestCreateOrder_InvalidAmount(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400 Bad Request for negative amount, got %d", w.Code)
+		t.Errorf("expected 400 Bad Request for zero quantity, got %d", w.Code)
 	}
 }
 
@@ -174,7 +174,7 @@ func TestCreateOrder_ValidJWT(t *testing.T) {
 	privateKey, pubKeyPEM := testKeyPair(t)
 	router := setupTestRouter(pubKeyPEM, &mockResolver{})
 
-	body := map[string]any{"customer_id": "cust-001", "amount": 150.75}
+	body := map[string]any{"customer_id": "cust-001", "quantity": 2, "price": 75.375, "currency": "USD"}
 	jsonBytes, _ := json.Marshal(body)
 
 	req, _ := http.NewRequest(http.MethodPost, "/api/orders", bytes.NewBuffer(jsonBytes))
@@ -213,8 +213,11 @@ func TestCreateOrder_WithTransactionalExecution(t *testing.T) {
 						ID:         "ord-123",
 						TenantID:   input.TenantID,
 						CustomerID: input.CustomerID,
-						Amount:     input.Amount,
-						Status:     "pending",
+						Quantity:   input.Quantity,
+						Price:      input.Price,
+						Amount:     float64(input.Quantity) * input.Price,
+						Currency:   input.Currency,
+						Status:     "PENDING",
 					}, nil
 				},
 			}
@@ -239,7 +242,7 @@ func TestCreateOrder_WithTransactionalExecution(t *testing.T) {
 	api.Use(middleware.RequireJWT(pubKeyPEM, middleware.WithTenantHandler(tenantHandlerHook)))
 	api.POST("/orders", orderHandler.CreateOrder)
 
-	body := map[string]any{"customer_id": "cust-tx-001", "amount": 100.0}
+	body := map[string]any{"customer_id": "cust-tx-001", "quantity": 2, "price": 50.0, "currency": "USD"}
 	jsonBytes, _ := json.Marshal(body)
 
 	req, _ := http.NewRequest(http.MethodPost, "/api/orders", bytes.NewBuffer(jsonBytes))
