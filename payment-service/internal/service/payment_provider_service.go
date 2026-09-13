@@ -11,26 +11,29 @@ import (
 )
 
 type ProviderRegistry interface {
-	ExecuteFallbackChain(ctx context.Context, req domain.CreateSessionRequest, methodID string) (*provider.FallbackExecutionOutput, error)
-	ListAvailableMethods(ctx context.Context, tenantID string) ([]domain.PaymentMethodConfig, error)
+	CreatePaymentSessionWithFallback(ctx context.Context, cfg *domain.TenantPSPConfig, req domain.CreateSessionRequest, methodID string) (*provider.FallbackExecutionOutput, error)
+	IsHealthy(providerID domain.ProviderType) bool
 	GetProvider(providerID domain.ProviderType) (domain.PaymentProvider, bool)
 }
 
 type PaymentProviderService struct {
-	registry ProviderRegistry
-	logger   *slog.Logger
+	providerRegistry    ProviderRegistry
+	pspConfigRepository PSPConfigRepository
+	logger              *slog.Logger
 }
 
 func NewPaymentProviderService(
-	registry ProviderRegistry,
+	providerRegistry ProviderRegistry,
+	pspConfigRepository PSPConfigRepository,
 	logger *slog.Logger,
 ) *PaymentProviderService {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &PaymentProviderService{
-		registry: registry,
-		logger:   logger,
+		providerRegistry:    providerRegistry,
+		pspConfigRepository: pspConfigRepository,
+		logger:              logger,
 	}
 }
 
@@ -40,7 +43,7 @@ type PaymentMethodOutput struct {
 	Type domain.InstructionType
 }
 
-type ExecuteFallbackInput struct {
+type CreatePaymentSessionWithFallbackInput struct {
 	TenantID      string
 	PaymentID     string
 	OrderID       string
@@ -51,7 +54,7 @@ type ExecuteFallbackInput struct {
 	PaymentMethod string
 }
 
-type ExecuteFallbackOutput struct {
+type CreatePaymentSessionWithFallbackOutput struct {
 	Provider       domain.ProviderType
 	PaymentMethod  string
 	Session        *domain.PaymentSessionOutput
@@ -74,23 +77,43 @@ type VerifyWebhookOutput struct {
 }
 
 func (paymentProviderService *PaymentProviderService) ListAvailablePaymentMethods(ctx context.Context, tenantID string) ([]PaymentMethodOutput, error) {
-	methods, err := paymentProviderService.registry.ListAvailableMethods(ctx, tenantID)
+	cfg, err := paymentProviderService.pspConfigRepository.FindByTenantID(ctx, tenantID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to fetch tenant PSP config: %w", err)
 	}
 
-	outputs := make([]PaymentMethodOutput, len(methods))
-	for i, m := range methods {
-		outputs[i] = PaymentMethodOutput{
-			ID:   m.ID,
-			Name: m.Name,
-			Type: m.Type,
+	var outputs []PaymentMethodOutput
+	for _, method := range cfg.Methods {
+		if !method.Enabled {
+			continue
+		}
+
+		hasHealthyProvider := false
+		for _, providerID := range method.PriorityChain {
+			if paymentProviderService.providerRegistry.IsHealthy(providerID) {
+				hasHealthyProvider = true
+				break
+			}
+		}
+
+		if hasHealthyProvider {
+			outputs = append(outputs, PaymentMethodOutput{
+				ID:   method.ID,
+				Name: method.Name,
+				Type: method.Type,
+			})
 		}
 	}
+
 	return outputs, nil
 }
 
-func (paymentProviderService *PaymentProviderService) ExecuteFallback(ctx context.Context, input ExecuteFallbackInput) (*ExecuteFallbackOutput, error) {
+func (paymentProviderService *PaymentProviderService) CreatePaymentSessionWithFallback(ctx context.Context, input CreatePaymentSessionWithFallbackInput) (*CreatePaymentSessionWithFallbackOutput, error) {
+	cfg, err := paymentProviderService.pspConfigRepository.FindByTenantID(ctx, input.TenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch tenant PSP config: %w", err)
+	}
+
 	req := domain.CreateSessionRequest{
 		TenantID:      input.TenantID,
 		PaymentID:     input.PaymentID,
@@ -102,12 +125,12 @@ func (paymentProviderService *PaymentProviderService) ExecuteFallback(ctx contex
 		PaymentMethod: input.PaymentMethod,
 	}
 
-	execOut, err := paymentProviderService.registry.ExecuteFallbackChain(ctx, req, input.PaymentMethod)
+	execOut, err := paymentProviderService.providerRegistry.CreatePaymentSessionWithFallback(ctx, cfg, req, input.PaymentMethod)
 	if execOut == nil {
 		return nil, err
 	}
 
-	out := &ExecuteFallbackOutput{
+	out := &CreatePaymentSessionWithFallbackOutput{
 		Provider:       execOut.Provider,
 		PaymentMethod:  execOut.PaymentMethod,
 		Session:        execOut.Session,
@@ -124,7 +147,7 @@ func (paymentProviderService *PaymentProviderService) VerifyWebhookSignature(
 	headers map[string]string,
 	body []byte,
 ) (*VerifyWebhookOutput, error) {
-	adapter, ok := paymentProviderService.registry.GetProvider(providerID)
+	adapter, ok := paymentProviderService.providerRegistry.GetProvider(providerID)
 	if !ok {
 		return nil, fmt.Errorf("unregistered provider for webhook: %s", providerID)
 	}
@@ -154,7 +177,7 @@ func (paymentProviderService *PaymentProviderService) CancelPaymentSession(
 	providerID domain.ProviderType,
 	externalSessionID string,
 ) error {
-	adapter, ok := paymentProviderService.registry.GetProvider(providerID)
+	adapter, ok := paymentProviderService.providerRegistry.GetProvider(providerID)
 	if !ok {
 		return fmt.Errorf("unregistered provider for cancel: %s", providerID)
 	}

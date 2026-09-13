@@ -835,6 +835,56 @@ func (roleService *RoleService) GetRole(ctx context.Context, id string) (*RoleOu
 	}
 }
 
+func TestCheckFile_Rule3_4_GinContextParamNaming(t *testing.T) {
+	src := `package handler
+
+import "github.com/gin-gonic/gin"
+
+type OrderHandler struct{}
+
+func (orderHandler *OrderHandler) CreateOrder(ginContext *gin.Context) {}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "order_handler.go", src, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse Go source: %v", err)
+	}
+
+	violations := checkFile(fset, file, "order-service", "internal/handler/order_handler.go", false, false)
+	if len(violations) != 1 {
+		t.Fatalf("Expected 1 violation for *gin.Context param not named 'c', got %d: %+v", len(violations), violations)
+	}
+	if violations[0].ID != "handler-gin-context-naming" {
+		t.Errorf("Expected violation ID 'handler-gin-context-naming', got '%s'", violations[0].ID)
+	}
+}
+
+func TestCheckFile_Rule3_4_StdContextParamNaming(t *testing.T) {
+	src := `package service
+
+import "context"
+
+type OrderService struct{}
+
+func (orderService *OrderService) GetOrderByID(c context.Context, id string) (*OrderOutput, error) {
+	return nil, nil
+}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "order_service.go", src, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse Go source: %v", err)
+	}
+
+	violations := checkFile(fset, file, "order-service", "internal/service/order_service.go", false, false)
+	if len(violations) != 1 {
+		t.Fatalf("Expected 1 violation for context.Context param named 'c', got %d: %+v", len(violations), violations)
+	}
+	if violations[0].ID != "context-param-named-c" {
+		t.Errorf("Expected violation ID 'context-param-named-c', got '%s'", violations[0].ID)
+	}
+}
+
 
 
 

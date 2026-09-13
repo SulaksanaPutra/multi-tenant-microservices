@@ -9,74 +9,45 @@ import (
 	"payment-service/internal/domain"
 )
 
-type TenantPSPResolver interface {
-	ResolveConfig(ctx context.Context, tenantID string) (*domain.TenantPSPConfig, error)
-}
-
-type DefaultTenantPSPResolver struct {
-	mu             sync.RWMutex
-	tenantConfigs  map[string]*domain.TenantPSPConfig
-	defaultMethods []domain.PaymentMethodConfig
-}
-
-func NewDefaultTenantPSPResolver(defaultMethods []domain.PaymentMethodConfig) *DefaultTenantPSPResolver {
-	return &DefaultTenantPSPResolver{
-		tenantConfigs:  make(map[string]*domain.TenantPSPConfig),
-		defaultMethods: defaultMethods,
-	}
-}
-
-func (r *DefaultTenantPSPResolver) SetTenantConfig(config *domain.TenantPSPConfig) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.tenantConfigs[config.TenantID] = config
-}
-
-func (r *DefaultTenantPSPResolver) ResolveConfig(ctx context.Context, tenantID string) (*domain.TenantPSPConfig, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	if cfg, ok := r.tenantConfigs[tenantID]; ok {
-		return cfg, nil
-	}
-
-	return &domain.TenantPSPConfig{
-		TenantID:        tenantID,
-		Methods:         r.defaultMethods,
-		ProviderConfigs: make(map[domain.ProviderType]domain.ProviderCredentials),
-	}, nil
-}
-
 type ProviderRegistry struct {
 	mu        sync.RWMutex
 	providers map[domain.ProviderType]domain.PaymentProvider
 	breakers  map[domain.ProviderType]*CircuitBreaker
-	resolver  TenantPSPResolver
 }
 
-func NewProviderRegistry(resolver TenantPSPResolver) *ProviderRegistry {
+func NewProviderRegistry() *ProviderRegistry {
 	return &ProviderRegistry{
 		providers: make(map[domain.ProviderType]domain.PaymentProvider),
 		breakers:  make(map[domain.ProviderType]*CircuitBreaker),
-		resolver:  resolver,
 	}
 }
 
-func (r *ProviderRegistry) RegisterProvider(p domain.PaymentProvider, maxFailures int, cooldown time.Duration) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (providerRegistry *ProviderRegistry) RegisterProvider(paymentProvider domain.PaymentProvider, maxFailures int, cooldown time.Duration) {
+	providerRegistry.mu.Lock()
+	defer providerRegistry.mu.Unlock()
 
-	id := p.ID()
-	r.providers[id] = p
-	r.breakers[id] = NewCircuitBreaker(maxFailures, cooldown)
+	id := paymentProvider.ID()
+	providerRegistry.providers[id] = paymentProvider
+	providerRegistry.breakers[id] = NewCircuitBreaker(maxFailures, cooldown)
 }
 
-func (r *ProviderRegistry) GetProvider(id domain.ProviderType) (domain.PaymentProvider, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+func (providerRegistry *ProviderRegistry) GetProvider(id domain.ProviderType) (domain.PaymentProvider, bool) {
+	providerRegistry.mu.RLock()
+	defer providerRegistry.mu.RUnlock()
 
-	p, ok := r.providers[id]
-	return p, ok
+	paymentProvider, ok := providerRegistry.providers[id]
+	return paymentProvider, ok
+}
+
+func (providerRegistry *ProviderRegistry) IsHealthy(id domain.ProviderType) bool {
+	providerRegistry.mu.RLock()
+	defer providerRegistry.mu.RUnlock()
+
+	if _, ok := providerRegistry.providers[id]; !ok {
+		return false
+	}
+	breaker := providerRegistry.breakers[id]
+	return breaker == nil || breaker.Allow()
 }
 
 type FallbackExecutionOutput struct {
@@ -87,47 +58,7 @@ type FallbackExecutionOutput struct {
 	AttemptErrors  map[domain.ProviderType]error
 }
 
-func (r *ProviderRegistry) ListAvailableMethods(ctx context.Context, tenantID string) ([]domain.PaymentMethodConfig, error) {
-	cfg, err := r.resolver.ResolveConfig(ctx, tenantID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve tenant PSP config: %w", err)
-	}
-
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	var available []domain.PaymentMethodConfig
-	for _, m := range cfg.Methods {
-		if !m.Enabled {
-			continue
-		}
-
-		hasHealthyProvider := false
-		for _, providerID := range m.PriorityChain {
-			if _, ok := r.providers[providerID]; !ok {
-				continue
-			}
-			breaker := r.breakers[providerID]
-			if breaker == nil || breaker.Allow() {
-				hasHealthyProvider = true
-				break
-			}
-		}
-
-		if hasHealthyProvider {
-			available = append(available, m)
-		}
-	}
-
-	return available, nil
-}
-
-func (r *ProviderRegistry) ExecuteFallbackChain(ctx context.Context, req domain.CreateSessionRequest, methodID string) (*FallbackExecutionOutput, error) {
-	cfg, err := r.resolver.ResolveConfig(ctx, req.TenantID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve tenant PSP config: %w", err)
-	}
-
+func (providerRegistry *ProviderRegistry) CreatePaymentSessionWithFallback(ctx context.Context, cfg *domain.TenantPSPConfig, req domain.CreateSessionRequest, methodID string) (*FallbackExecutionOutput, error) {
 	var selectedMethod *domain.PaymentMethodConfig
 	if methodID != "" {
 		for i := range cfg.Methods {
@@ -158,14 +89,17 @@ func (r *ProviderRegistry) ExecuteFallbackChain(ctx context.Context, req domain.
 	}
 
 	for _, providerID := range selectedMethod.PriorityChain {
-		p, ok := r.GetProvider(providerID)
+		paymentProvider, ok := providerRegistry.GetProvider(providerID)
 		if !ok {
 			res.FailedAttempts = append(res.FailedAttempts, providerID)
 			res.AttemptErrors[providerID] = fmt.Errorf("provider %s not registered", providerID)
 			continue
 		}
 
-		breaker := r.breakers[providerID]
+		providerRegistry.mu.RLock()
+		breaker := providerRegistry.breakers[providerID]
+		providerRegistry.mu.RUnlock()
+
 		if breaker != nil && !breaker.Allow() {
 			res.FailedAttempts = append(res.FailedAttempts, providerID)
 			res.AttemptErrors[providerID] = domain.ErrCircuitOpen
@@ -180,7 +114,7 @@ func (r *ProviderRegistry) ExecuteFallbackChain(ctx context.Context, req domain.
 			}
 		}
 
-		session, err := p.CreatePaymentSession(ctx, reqWithCreds)
+		session, err := paymentProvider.CreatePaymentSession(ctx, reqWithCreds)
 		if err != nil {
 			if breaker != nil {
 				breaker.OnFailure()

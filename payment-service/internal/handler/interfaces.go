@@ -30,7 +30,7 @@ type DebtService interface {
 
 type PaymentProviderService interface {
 	ListAvailablePaymentMethods(ctx context.Context, tenantID string) ([]service.PaymentMethodOutput, error)
-	ExecuteFallback(ctx context.Context, input service.ExecuteFallbackInput) (*service.ExecuteFallbackOutput, error)
+	CreatePaymentSessionWithFallback(ctx context.Context, input service.CreatePaymentSessionWithFallbackInput) (*service.CreatePaymentSessionWithFallbackOutput, error)
 	VerifyWebhookSignature(ctx context.Context, providerID domain.ProviderType, headers map[string]string, body []byte) (*service.VerifyWebhookOutput, error)
 	CancelPaymentSession(ctx context.Context, providerID domain.ProviderType, externalSessionID string) error
 }

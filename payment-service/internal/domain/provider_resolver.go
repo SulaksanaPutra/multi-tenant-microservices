@@ -1,18 +1,18 @@
 package domain
 
 type ProviderCredentials struct {
-	APIKey        string            `json:"api_key"`
-	SecretKey     string            `json:"secret_key"`
-	WebhookSecret string            `json:"webhook_secret"`
-	ExtraOptions  map[string]string `json:"extra_options,omitempty"`
+	APIKey        string
+	SecretKey     string
+	WebhookSecret string
+	ExtraOptions  map[string]string
 }
 
 type PaymentMethodConfig struct {
-	ID            string          `json:"id"`
-	Name          string          `json:"name"`
-	Type          InstructionType `json:"type"`
-	Enabled       bool            `json:"enabled"`
-	PriorityChain []ProviderType  `json:"priority_chain"`
+	ID            string
+	Name          string
+	Type          InstructionType
+	Enabled       bool
+	PriorityChain []ProviderType
 }
 
 type TenantPSPConfig struct {
@@ -20,4 +20,3 @@ type TenantPSPConfig struct {
 	Methods         []PaymentMethodConfig
 	ProviderConfigs map[ProviderType]ProviderCredentials
 }
-

@@ -70,14 +70,9 @@ func main() {
 	paymentRepository := repository.NewPaymentRepository(dbClient)
 	inboxRepository := repository.NewInboxRepository(dbClient)
 	outboxRepository := repository.NewOutboxRepository(dbClient)
-	pspConfigRepository := repository.NewPSPConfigRepository(dbClient)
+	pspConfigRepository := repository.NewPSPConfigRepository(dbClient, masterEncryptionKey)
 
-	postgresResolver := provider.NewPostgresTenantPSPResolver(
-		pspConfigRepository,
-		masterEncryptionKey,
-	)
-
-	registry := provider.NewProviderRegistry(postgresResolver)
+	registry := provider.NewProviderRegistry()
 	registry.RegisterProvider(mock.NewMockProvider(domain.ProviderMock, "mock_secret_key", false), 3, 30*time.Second)
 	registry.RegisterProvider(directbank.NewDirectBankProvider("BCA"), 3, 30*time.Second)
 
@@ -85,7 +80,6 @@ func main() {
 	pspConfigService := service.NewPSPConfigService(
 		txManager,
 		pspConfigRepository,
-		postgresResolver,
 		masterEncryptionKey,
 		logger,
 	)
@@ -98,6 +92,7 @@ func main() {
 
 	paymentProviderService := service.NewPaymentProviderService(
 		registry,
+		pspConfigRepository,
 		logger,
 	)
 

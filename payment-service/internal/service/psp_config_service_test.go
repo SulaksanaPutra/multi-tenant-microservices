@@ -10,77 +10,76 @@ import (
 )
 
 type mockPSPConfigRepository struct {
-	saveFn func(ctx context.Context, input repository.SaveConfigInput, masterKey []byte) error
-	getFn  func(ctx context.Context, tenantID string, masterKey []byte) (*domain.TenantPSPConfig, error)
+	saveFn      func(ctx context.Context, input repository.SaveConfigInput) error
+	getFn       func(ctx context.Context, tenantID string) (*domain.TenantPSPConfig, error)
+	config      *domain.TenantPSPConfig
+	invalidated bool
 }
 
-func (m *mockPSPConfigRepository) SaveConfig(ctx context.Context, input repository.SaveConfigInput, masterKey []byte) error {
-	if m.saveFn != nil {
-		return m.saveFn(ctx, input, masterKey)
+func (mockPSPConfigRepository *mockPSPConfigRepository) SaveConfig(ctx context.Context, input repository.SaveConfigInput) error {
+	if mockPSPConfigRepository.saveFn != nil {
+		return mockPSPConfigRepository.saveFn(ctx, input)
 	}
 	return nil
 }
 
-func (m *mockPSPConfigRepository) FindByTenantID(ctx context.Context, tenantID string, masterKey []byte) (*domain.TenantPSPConfig, error) {
-	if m.getFn != nil {
-		return m.getFn(ctx, tenantID, masterKey)
+func (mockPSPConfigRepository *mockPSPConfigRepository) FindByTenantID(ctx context.Context, tenantID string) (*domain.TenantPSPConfig, error) {
+	if mockPSPConfigRepository.getFn != nil {
+		return mockPSPConfigRepository.getFn(ctx, tenantID)
+	}
+	if mockPSPConfigRepository.config != nil {
+		return mockPSPConfigRepository.config, nil
 	}
 	return &domain.TenantPSPConfig{
 		TenantID: tenantID,
 		Methods: []domain.PaymentMethodConfig{
 			{ID: "mock_checkout", Name: "Mock", Type: domain.InstructionRedirectURL, Enabled: true, PriorityChain: []domain.ProviderType{domain.ProviderMock}},
 		},
+		ProviderConfigs: make(map[domain.ProviderType]domain.ProviderCredentials),
 	}, nil
 }
 
-type mockTenantPSPResolver struct {
-	invalidated bool
-}
-
-func (m *mockTenantPSPResolver) ResolveConfig(ctx context.Context, tenantID string) (*domain.TenantPSPConfig, error) {
-	return &domain.TenantPSPConfig{
-		TenantID: tenantID,
-		Methods: []domain.PaymentMethodConfig{
-			{ID: "mock_checkout", Name: "Mock", Type: domain.InstructionRedirectURL, Enabled: true, PriorityChain: []domain.ProviderType{domain.ProviderMock}},
-		},
-	}, nil
-}
-
-func (m *mockTenantPSPResolver) InvalidateCache(tenantID string) {
-	m.invalidated = true
+func (mockPSPConfigRepository *mockPSPConfigRepository) InvalidateCache(tenantID string) {
+	mockPSPConfigRepository.invalidated = true
 }
 
 func TestPSPConfigService_SaveConfig(t *testing.T) {
-	resolver := &mockTenantPSPResolver{}
-	pspConfigService := service.NewPSPConfigService(nil, &mockPSPConfigRepository{}, resolver, []byte("01234567890123456789012345678901"), nil)
+	pspConfigRepository := &mockPSPConfigRepository{}
+	pspConfigService := service.NewPSPConfigService(nil, pspConfigRepository, []byte("01234567890123456789012345678901"), nil)
 
 	if err := pspConfigService.SaveConfig(context.Background(), service.SavePSPConfigInput{}); err == nil {
-		t.Error("expected error for empty tenant_id")
+		t.Fatal("expected error on empty tenant_id, got nil")
 	}
 
-	input := service.SavePSPConfigInput{
-		TenantID: "tnt_100",
+	validInput := service.SavePSPConfigInput{
+		TenantID: "tenant_1",
 		Methods: []domain.PaymentMethodConfig{
-			{ID: "mock_checkout", Name: "Mock", Type: domain.InstructionRedirectURL, Enabled: true, PriorityChain: []domain.ProviderType{domain.ProviderMock}},
+			{ID: "mock_checkout", Name: "Mock", Type: domain.InstructionRedirectURL, Enabled: true},
 		},
 	}
-	if err := pspConfigService.SaveConfig(context.Background(), input); err != nil {
+
+	if err := pspConfigService.SaveConfig(context.Background(), validInput); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !resolver.invalidated {
-		t.Error("expected resolver cache invalidation")
+	if !pspConfigRepository.invalidated {
+		t.Fatal("expected InvalidateCache to have been called on save")
 	}
 }
 
 func TestPSPConfigService_GetConfig(t *testing.T) {
-	pspConfigService := service.NewPSPConfigService(nil, &mockPSPConfigRepository{}, &mockTenantPSPResolver{}, []byte("01234567890123456789012345678901"), nil)
+	pspConfigRepository := &mockPSPConfigRepository{}
+	pspConfigService := service.NewPSPConfigService(nil, pspConfigRepository, []byte("01234567890123456789012345678901"), nil)
 
-	cfg, err := pspConfigService.GetConfig(context.Background(), "tnt_1")
+	if _, err := pspConfigService.GetConfig(context.Background(), ""); err == nil {
+		t.Fatal("expected error on empty tenant_id, got nil")
+	}
+
+	cfg, err := pspConfigService.GetConfig(context.Background(), "tenant_1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.TenantID != "tnt_1" {
-		t.Errorf("expected TenantID tnt_1, got %s", cfg.TenantID)
+	if cfg.TenantID != "tenant_1" {
+		t.Fatalf("expected tenant_1, got %s", cfg.TenantID)
 	}
 }

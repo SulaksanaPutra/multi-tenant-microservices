@@ -10,19 +10,14 @@ import (
 )
 
 type PSPConfigRepository interface {
-	SaveConfig(ctx context.Context, input repository.SaveConfigInput, masterKey []byte) error
-	FindByTenantID(ctx context.Context, tenantID string, masterKey []byte) (*domain.TenantPSPConfig, error)
-}
-
-type TenantPSPResolver interface {
-	ResolveConfig(ctx context.Context, tenantID string) (*domain.TenantPSPConfig, error)
+	SaveConfig(ctx context.Context, input repository.SaveConfigInput) error
+	FindByTenantID(ctx context.Context, tenantID string) (*domain.TenantPSPConfig, error)
 	InvalidateCache(tenantID string)
 }
 
 type PSPConfigService struct {
 	txManager           TxManager
 	pspConfigRepository PSPConfigRepository
-	postgresResolver    TenantPSPResolver
 	masterKey           []byte
 	logger              *slog.Logger
 }
@@ -30,7 +25,6 @@ type PSPConfigService struct {
 func NewPSPConfigService(
 	txManager TxManager,
 	pspConfigRepository PSPConfigRepository,
-	postgresResolver TenantPSPResolver,
 	masterKey []byte,
 	logger *slog.Logger,
 ) *PSPConfigService {
@@ -40,7 +34,6 @@ func NewPSPConfigService(
 	return &PSPConfigService{
 		txManager:           txManager,
 		pspConfigRepository: pspConfigRepository,
-		postgresResolver:    postgresResolver,
 		masterKey:           masterKey,
 		logger:              logger,
 	}
@@ -68,7 +61,7 @@ func (pspConfigService *PSPConfigService) SaveConfig(ctx context.Context, input 
 			TenantID:        input.TenantID,
 			Methods:         input.Methods,
 			ProviderConfigs: input.ProviderConfigs,
-		}, pspConfigService.masterKey)
+		})
 	}
 
 	var err error
@@ -82,9 +75,8 @@ func (pspConfigService *PSPConfigService) SaveConfig(ctx context.Context, input 
 		return err
 	}
 
-	if pspConfigService.postgresResolver != nil {
-		pspConfigService.postgresResolver.InvalidateCache(input.TenantID)
-	}
+	// Evict stale cache entry so the next read fetches fresh data from the DB.
+	pspConfigService.pspConfigRepository.InvalidateCache(input.TenantID)
 
 	return nil
 }
@@ -94,15 +86,7 @@ func (pspConfigService *PSPConfigService) GetConfig(ctx context.Context, tenantI
 		return nil, errors.New("tenant_id is required")
 	}
 
-	if pspConfigService.postgresResolver != nil {
-		cfg, err := pspConfigService.postgresResolver.ResolveConfig(ctx, tenantID)
-		if err != nil {
-			return nil, err
-		}
-		return toPSPConfigOutput(cfg), nil
-	}
-
-	cfg, err := pspConfigService.pspConfigRepository.FindByTenantID(ctx, tenantID, pspConfigService.masterKey)
+	cfg, err := pspConfigService.pspConfigRepository.FindByTenantID(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}

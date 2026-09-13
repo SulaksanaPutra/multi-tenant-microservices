@@ -44,13 +44,13 @@ const (
 )
 
 type PaymentInstructions struct {
-	Type         InstructionType `json:"type"`
-	RedirectURL  string          `json:"redirect_url,omitempty"`
-	VANumber     string          `json:"va_number,omitempty"`
-	BankCode     string          `json:"bank_code,omitempty"`
-	QRCodeString string          `json:"qr_code_string,omitempty"`
-	DeepLink     string          `json:"deep_link,omitempty"`
-	ExpiresAt    time.Time       `json:"expires_at"`
+	Type         InstructionType
+	RedirectURL  string
+	VANumber     string
+	BankCode     string
+	QRCodeString string
+	DeepLink     string
+	ExpiresAt    time.Time
 }
 
 

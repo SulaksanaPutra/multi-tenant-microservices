@@ -28,7 +28,7 @@ func TestInboxRepository_Constructor(t *testing.T) {
 }
 
 func TestPSPConfigRepository_Constructor(t *testing.T) {
-	pspConfigRepository := NewPSPConfigRepository(&postgres.Client{})
+	pspConfigRepository := NewPSPConfigRepository(&postgres.Client{}, []byte("12345678901234567890123456789012"))
 	if pspConfigRepository == nil {
 		t.Fatal("expected NewPSPConfigRepository to return non-nil struct pointer")
 	}

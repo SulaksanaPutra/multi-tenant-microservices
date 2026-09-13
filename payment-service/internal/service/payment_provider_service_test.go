@@ -10,12 +10,13 @@ import (
 	"payment-service/internal/service"
 )
 
+// mockRegistry satisfies the service.ProviderRegistry consumer-side interface.
 type mockRegistry struct {
 	mockProv *mock.MockProvider
 }
 
-func (m *mockRegistry) ExecuteFallbackChain(ctx context.Context, req domain.CreateSessionRequest, methodID string) (*provider.FallbackExecutionOutput, error) {
-	session, err := m.mockProv.CreatePaymentSession(ctx, req)
+func (mockReg *mockRegistry) CreatePaymentSessionWithFallback(ctx context.Context, cfg *domain.TenantPSPConfig, req domain.CreateSessionRequest, methodID string) (*provider.FallbackExecutionOutput, error) {
+	session, err := mockReg.mockProv.CreatePaymentSession(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -26,24 +27,56 @@ func (m *mockRegistry) ExecuteFallbackChain(ctx context.Context, req domain.Crea
 	}, nil
 }
 
-func (m *mockRegistry) ListAvailableMethods(ctx context.Context, tenantID string) ([]domain.PaymentMethodConfig, error) {
-	return []domain.PaymentMethodConfig{
-		{ID: "mock_checkout", Name: "Mock", Type: domain.InstructionRedirectURL, Enabled: true, PriorityChain: []domain.ProviderType{domain.ProviderMock}},
-	}, nil
+func (mockReg *mockRegistry) IsHealthy(providerID domain.ProviderType) bool {
+	return providerID == domain.ProviderMock
 }
 
-func (m *mockRegistry) GetProvider(providerID domain.ProviderType) (domain.PaymentProvider, bool) {
+func (mockReg *mockRegistry) GetProvider(providerID domain.ProviderType) (domain.PaymentProvider, bool) {
 	if providerID == domain.ProviderMock {
-		return m.mockProv, true
+		return mockReg.mockProv, true
 	}
 	return nil, false
 }
 
-func TestPaymentProviderService_ExecuteFallback(t *testing.T) {
-	mockProv := mock.NewMockProvider(domain.ProviderMock, "secret", false)
-	paymentProviderService := service.NewPaymentProviderService(&mockRegistry{mockProv: mockProv}, nil)
+func newTestProviderService(registry *mockRegistry, pspConfigRepository *mockPSPConfigRepository) *service.PaymentProviderService {
+	return service.NewPaymentProviderService(registry, pspConfigRepository, nil)
+}
 
-	out, err := paymentProviderService.ExecuteFallback(context.Background(), service.ExecuteFallbackInput{
+func TestPaymentProviderService_ListAvailablePaymentMethods(t *testing.T) {
+	pspConfigRepository := &mockPSPConfigRepository{
+		config: &domain.TenantPSPConfig{
+			TenantID: "tnt_1",
+			Methods: []domain.PaymentMethodConfig{
+				{ID: "mock_checkout", Name: "Mock Checkout", Type: domain.InstructionRedirectURL, Enabled: true, PriorityChain: []domain.ProviderType{domain.ProviderMock}},
+				{ID: "disabled_method", Name: "Disabled", Type: domain.InstructionVirtualAccount, Enabled: false, PriorityChain: []domain.ProviderType{domain.ProviderMock}},
+				{ID: "dead_method", Name: "Dead Provider", Type: domain.InstructionQRIS, Enabled: true, PriorityChain: []domain.ProviderType{"dead_provider"}},
+			},
+		},
+	}
+	registry := &mockRegistry{mockProv: mock.NewMockProvider(domain.ProviderMock, "secret", false)}
+	paymentProviderService := newTestProviderService(registry, pspConfigRepository)
+
+	methods, err := paymentProviderService.ListAvailablePaymentMethods(context.Background(), "tnt_1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Only mock_checkout should survive: disabled_method is off, dead_method has no healthy provider.
+	if len(methods) != 1 {
+		t.Fatalf("expected 1 available method, got %d: %v", len(methods), methods)
+	}
+	if methods[0].ID != "mock_checkout" {
+		t.Errorf("expected method ID mock_checkout, got %s", methods[0].ID)
+	}
+}
+
+func TestPaymentProviderService_CreatePaymentSessionWithFallback(t *testing.T) {
+	mockProv := mock.NewMockProvider(domain.ProviderMock, "secret", false)
+	registry := &mockRegistry{mockProv: mockProv}
+	pspConfigRepository := &mockPSPConfigRepository{}
+	paymentProviderService := newTestProviderService(registry, pspConfigRepository)
+
+	out, err := paymentProviderService.CreatePaymentSessionWithFallback(context.Background(), service.CreatePaymentSessionWithFallbackInput{
 		TenantID:    "tnt_1",
 		PaymentID:   "pay_1",
 		OrderID:     "ord_1",
@@ -64,7 +97,9 @@ func TestPaymentProviderService_ExecuteFallback(t *testing.T) {
 
 func TestPaymentProviderService_VerifyWebhookSignature(t *testing.T) {
 	mockProv := mock.NewMockProvider(domain.ProviderMock, "secret", false)
-	paymentProviderService := service.NewPaymentProviderService(&mockRegistry{mockProv: mockProv}, nil)
+	registry := &mockRegistry{mockProv: mockProv}
+	pspConfigRepository := &mockPSPConfigRepository{}
+	paymentProviderService := newTestProviderService(registry, pspConfigRepository)
 
 	body := []byte(`{"event_id":"evt_1","event_type":"payment.succeeded","tenant_id":"tnt_1","order_id":"ord_1","payment_id":"pay_1","external_session_id":"ext_1","amount":100,"currency":"USD"}`)
 	headers := map[string]string{"X-Webhook-Signature": "mock_hmac_signature"}
@@ -80,7 +115,9 @@ func TestPaymentProviderService_VerifyWebhookSignature(t *testing.T) {
 
 func TestPaymentProviderService_CancelPaymentSession(t *testing.T) {
 	mockProv := mock.NewMockProvider(domain.ProviderMock, "secret", false)
-	paymentProviderService := service.NewPaymentProviderService(&mockRegistry{mockProv: mockProv}, nil)
+	registry := &mockRegistry{mockProv: mockProv}
+	pspConfigRepository := &mockPSPConfigRepository{}
+	paymentProviderService := newTestProviderService(registry, pspConfigRepository)
 
 	if err := paymentProviderService.CancelPaymentSession(context.Background(), domain.ProviderMock, "ext_1"); err != nil {
 		t.Fatalf("unexpected error: %v", err)

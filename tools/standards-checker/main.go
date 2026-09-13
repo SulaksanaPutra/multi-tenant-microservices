@@ -429,6 +429,11 @@ func checkFile(fset *token.FileSet, file *ast.File, service, relPath string, isT
 
 		switch fn := n.(type) {
 		case *ast.FuncDecl:
+			// Rule 3.4 — Context parameter naming convention
+			if !isTest || strict {
+				checkContextParamNaming(fn.Type.Params, relPath, add)
+			}
+
 			// Rule 3.4 — Single-letter receiver check on layer types
 			if fn.Recv != nil && len(fn.Recv.List) > 0 {
 				for _, field := range fn.Recv.List {
@@ -640,6 +645,9 @@ func checkFile(fset *token.FileSet, file *ast.File, service, relPath string, isT
 			if !isTest || strict {
 				if iface, ok := fn.Type.(*ast.InterfaceType); ok && iface.Methods != nil {
 					for _, field := range iface.Methods.List {
+						if ft, ok := field.Type.(*ast.FuncType); ok {
+							checkContextParamNaming(ft.Params, relPath, add)
+						}
 						for _, mName := range field.Names {
 							name := mName.Name
 							if strings.HasPrefix(name, "Record") || strings.HasPrefix(name, "Fetch") || strings.HasPrefix(name, "Retrieve") || strings.HasPrefix(name, "Store") || strings.HasPrefix(name, "Modify") {
@@ -699,6 +707,11 @@ func checkFile(fset *token.FileSet, file *ast.File, service, relPath string, isT
 				}
 			}
 
+		case *ast.FuncLit:
+			if !isTest || strict {
+				checkContextParamNaming(fn.Type.Params, relPath, add)
+			}
+
 		case *ast.StructType:
 			if !isTest {
 				for _, field := range fn.Fields.List {
@@ -732,6 +745,14 @@ func checkFile(fset *token.FileSet, file *ast.File, service, relPath string, isT
 							add(field.Pos(), "6.1", "json-tag-in-repository", "`json:\"...\"` tag found in the repository layer — JSON belongs in handler DTOs only")
 						}
 					}
+
+					// Rule 6.1 — Domain structs carrying json tags (except domain/events.go)
+					if strings.Contains(relPath, "/domain/") && !strings.HasSuffix(relPath, "events.go") {
+						if field.Tag != nil && strings.Contains(field.Tag.Value, `json:"`) {
+							add(field.Pos(), "6.1", "json-tag-in-domain", "`json:\"...\"` tag found in the domain entity layer — domain entities must remain pure and free of transport tags (events.go is the single exception for AMQP frames)")
+						}
+					}
+
 				}
 			}
 
@@ -984,6 +1005,51 @@ func isAbbreviatedNotif(name string) bool {
 		return false
 	}
 	return strings.Contains(lower, "notif")
+}
+
+func checkContextParamNaming(params *ast.FieldList, relPath string, add func(token.Pos, string, string, string)) {
+	if params == nil {
+		return
+	}
+	for _, field := range params.List {
+		if isGinContextType(field.Type) {
+			for _, name := range field.Names {
+				if name.Name != "c" && name.Name != "_" {
+					add(name.Pos(), "3.4", "handler-gin-context-naming", fmt.Sprintf("*gin.Context parameter `%s` must be named `c` per project convention", name.Name))
+				}
+			}
+		}
+
+		if isStdContextType(field.Type) {
+			for _, name := range field.Names {
+				if name.Name == "c" {
+					add(name.Pos(), "3.4", "context-param-named-c", "context.Context parameter is named `c` — `c` is reserved for `*gin.Context`; use `ctx` for standard context")
+				} else if name.Name != "ctx" && name.Name != "txCtx" && name.Name != "appCtx" && name.Name != "connCtx" && name.Name != "shutdownCtx" && name.Name != "_" {
+					add(name.Pos(), "3.4", "context-param-naming", fmt.Sprintf("context.Context parameter `%s` must be named `ctx` (or `txCtx`) per project convention", name.Name))
+				}
+			}
+		}
+	}
+}
+
+func isGinContextType(expr ast.Expr) bool {
+	if star, ok := expr.(*ast.StarExpr); ok {
+		if sel, ok := star.X.(*ast.SelectorExpr); ok {
+			if ident, ok := sel.X.(*ast.Ident); ok {
+				return ident.Name == "gin" && sel.Sel.Name == "Context"
+			}
+		}
+	}
+	return false
+}
+
+func isStdContextType(expr ast.Expr) bool {
+	if sel, ok := expr.(*ast.SelectorExpr); ok {
+		if ident, ok := sel.X.(*ast.Ident); ok {
+			return ident.Name == "context" && sel.Sel.Name == "Context"
+		}
+	}
+	return false
 }
 
 func isInternalFile(rel string) bool {

@@ -3,32 +3,32 @@ package domain
 import "time"
 
 type Permission struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Service     string    `json:"service"`
-	Description string    `json:"description,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string
+	Name        string
+	Service     string
+	Description string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type Role struct {
-	ID          string       `json:"id"`
-	TenantID    *string      `json:"tenant_id,omitempty"`
-	Name        string       `json:"name"`
-	Description string       `json:"description,omitempty"`
-	IsSystem    bool         `json:"is_system"`
-	CreatedAt   time.Time    `json:"created_at"`
-	UpdatedAt   time.Time    `json:"updated_at"`
-	Permissions []Permission `json:"permissions,omitempty"`
+	ID          string
+	TenantID    *string
+	Name        string
+	Description string
+	IsSystem    bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	Permissions []Permission
 }
 
 type UserRole struct {
-	UserID     string    `json:"user_id"`
-	TenantID   string    `json:"tenant_id"`
-	RoleID     string    `json:"role_id"`
-	AssignedAt time.Time `json:"assigned_at"`
-	AssignedBy *string   `json:"assigned_by,omitempty"`
-	Role       *Role     `json:"role,omitempty"`
+	UserID     string
+	TenantID   string
+	RoleID     string
+	AssignedAt time.Time
+	AssignedBy *string
+	Role       *Role
 }
 
 type UserRoleAssignment struct {
@@ -38,8 +38,8 @@ type UserRoleAssignment struct {
 }
 
 type UserPermissionVersion struct {
-	UserID    string    `json:"user_id"`
-	TenantID  string    `json:"tenant_id"`
-	Version   int64     `json:"version"`
-	UpdatedAt time.Time `json:"updated_at"`
+	UserID    string
+	TenantID  string
+	Version   int64
+	UpdatedAt time.Time
 }
